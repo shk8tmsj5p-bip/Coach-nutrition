@@ -13,6 +13,7 @@ import {
 } from "@/lib/health-webhook";
 import type { Database, Json, LogSanteRow } from "@/lib/supabase/database.types";
 import type { DailyMovement, ProfileId, Workout, WorkoutSource } from "@/lib/types";
+import { createBrowserSupabaseClient } from "@/lib/supabase/client";
 import { passiveKcalFromMovement } from "@/lib/utils";
 
 const DAILY_TYPE = "daily";
@@ -443,5 +444,71 @@ export async function fetchTodayActivity(
     workouts.push(mapWorkoutRow(row));
   }
 
+  const body = await fetchTodayBodyMetrics(supabase, profileIds, date);
+  for (const id of profileIds) {
+    movement[id] = { ...movement[id], ...body[id] };
+  }
+
   return { movement, workouts };
+}
+
+async function fetchTodayBodyMetrics(
+  supabase: SupabaseClient<Database>,
+  profileIds: ProfileId[],
+  date: string,
+) {
+  const empty: Record<ProfileId, Pick<DailyMovement, "weightKg" | "fatMassPct" | "bmi">> = {
+    alexis: {},
+    elodie: {},
+  };
+  const query = await supabase
+    .from("pesees")
+    .select("profile_id, poids, masse_grasse, bmi")
+    .eq("date", date)
+    .in("profile_id", profileIds);
+
+  const rows = query.error
+    ? (
+        await supabase
+          .from("pesees")
+          .select("profile_id, poids, masse_grasse")
+          .eq("date", date)
+          .in("profile_id", profileIds)
+      ).data
+    : query.data;
+
+  for (const row of rows ?? []) {
+    const extra = row as { bmi?: number | null };
+    empty[row.profile_id] = {
+      weightKg: row.poids == null ? null : Number(row.poids),
+      fatMassPct: row.masse_grasse == null ? null : Number(row.masse_grasse),
+      bmi: extra.bmi == null ? null : Number(extra.bmi),
+    };
+  }
+  return empty;
+}
+
+function movementFromRow(row: LogSanteRow): DailyMovement {
+  return mapDailyRow(row);
+}
+
+export async function loadHealthHistory(profileId: ProfileId): Promise<DailyMovement[]> {
+  const supabase = createBrowserSupabaseClient();
+  if (!supabase) return [];
+  const { data, error } = await supabase
+    .from("logs_sante")
+    .select("*")
+    .eq("profile_id", profileId)
+    .eq("kind", "activite")
+    .eq("activity_type", DAILY_TYPE)
+    .order("date", { ascending: true });
+  if (error || !data) return [];
+  return data.map(movementFromRow);
+}
+
+export function movementSeries(
+  days: DailyMovement[],
+  key: "steps" | "distanceKm" | "workoutMinutes" | "activeEnergyKcal" | "restingEnergyKcal",
+) {
+  return days.map((day) => ({ date: day.date, value: Number(day[key] ?? 0) }));
 }

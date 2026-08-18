@@ -10,6 +10,15 @@ export function formatSteps(value: number) {
   return value.toLocaleString("fr-FR");
 }
 
+export function formatKm(value: number) {
+  const digits = value >= 10 ? 1 : 2;
+  return `${value.toFixed(digits).replace(".", ",")} km`;
+}
+
+export function formatMin(value: number) {
+  return `${Math.round(value)} min`;
+}
+
 /** kcal actives hors séances, sans double-compter Strava / Apple Watch. */
 export function passiveKcalFromMovement(activeEnergyKcal: number, workoutKcal: number) {
   return Math.max(0, Math.round(activeEnergyKcal - workoutKcal));

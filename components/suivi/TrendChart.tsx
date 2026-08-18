@@ -28,8 +28,12 @@ function tickDate(iso: string, range: TrendRange) {
 }
 
 function formatValue(value: number, unit: string) {
-  const label = value.toFixed(1).replace(".", ",");
-  return unit === "%" ? `${label} %` : `${label} ${unit}`;
+  const digits = unit === "pas" || unit === "kcal" || unit === "min" ? 0 : 1;
+  const label = value.toFixed(digits).replace(".", ",");
+  if (unit === "pas") return label;
+  if (!unit) return label;
+  if (unit === "%") return `${label} %`;
+  return `${label} ${unit}`;
 }
 
 export function TrendChart({
@@ -69,7 +73,10 @@ export function TrendChart({
             tick={{ fontSize: 11, fill: "rgb(var(--c-muted))" }}
             axisLine={false}
             tickLine={false}
-            tickFormatter={(value: number) => value.toFixed(1).replace(".", ",")}
+            tickFormatter={(value: number) => {
+              const digits = unit === "pas" || unit === "kcal" || unit === "min" ? 0 : 1;
+              return value.toFixed(digits).replace(".", ",");
+            }}
           />
           <Tooltip
             contentStyle={{

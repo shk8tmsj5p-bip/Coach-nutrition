@@ -4,7 +4,6 @@ import { useCallback, useEffect, useMemo, useState, type Dispatch, type SetState
 import {
   Camera,
   Copy,
-  Footprints,
   Plus,
   RefreshCw,
   ScanBarcode,
@@ -18,6 +17,7 @@ import { EditMealSheet } from "@/components/today/EditMealSheet";
 import { MealTargetSheet } from "@/components/today/MealTargetSheet";
 import { SwapProposalSheet } from "@/components/today/SwapProposalSheet";
 import { TodayPlannedCard } from "@/components/today/TodayPlannedCard";
+import { HealthMetricTile } from "@/components/today/HealthMetricTile";
 import { CoachBadge, CoachDiffTags, coachHighlightClass } from "@/components/today/CoachDelta";
 import { Card, SectionTitle } from "@/components/ui/Card";
 import { GoalBadge, MacroRing, MacrosGrid } from "@/components/ui/MacroProgress";
@@ -55,7 +55,7 @@ import type {
   Workout,
 } from "@/lib/types";
 import { macroStatus, slotCalorieTarget, TONE_TEXT } from "@/lib/macro-status";
-import { cn, formatKcal, formatSteps, mealTypeLabel, passiveKcalFromMovement } from "@/lib/utils";
+import { cn, formatKcal, formatKm, formatMin, formatSteps, mealTypeLabel, passiveKcalFromMovement } from "@/lib/utils";
 import { dismissNutrition, visibleNutrition } from "@/lib/coach-adjustments";
 import {
   collectDayBadges,
@@ -67,8 +67,26 @@ const MEAL_SLOTS: MealType[] = ["petit-dejeuner", "dejeuner", "diner"];
 
 function emptyMovement(date = todayISO()): Record<ProfileId, DailyMovement> {
   return {
-    alexis: { date, profileId: "alexis", steps: 0, activeEnergyKcal: 0, source: "apple-health" },
-    elodie: { date, profileId: "elodie", steps: 0, activeEnergyKcal: 0, source: "apple-health" },
+    alexis: {
+      date,
+      profileId: "alexis",
+      steps: 0,
+      activeEnergyKcal: 0,
+      restingEnergyKcal: 0,
+      workoutMinutes: 0,
+      distanceKm: 0,
+      source: "apple-health",
+    },
+    elodie: {
+      date,
+      profileId: "elodie",
+      steps: 0,
+      activeEnergyKcal: 0,
+      restingEnergyKcal: 0,
+      workoutMinutes: 0,
+      distanceKm: 0,
+      source: "apple-health",
+    },
   };
 }
 
@@ -839,23 +857,35 @@ function ProfileToday({
         <div className="my-3 h-px bg-health-line" />
 
         <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-health-muted">
-          Hors sport
+          Apple Santé
         </p>
         <div className="grid grid-cols-2 gap-2">
-          <div className="rounded-xl bg-health-bg px-3 py-2.5">
-            <p className="flex items-center gap-1 text-[11px] text-health-muted">
-              <Footprints size={12} /> Pas
-            </p>
-            <p className="mt-0.5 text-[18px] font-bold tabular-nums">{formatSteps(movement.steps)}</p>
-          </div>
-          <div className="rounded-xl bg-health-bg px-3 py-2.5">
-            <p className="text-[11px] text-health-muted">kcal hors séances</p>
-            <p className="mt-0.5 text-[18px] font-bold tabular-nums">{passiveKcal}</p>
-          </div>
+          <HealthMetricTile label="Pas" value={formatSteps(movement.steps)} />
+          <HealthMetricTile label="Distance" value={formatKm(movement.distanceKm)} />
+          <HealthMetricTile label="Minutes d'exercice" value={formatMin(movement.workoutMinutes)} />
+          <HealthMetricTile label="Énergie active" value={formatKcal(movement.activeEnergyKcal)} />
+          <HealthMetricTile label="Énergie au repos" value={formatKcal(movement.restingEnergyKcal)} />
+          <HealthMetricTile label="kcal hors séances" value={String(passiveKcal)} />
         </div>
+        {(movement.weightKg != null || movement.fatMassPct != null || movement.bmi != null) && (
+          <div className="mt-2 grid grid-cols-3 gap-2">
+            <HealthMetricTile
+              label="Poids"
+              value={movement.weightKg != null ? `${String(movement.weightKg).replace(".", ",")} kg` : "—"}
+            />
+            <HealthMetricTile
+              label="Masse grasse"
+              value={movement.fatMassPct != null ? `${String(movement.fatMassPct).replace(".", ",")} %` : "—"}
+            />
+            <HealthMetricTile
+              label="IMC"
+              value={movement.bmi != null ? String(movement.bmi).replace(".", ",") : "—"}
+            />
+          </div>
+        )}
         <p className="mt-2 text-[11px] leading-relaxed text-health-muted">
-          Apple Santé · énergie active {movement.activeEnergyKcal} kcal, dont {sportKcal} kcal
-          déjà comptées dans les séances (pas de double compte).
+          Hors sport = énergie active {movement.activeEnergyKcal} kcal − {sportKcal} kcal déjà
+          comptées dans les séances.
         </p>
       </Card>
 

@@ -152,16 +152,19 @@ export interface Workout {
   intensity: "low" | "moderate" | "high";
 }
 
-/** Pas + énergie active (Apple Santé). Les kcal sport viennent des séances dédiées (Strava / Watch). */
+/** Pas + énergie (Apple Santé). Les kcal sport viennent des séances dédiées (Strava / Watch). */
 export interface DailyMovement {
   date: string;
   profileId: ProfileId;
   steps: number;
   /** Énergie active totale Apple Santé (inclut souvent les séances). */
   activeEnergyKcal: number;
-  restingEnergyKcal?: number;
-  workoutMinutes?: number;
-  distanceKm?: number;
+  restingEnergyKcal: number;
+  workoutMinutes: number;
+  distanceKm: number;
+  weightKg?: number | null;
+  fatMassPct?: number | null;
+  bmi?: number | null;
   source: "apple-health";
 }
 

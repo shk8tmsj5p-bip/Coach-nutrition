@@ -107,7 +107,10 @@ export function latestPesee(rows: Pesee[]) {
   return withWeight[withWeight.length - 1] ?? null;
 }
 
-export function seriesOf(rows: Pesee[], key: "poids" | "masseGrasse" | "masseMusculaire") {
+export function seriesOf(
+  rows: Pesee[],
+  key: "poids" | "masseGrasse" | "masseMusculaire" | "bmi",
+) {
   return sortPesees(rows)
     .filter((row) => row[key] != null)
     .map((row) => ({ date: row.date, value: row[key] as number }));

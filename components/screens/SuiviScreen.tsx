@@ -32,15 +32,21 @@ import {
   withMovingAverages,
   type TrendRange,
 } from "@/lib/pesees";
+import { HealthMetricTile } from "@/components/today/HealthMetricTile";
+import { loadHealthHistory, movementSeries } from "@/lib/supabase/health-logs";
 import { loadJournalHistory, loadPesees, savePesee } from "@/lib/supabase/pesees";
-import type { Pesee, Profile, ProfileId, SundayJournalFields } from "@/lib/types";
-import { formatKg } from "@/lib/utils";
+import type { DailyMovement, Pesee, Profile, ProfileId, SundayJournalFields } from "@/lib/types";
+import { formatKg, formatKcal, formatKm, formatMin, formatSteps } from "@/lib/utils";
 import type { RenphoOcrResult } from "@/lib/gemini/renpho";
 
 export default function SuiviScreen() {
   const { activeProfiles, view, updateGoals } = useProfile();
   const fileRef = useRef<HTMLInputElement>(null);
   const [byProfile, setByProfile] = useState<Record<ProfileId, Pesee[]>>({
+    alexis: [],
+    elodie: [],
+  });
+  const [healthByProfile, setHealthByProfile] = useState<Record<ProfileId, DailyMovement[]>>({
     alexis: [],
     elodie: [],
   });
@@ -73,9 +79,15 @@ export default function SuiviScreen() {
 
   useEffect(() => {
     let cancelled = false;
-    Promise.all([loadPesees("alexis"), loadPesees("elodie")]).then(([alexis, elodie]) => {
+    Promise.all([
+      loadPesees("alexis"),
+      loadPesees("elodie"),
+      loadHealthHistory("alexis"),
+      loadHealthHistory("elodie"),
+    ]).then(([alexis, elodie, alexisHealth, elodieHealth]) => {
       if (cancelled) return;
       setByProfile({ alexis: alexis.rows, elodie: elodie.rows });
+      setHealthByProfile({ alexis: alexisHealth, elodie: elodieHealth });
       setLoading(false);
     });
     return () => {
@@ -170,7 +182,9 @@ export default function SuiviScreen() {
   return (
     <div>
       <h1 className="text-[28px] font-bold tracking-tight">Suivi</h1>
-      <p className="mt-1 text-[13px] text-health-muted">Poids, composition, journal du dimanche</p>
+      <p className="mt-1 text-[13px] text-health-muted">
+        Poids, composition, Apple Santé, journal du dimanche
+      </p>
 
       {loading ? (
         <p className="mt-6 text-[13px] text-health-muted">Chargement des pesées…</p>
@@ -180,6 +194,7 @@ export default function SuiviScreen() {
             key={profile.id}
             profile={profile}
             rows={byProfile[profile.id]}
+            healthDays={healthByProfile[profile.id]}
             showRenpho={index === 0}
             ocrBusy={ocrBusy}
             notice={notice}
@@ -253,6 +268,7 @@ function upsertLocal(rows: Pesee[], row: Pesee) {
 function ProfileSuivi({
   profile,
   rows,
+  healthDays,
   showRenpho,
   ocrBusy,
   notice,
@@ -265,6 +281,7 @@ function ProfileSuivi({
 }: {
   profile: Profile;
   rows: Pesee[];
+  healthDays: DailyMovement[];
   showRenpho: boolean;
   ocrBusy: boolean;
   notice: string | null;
@@ -281,10 +298,14 @@ function ProfileSuivi({
   const weightSeries = useMemo(() => withMovingAverages(seriesOf(rows, "poids")), [rows]);
   const fatSeries = useMemo(() => withMovingAverages(seriesOf(rows, "masseGrasse")), [rows]);
   const muscleSeries = useMemo(() => withMovingAverages(seriesOf(rows, "masseMusculaire")), [rows]);
+  const bmiSeries = useMemo(() => withMovingAverages(seriesOf(rows, "bmi")), [rows]);
   const ma7 = weightSeries[weightSeries.length - 1]?.ma7 ?? null;
   const ma14 = weightSeries[weightSeries.length - 1]?.ma14 ?? null;
   const [weightRange, setWeightRange] = useState<TrendRange>("1m");
   const [compRange, setCompRange] = useState<TrendRange>("1m");
+  const [healthRange, setHealthRange] = useState<TrendRange>("1m");
+  const lastHealth = healthDays[healthDays.length - 1];
+  const lastBmi = [...rows].reverse().find((row) => row.bmi != null)?.bmi ?? last?.bmi ?? null;
   const visibleWeight = useMemo(
     () => sliceTrendRange(weightSeries, weightRange),
     [weightSeries, weightRange],
@@ -296,6 +317,37 @@ function ProfileSuivi({
   const visibleMuscle = useMemo(
     () => sliceTrendRange(muscleSeries, compRange),
     [muscleSeries, compRange],
+  );
+  const visibleBmi = useMemo(() => sliceTrendRange(bmiSeries, compRange), [bmiSeries, compRange]);
+  const stepsSeries = useMemo(
+    () => sliceTrendRange(withMovingAverages(movementSeries(healthDays, "steps")), healthRange),
+    [healthDays, healthRange],
+  );
+  const distanceSeries = useMemo(
+    () =>
+      sliceTrendRange(withMovingAverages(movementSeries(healthDays, "distanceKm")), healthRange),
+    [healthDays, healthRange],
+  );
+  const minutesSeries = useMemo(
+    () =>
+      sliceTrendRange(withMovingAverages(movementSeries(healthDays, "workoutMinutes")), healthRange),
+    [healthDays, healthRange],
+  );
+  const activeSeries = useMemo(
+    () =>
+      sliceTrendRange(
+        withMovingAverages(movementSeries(healthDays, "activeEnergyKcal")),
+        healthRange,
+      ),
+    [healthDays, healthRange],
+  );
+  const restingSeries = useMemo(
+    () =>
+      sliceTrendRange(
+        withMovingAverages(movementSeries(healthDays, "restingEnergyKcal")),
+        healthRange,
+      ),
+    [healthDays, healthRange],
   );
 
   return (
@@ -385,17 +437,23 @@ function ProfileSuivi({
 
       <SectionTitle>Composition corporelle</SectionTitle>
       <Card>
-        <div className="mb-3 grid grid-cols-2 gap-3">
+        <div className="mb-3 grid grid-cols-3 gap-2">
           <div>
             <p className="text-[12px] text-health-muted">Masse grasse</p>
-            <p className="text-[22px] font-semibold tabular-nums">
+            <p className="text-[20px] font-semibold tabular-nums">
               {last?.masseGrasse != null ? `${String(last.masseGrasse).replace(".", ",")} %` : "—"}
             </p>
           </div>
           <div>
             <p className="text-[12px] text-health-muted">Masse musculaire</p>
-            <p className="text-[22px] font-semibold tabular-nums">
+            <p className="text-[20px] font-semibold tabular-nums">
               {last?.masseMusculaire != null ? formatKg(last.masseMusculaire) : "—"}
+            </p>
+          </div>
+          <div>
+            <p className="text-[12px] text-health-muted">IMC</p>
+            <p className="text-[20px] font-semibold tabular-nums">
+              {lastBmi != null ? String(lastBmi).replace(".", ",") : "—"}
             </p>
           </div>
         </div>
@@ -409,6 +467,45 @@ function ProfileSuivi({
         <TrendChart data={visibleFat} color={color} unit="%" range={compRange} />
         <p className="mb-1 mt-4 text-[12px] font-medium">Masse musculaire · moy. 7 / 14 j</p>
         <TrendChart data={visibleMuscle} color={color} unit="kg" range={compRange} />
+        <p className="mb-1 mt-4 text-[12px] font-medium">IMC · moy. 7 / 14 j</p>
+        <TrendChart data={visibleBmi} color={color} unit="" range={compRange} />
+      </Card>
+
+      <SectionTitle>Apple Santé</SectionTitle>
+      <Card>
+        {lastHealth ? (
+          <div className="mb-3 grid grid-cols-2 gap-2">
+            <HealthMetricTile label="Pas" value={formatSteps(lastHealth.steps)} />
+            <HealthMetricTile label="Distance" value={formatKm(lastHealth.distanceKm)} />
+            <HealthMetricTile
+              label="Minutes d'exercice"
+              value={formatMin(lastHealth.workoutMinutes)}
+            />
+            <HealthMetricTile
+              label="Énergie active"
+              value={formatKcal(lastHealth.activeEnergyKcal)}
+            />
+            <HealthMetricTile
+              label="Énergie au repos"
+              value={formatKcal(lastHealth.restingEnergyKcal)}
+            />
+          </div>
+        ) : (
+          <p className="mb-3 text-[13px] text-health-muted">
+            Aucune donnée webhook pour l&apos;instant. Lance le raccourci iOS Santé.
+          </p>
+        )}
+        <RangeToggle value={healthRange} onChange={setHealthRange} />
+        <p className="mb-1 mt-3 text-[12px] font-medium">Pas</p>
+        <TrendChart data={stepsSeries} color={color} unit="pas" range={healthRange} />
+        <p className="mb-1 mt-4 text-[12px] font-medium">Distance</p>
+        <TrendChart data={distanceSeries} color={color} unit="km" range={healthRange} />
+        <p className="mb-1 mt-4 text-[12px] font-medium">Minutes d&apos;exercice</p>
+        <TrendChart data={minutesSeries} color={color} unit="min" range={healthRange} />
+        <p className="mb-1 mt-4 text-[12px] font-medium">Énergie active</p>
+        <TrendChart data={activeSeries} color={color} unit="kcal" range={healthRange} />
+        <p className="mb-1 mt-4 text-[12px] font-medium">Énergie au repos</p>
+        <TrendChart data={restingSeries} color={color} unit="kcal" range={healthRange} />
       </Card>
 
       <Link
