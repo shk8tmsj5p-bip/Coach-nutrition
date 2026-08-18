@@ -1,0 +1,231 @@
+# ==============================================================================
+# PROJECT DIRECTIVES & SYSTEM RULES - HEALTH, BATCHCOOKING & COACHING PWA
+# ==============================================================================
+
+## 1. PROJECT OVERVIEW & STACK
+- Type: Progressive Web App (PWA) optimized for mobile (iPhone).
+- UI Framework: Next.js (React) + Tailwind CSS + Lucide Icons.
+- Design System: Apple Health (minimalist). Light: blue-gray page `#F2F4F8`, 16px white cards. Dark: page `#000000`, cards `#1C1C1E` (iOS grouped). Tokens in `app/globals.css` (`--c-bg`, `--c-card`, `--c-ink`, …) + Tailwind `health.*`. Toggle: Moon/Sun in the top bar (`context/ThemeContext.tsx`). Persist `coach-nutrition:theme` (`light` | `dark`); until the user toggles, follow `prefers-color-scheme`. Boot script on `<html>` to avoid flash (`html.dark`).
+- Color Coding: Coral/Orange accents for Profile 1, Purple/Blue accents for Profile 2. Goal status (Tab 1) uses green / red / amber via `lib/macro-status.ts`, not the profile accent.
+- Backend & Database: Supabase (PostgreSQL, Auth, Storage).
+- Auth (current): postponed. Open anon access in development. Middleware is pass-through (no cookies, no session). Later: ONE household login; the top profile toggle filters rows by `profile_id` (Alexis / Élodie are NOT Auth users).
+- Secrets: only in `.env.local`. Keep Supabase URL + anon key, Gemini, Strava, Health webhook. NEVER OpenAI / Anthropic.
+- External APIs & Data Bridges:
+  - OpenFoodFacts API (Barcode scanning).
+  - Google Gemini API Routing:
+    - **Gemini Pro Model**: Dedicated to the "Gem Chef Cuistot". Models are resolved live via `GET /v1beta/models` (`lib/gemini/models.ts`) — do not hardcode a version. On 429/404 Pro, fall through to Flash with a user-facing warning. Never retired `gemini-2.5-pro` as a required pin.
+    - **Gemini Flash Model**: Dedicated to Sports/Activity Coaching (Tab 4), daily logging, Vision, OCR. Resolved live from the Gemini model list (prefer newest Flash, then lite). Never pin a retired `gemini-2.5-*` id.
+  - Strava API (sport workouts ONLY — no daily steps, no NEAT / passive kcal).
+  - Apple Health (Watch / iPhone): steps + active energy, imported via iOS Shortcut → Supabase webhook. This is the source for "hors sport".
+  - RENPHO / Weight sync: NO direct Renpho API exists. Weight and body composition metrics will be imported via two methods: 1) A Supabase Webhook to receive data from an iOS Shortcut (Apple Health automation), and 2) AI Vision OCR (via Gemini Flash) to extract metrics from a screenshot of the Renpho app.
+
+---
+
+## 2. NAVIGATION & MULTI-PROFILE UX
+- Global Top Bar: segmented [Alexis] | [Élodie] | [Couple] + round **light/dark** button (Moon in light, Sun in dark). Switching profile MUST refetch / filter dashboard, rings, meals, and activity by `profile_id`. Couple = both profiles side by side.
+- Global Bottom Nav: 5 Tabs fixed at the bottom (order is the product order):
+  1. Aujourd'hui — dashboard macros (color vs `primaryGoal`), saisie rapide, repas, **Séance du jour**, Strava / Apple Santé.
+  2. Repas & Batchcooking — weekly plan, Gem Chef, courses, batch PDF. Icon: **Utensils**.
+  3. Suivi — objectifs + jauge poids, Import Renpho, journal dimanche, tendances, composition, **Ma routine sport** last.
+  4. Métabolisme & Coaching — **Énergie du jour** (Mangées / Brûlées / Déficit) then Coach Flash 7 j. Never show BMR / TDEE labels.
+  5. Paramètres — **Préférences cuisine & foyer** (éditables) + statut Gemini / Strava / webhook Santé + thème clair/sombre. Aversions par profil, type de recette (`express` S34 / `equilibre` / `gastro`), chaleur (`complexe` défaut / `doux` / `neutre`), matériel, tofu semaine, simili-carnés, dîners low cal. PAS de règle 80/20. PAS de « 100% no-cook » pour les collations.
+
+### Profiles
+1. Profile 1 (Alexis): 1m85, strict Vegan.
+   - Aversions: Coriander, cauliflower, chili, watermelon, fennel, seitan, tempeh.
+   - Preferences: Spicy, complex flavors.
+2. Profile 2 (Élodie): 1m70, Omnivore.
+   - Aversions: Peanut butter, cauliflower, chili, mango, watermelon, fennel.
+
+---
+
+## 3. "GEM CHEF CUISTOT" & CULINARY LAWS (POWERED BY GEMINI PRO)
+
+### The Double Declination & Appliances
+- Base recipe must be shared (seasonal veggies, carbs, spices).
+- Alexis: Vegan protein (tofu, legumes). Élodie: Animal or alternative protein.
+- Appliances: Recipes MUST optimize KitchenAid (explicit cut type: râpé fin / lamelles), Thermomix (exact speed/time **only if actually blending**), Cookeo, **cuiseur à riz** (rice — never boil rice / never Cookeo for rice), Airfryer (time + °C; vegan/omnivore proteins same basket when possible), Oven, and Stove.
+- Galette / naan / pain / wrap / pita / tortilla: pan or oven. NEVER water-cook.
+- Persona: expert chef, densité S34. NEVER bland bowls. Almost every meal includes fresh herbs (mint, basil, parsley, chives — NEVER coriander), spices (cumin, paprika, 5-spice, ginger), and a **homemade** sauce/marinade (tahini, soy, ginger, citrus). Generation MUST read `lib/kitchen-prefs.ts` (Paramètres foyer).
+- **Sauces 100% maison** (`lib/homemade-sauces.ts`): NEVER a single jar line (« Sauce satay 40g », pesto du commerce) with components only in notes. Explode satay / houmous / pesto / pistou / nuoc / vinaigrette / sauce tahini-citron into separate ingredient rows, each with grams + `visual_unit` (cc / cs / gousse / cm / pièce), plus a mix step. Satay = beurre de sésame (NEVER peanut butter). Present the group in the recipe UI like any other sauce (`lib/ingredient-groups.ts` label « Sauce satay », « Vinaigrette », …).
+
+### Cooking & Batchcooking Constraints
+- TOFU — weekday batchcooking (Mon–Fri): tofu is NEVER cooked during the main batch session. It is pressed, marinated, chilled, and served fresh at plating.
+- TOFU — EXCEPTIONS (cooking allowed): (1) desserts / baking; (2) weekend recipes.
+- MOCK MEATS — weekday batch: do not cook simili-carné (vegan steaks, vegan sausages, etc.) during the Mon–Fri session.
+- WEEKEND RULE: mock meats (simili-carné: vegan steaks, vegan sausages, etc.) AND cooked tofu are fully allowed.
+- UI / PDF copy: positive, actionable steps only (what TO DO). Do NOT add redundant “do not cook tofu” warnings in step descriptions when tofu is not being cooked in that step. Warnings = real hazards (aversions), not tofu slogans.
+- 2-PORTION RULE (weekdays): every generated weekday batch recipe covers EXACTLY 2 MEALS per person (batch of 10 meals = 5 recipes × 2).
+- 1-PORTION RULE (weekend): every weekend recipe is 1 fresh meal per person (batch of 4 meals: Sat lunch, Sat dinner, Sun lunch, Sun dinner). No double-batch.
+- LOW CALORIE DINNER: all evening meals must strictly be "Low Calorie" variants.
+- WEATHER RULE: adapt recipes to weather (e.g., Bowls/Bo Bun/Salads during heatwaves).
+
+### Meal generation & control logic (Tab 3 · Gem Chef · Gemini Pro)
+- NEVER generate a full week in one undifferentiated dump. Granular controls only:
+  1. **Generate Mon–Fri** — 5 batch recipes covering 10 meals, 2-meal portion rule. Pairings ALTERNATE days (never consecutive): Lun+Mer déjeuner, Mar+Jeu déjeuner, Lun+Mer dîner (low cal), Mar+Jeu dîner (low cal), Ven déjeuner+Ven dîner (same base, dinner plated lighter).
+  2. **Generate Weekend** — 4 fresh meals, 1-meal portion rule (Sat/Sun lunch + dinner).
+  3. **Generate / regenerate a single meal** (or its weekday batch pair).
+  4. **Theme** — a theme text field is applied BEFORE every generation (preset or custom: Tomate, Italien, Asiatique, Bowl, Épicé, etc.). The theme ingredient/family MUST be the central star of every generated recipe (title + shared base + major ingredient + a dedicated step), never a cosmetic subtitle.
+- Week navigation: previous / today / next week. Missing weeks are EMPTY by default (no seed / auto-generation). « Vider la semaine » deletes all meals for the selected week. Each meal card has **Supprimer** (weekday batch = both pair slots) and **Déplacer** (pick day + déjeuner/dîner, swap slot contents, persist immediately). Each week is stored in Supabase `plans_semaine` (`week_start` = Monday). Fallback: localStorage if Supabase is unavailable.
+- **AI memory:** generation fetches unique meal titles from the last 4 weeks and passes `past_meals` to Gemini: never repeat those titles.
+- **Smart Guided Swap:** user picks WHICH ingredient to replace. Gemini Pro must suggest EXACTLY 3 culinary-coherent alternatives BEFORE any regeneration. User picks one; the whole recipe (and its weekday batch pair) is re-adapted. NEVER a free-text replacement field.
+- API: `POST /api/generate-meals` (Gemini Pro). Modes: `weekdays` | `weekend` | `single` | `suggest-swap` | `apply-swap`. Strict JSON: `title`, ingredients with `weight_g` + **`visual_unit`** (fresh produce: `"2 pièces"`, `"1/2 botte"`; sauces/spices: `"1 cs"` / `"1 cc"`; also accept `visual_quantity`), `prep`, `step_groups` in **up to 4 categories** (1 Cuissons Airfryer parallel vegan/omni → 2 Cuissons Eau / Plaques → 3 Thermomix sauces with `15 sec / V6` → 4 Découpes KitchenAid & Assemblage with `râpé fin` / `lamelles`). **Omit an empty group** (no TM if a jar whisk is enough; no Airfryer if nothing cooks). Water times are **per ingredient** (haricots verts 8 min ≠ pommes de terre 18 min); NEVER one shared « 8 min » on a mixed line. Herbs (thym, menthe…) never get their own water line. `tips_and_cautions` (batch logistics ONLY, never aversions / « sans X »). Theme, if set, must be creative and prominent — never a garnish. Unique meals are tagged `[P1]`, `[P2]`… (`components/repas/RecipeTag.tsx` + `lib/plan-colors.ts`) — **same colors** on Semaine, Courses, Batch. Display format: `Tomates cerises : 2 pièces (250g)` and `Tomates cerises : 6 pièces (840g) - [P1, P3]`. Recipe sheet: sticky close, compact one-line ingredients, **HoldTip** on truncated text, qty toggle repas vs total à cuisiner (`lib/qty-scale.ts`). If the key is missing, fall back to the local catalog (mock) rather than crashing.
+
+### Interactive shopping list (Tab 3)
+- Derived from the **current week's plan** (the week selected in the week navigator) via `lib/shopping-from-plan.ts`.
+- Checkable items, grouped by supermarket aisle (FRUITS & LÉGUMES, FRAIS / RAYON BIO, VIANDES & POISSONS, BOULANGERIE, ÉPICERIE SALÉE, ÉPICES & CONDIMENTS, SURGELÉS, AUTRE). Aisle **dot + header colors** match recipe ingredient dots (`lib/plan-colors.ts`; Tailwind must scan `./lib/**`).
+- **Buyable product, not prep / dish name.** Merge lines by canonical name (`shoppingDisplayName`): `Carotte julienne` + `Carotte râpée` + `Carotte` → one **Carotte** with **summed pièces + grams** and **all** recipe tags (P1, P2, P3, P5). `Tofu ferme mariné` → **Tofu ferme** (keep **Tofu soyeux** / fumé separate). `Poulet Yassa` / `Poulet paprika` → **Poulet**. Drop julienne, râpé, mariné, yassa, dish names from the shopping line. Recipe cards keep the prep.
+- **Eau** is never listed (`isUnlistedShoppingIng`).
+- **Bœuf** and **Œufs** go to VIANDES & POISSONS (normalize `œ` → `oe` in aisle matching). Sauce soja stays a grocery condiment; « sauce satay » does not — it has been exploded into tahini / soja / citron / etc.
+- User can add custom items manually (they persist with the list for that week).
+- Compact row: checkbox + aisle dot + truncated text + compact P-tags. **HoldTip** (hover / long-press) shows the full line; long-press must NOT toggle the checkbox.
+- **"Copy for Apple Notes"** = plain text only: aisle headers, then `Name : Visual Unit (Weightg) - [P1, P3]` lines. NO checkboxes, NO bullet points, NO Markdown formatting.
+- Unique recipe tags `[P1]`… appear on grocery lines so each item is tied to the résumé meals.
+
+### Batchcooking Master Plan & PDF export (Tab 3)
+- Built from the week's weekday batches (2 meals/person) + weekend fresh meals (1 each). Same data powers the on-screen déroulé AND the PDF.
+- DÉROULÉ cards (UI + PDF) must be actionable. For every step / appliance instruction, EXPLICITLY list:
+  - Exact ingredient names and quantities (batch qty = per-meal grams × servings; show profile when the ingredient is Alexis-only or Élodie-only, e.g. `Tofu ferme mariné : 1/2 bloc (320g) · Alexis`).
+  - The associated recipe number/title (e.g. `Pour Recette #2: Bowl riz satay`).
+  - Exact appliance parameters: temperature, mode, and cooking time (e.g. `200°C chaleur tournante · 25 min`, `Cuiseur à riz`, `Airfryer 180°C · 18 min`).
+- **Eau / féculents:** one line per ingredient with **its own** time. Do not apply a shared « 8 min » to mixed veg. Potatoes ~18 min, green beans ~8 min. Herbs never a solo water line (attach to a companion cook, or sauce / assembly). Galette / naan / pain / wrap: never in this section.
+- **Thermomix:** homemade sauces with **dosed** components (same exploded list as the recipe). Rinse the bowl between sauces.
+- **Assemblage:** list **all** recipe ingredients (not plating-only). Sauce stays in a pot.
+- Number unique recipes `[P1]`… (weekdays then weekend). UI résumé + daily cards + PDF + shopping use the **same colored tags**.
+- DÉROULÉ / mise en place ingredient lines: `Tomates cerises : 6 pièces (840g) - [P1]` (name : visual unit (weight) + tag).
+- Callouts stay: Tips / Warnings / Storage. Warnings are aversions and real hazards only.
+- Export: PDF style **S34** — condensé et lisible. Pages 1–2 = déroulé master (1 Airfryer protéines en lignes ` [P1] : … ➔ 8 min`, 2 féculents **une durée / ingrédient**, 3 table Thermomix Plat / Ingrédients / TM, 4 découpes + assemblage). Ensuite **1 page par recette** : badge Soir, titre, matériel, base commune en prose visuelle, vinaigrette/sauce maison dosée, déclinaisons vegan/classique, 4 pas-à-pas. Si trop long : 2e page avec « Suite · [P1] ». Ne pas miniaturiser le texte pour tout faire tenir. `jspdf` + `html2canvas`.
+
+### Swap / Remplacement (Aujourd'hui)
+- NEVER confirm a swap with a toast only. Always show a proposal sheet first.
+- Step 1: user picks WHICH meal to replace (Petit-déjeuner, Déjeuner, Dîner, Collation). Only slots that exist today and are not skipped.
+- Step 2: show current meal vs proposed meal (double declination if Couple view).
+- "Nouvelle proposition" cycles another option from the catalog / Gemini Pro.
+- "Thème" lets the user bias generation (Tomate, Italien, Asiatique, Bowl, Épicé, or a custom theme).
+- Confirm persists by UPDATING the existing `repas` row (same profile + type), not inserting a duplicate. Respect vegan / omnivore + low-cal dinner rules.
+
+---
+
+## 4. TRACKING, STRAVA & LOGGING
+
+### Meal slots & skip (NO global Jeûne)
+- There is NO global "Jeûne 🌙" toggle. Fasting is per meal.
+- Each meal card (Petit-déjeuner, Déjeuner, Dîner, Collation) has a discrete **Sauter / Sauté** control.
+- Skipped meals: macros/calories are EXCLUDED from the daily rings; the card dims / shows a Skipped badge; tapping again restores instantly.
+- Persist `repas.is_skipped`. Empty slots can be skipped by inserting a placeholder ("Repas sauté").
+- Rings / daily totals always ignore `is_skipped = true`.
+- Color vs `primaryGoal` (`lib/macro-status.ts`): ring, macro bars, GoalBadge, and meal kcal (vs slot share). Green = on-track or helping; red = off-goal; amber = warn. ±5% kcal = achieved.
+
+### Click-to-edit meals
+- Tapping a meal card opens an edit sheet: change type, ± grams, delete items, then save to `repas`.
+- Changing the TYPE in that sheet RECLASSIFIES the open meal. It does NOT load another meal’s ingredients.
+- **Ajouter** in that sheet offers the same 3 saisie rapide modes (Texte / IA, Code-barres, Photo). Slot is already known → skip the meal-type picker; merge into the open meal.
+
+### Fast logging (Onglet Aujourd'hui)
+- 3 modes: Text/AI, OpenFoodFacts Barcode, Vision Photo.
+- MANDATORY first step for ALL three from the dashboard tiles: "À quel repas souhaitez-vous ajouter cet aliment ?" (Petit-déjeuner, Déjeuner, Dîner, Collation). Never skip this.
+- After confirm, merge into that slot: append items + macros if a meal already exists; REPLACE if the slot is a skipped placeholder; INSERT if empty.
+- Text/AI: analyze first, then the same editable ingredient review as photo (adjust / delete / add) before save. Never write the raw AI output directly.
+
+### Meal Photo Analysis (LLM Vision via Gemini Flash)
+- Photo upload analyzes food items and estimates calories/macros.
+- MANDATORY UI STEP: The app must NEVER save a photo analysis directly. It must first display an editable list of the detected ingredients and quantities.
+- The user must be able to:
+  1. Manually adjust the weight/quantity of each detected ingredient (e.g., + / - buttons or text input).
+  2. Delete an ingredient that the AI hallucinated (trash icon).
+  3. Add a missing ingredient manually (e.g., "Olive oil 10g").
+- Only after this manual review will the user press "Confirm & Save".
+
+### Barcode (OpenFoodFacts)
+- After a product is recognized, the user MUST be able to change the quantity before save (they do not always eat the whole pack).
+- Show serving vs pack presets (¼ / ½ / 1 portion / 1 paquet) plus ± grams / manual input.
+- Scale calories and macros from the label serving. Save the chosen grams, not the default pack.
+
+### Copy Yesterday
+- NEVER copy the whole day blindly.
+- Open a picker: user selects which yesterday slots to copy (Petit-déjeuner, Déjeuner, Dîner, Collation). Multi-select allowed.
+- Slots with no yesterday meal are disabled. Do not copy skipped yesterday meals.
+- Selected meals REPLACE today’s same profile + type (no duplicate breakfasts).
+
+### Activity (Strava + Apple Santé)
+- Section "Activité" on Aujourd'hui (not sport-only).
+- Strava: list sport sessions (name, duration, kcal). Strava does NOT provide daily steps or NEAT.
+- Hors sport (Apple Santé): daily steps + kcal outside sessions.
+- Passive / hors-sport kcal = Apple Health active energy MINUS workout kcal already counted (Strava / Watch sessions). Never double-count the same ride/run.
+- Deduplication: Prevent double-counting if Apple Watch and Strava record the same workout.
+
+### Séance du jour (Tab 1 ← `profils.sport_routine`)
+- Tab 1 reads the **logged profile’s** `sport_routine.sessions` and keeps only sessions whose `weekdays` include **today** (Europe/Paris, ISO weekday 1=Lun … 7=Dim via `lib/dates.ts` `isoWeekday`).
+- Card title: **Prévu aujourd’hui** / **Séance du jour**. Show for each hit: activity, effort, duration, D+ (if cardio), exercise breakdown, Duo badge if `shared`.
+- Status per session × day: **À faire** vs **Validé** (Strava). Persist validations locally (`strava-match:{profileId}:{date}`) until the real Strava webhook lands.
+- Matching (placeholder + future live sync): incoming Strava activity (type mapped to Course / Vélo / Muscu / Équitation + duration) vs planned session. Match if **same activity** AND duration within **±15 min OR 25%**. On match → status Validé + Strava badge.
+- Apple Santé ingest: `POST /api/webhooks/health` (alias `/api/health-webhook`). JSON : `steps`, `active_energy_kcal`, `resting_energy_kcal`, `distance_km`, `weight_kg`, `fat_mass_pct`, `bmi`, `workouts[]` + `profile_id` (défaut Alexis). Minutes d’exercice = somme des `duration` de `workouts` (pas de champ racine `workout_minutes`), stockées dans `logs_sante` daily (`payload.workout_minutes` + `duration_min`). `pesees` upserts poids / masse grasse / IMC. Hors sport = `active_energy_kcal` − kcal des séances dédiées (Strava / workouts).
+- Dev trigger: **Simuler sync Strava** on the Today card (`lib/strava-match.ts`). Do not invent a second planned-workout source — always `profils.sport_routine`.
+- Empty day: “Rien de prévu aujourd’hui” (rest). Never crash if `weekdays` is missing (treat as unscheduled).
+
+### Renpho
+- Provide UI for uploading Renpho screenshots in the "Suivi" tab, triggering OCR extraction.
+
+---
+
+## 5. AI COACHING & BEHAVIORAL LOGIC (POWERED BY GEMINI FLASH)
+- Plateau Logic: **7-day** moving average weight trend (Tab 4 analysis window). If stalling AND Sunday notes are OK, coach may suggest -150 kcal/day (prefer rest days) or +1000 steps/day.
+- Sunday journal (Tab 2) is qualitative context for weekly metabolic adjustments: mood, wins, blockers, plus 1–5 scores for Faim / Énergie / Fatigue.
+- If hunger ≥ 4 OR fatigue ≥ 4 OR energy ≤ 2: NEVER cut calories that week. Prefer maintain kcal + steps / recovery / easier intervals.
+- APIs:
+  - `POST /api/coach-analysis` (Gemini Flash) — Tab 4 engine. Payload: 7-day `pesees` trend, latest Sunday `journal_notes`, planned + Strava-validated sessions, current targets / goal. Returns `analysis`, `nutrition[]`, `sport[]`, average + training/rest day macros. Fallback local rules if Gemini fails. NEVER dump raw API JSON (404, model names) in the UI.
+  - `POST /api/coach-week` exists as a small fallback helper; **do not show a second coach card on Suivi**. Journal dimanche → confirmation → **Analyser dans Métabolisme**.
+- **Tab 4 is the coach screen, not a second Suivi.** Weight charts, Renpho, Sunday journal, and sport routine stay on Tab 2 (no MilestoneBar). Tab 4 top: **Énergie du jour** (`EnergyBalanceCard` histograms — Mangées = `target_calories`, Brûlées = TDEE, Déficit/Surplus colored vs `primaryGoal`). Then Faim/Énergie/Fatigue **gauges**, headline « à faire », action cards, kcal/macro deltas, selective apply. Never show BMR / TDEE labels. Flash models from live Gemini list (`lib/gemini/models.ts`). NEVER dump raw API JSON in the UI. No local mock bilan if Gemini fails — show a friendly error.
+- Flexibility: Extra meals/cheats are spread over the next 3 to 4 days (-100 kcal/day adjustment).
+- Tolerance: +/- 5% of daily calorie target is marked as "Goal Achieved".
+- Recovery Logic: Suggest outdoor cycling or running based on habits, force rest days if high-intensity Strava workouts are detected in the last 48h.
+- Qualitative Tracking: Daily 1-5 rating for "Faim" and "Énergie" on Aujourd'hui; weekly Faim/Énergie/Fatigue on the Sunday journal.
+- **Coach payload (Tab 2 → Tab 4):** saving a Sunday journal MUST persist `CoachWeekPayload` (`lib/coach-payload.ts`, localStorage `coach-week-payload`) containing: **7-day** weight trend (daily + MA7 + plateau flag), Sunday `journal_notes`, recent journals, **full `sport_routine`**, and profile goals. Destination `tab-4-metabolique`. Do NOT call Gemini Flash from the journal save — Tab 4 consumes the payload via **Demander l'analyse du Coach**. Show confirmation modal after save.
+- **Tab 4 apply:** "Appliquer les ajustements" is **selective**. Checkboxes on the bilan card: **Ajustements Nutrition** (default on) writes `profils.target_*` + meal-gen bias (`coach-applied-targets`) for Tab 3; **Ajustements Sport** (default on) patches `profils.sport_routine` duration/effort (Tab 1 séance du jour + Tab 2 routine). Also writes `profils.applied_adjustments` (week_start Monday + nutrition/sport diffs) so Tab 1 can highlight meals and workouts. User may check one, both, or neither (CTA disabled if neither). Toast names the domain(s) applied. Shared (duo) sessions stay in sync on both profiles.
+
+### Tab 2 Suivi — dynamic goals & weight
+- Weight goals are **per-profile** and editable (`Éditer mes objectifs`): start weight, target weight, primary goal (`perte` / `maintien` / `prise`), weekly rate.
+- Persist on `profils`: `primary_goal`, `weekly_rate_kg`, `start_weight_kg`, `target_weight_kg` (also `current_weight_kg` from latest pesée).
+- Weight card: open-bottom **270° arc** (`WeightJourneyChart`). Left = Départ in blue (`#5AC8FA`), right = Cible in green (`#30D158`). Fill starts on the left and turns green as progress (`progressPct`) approaches the target. Current kg in the center. **No** second 25/50/75/100% milestone bar (redundant with the arc).
+- Tendance poids **and** composition corporelle ranges: **[14 jours] | [1 mois] | [3 mois] | [Tout]**. Compute MA 7j / 14j on the **full series**, then slice the window (`sliceTrendRange`). Ranges stay tied to the active profile’s pesees.
+- **Screen order (per profile):** header + Éditer mes objectifs → jauge poids → **Import Renpho** (once, first profile) → **journal du dimanche** → tendance poids → composition corporelle → lien Bilan Coach → **Ma routine sport last**.
+
+### Tab 2 — Ma routine sport (`profils.sport_routine` jsonb)
+- Rendered **last** on the Suivi screen (after charts and Bilan Coach).
+- One JSON routine per profile. Derived counters `runsPerWeek` / `ridesPerWeek` / `strengthDays` / `targetMinutesPerWeek` are recomputed from `sessions` (do not maintain a second source of truth).
+- Session object (persist these keys):
+  - `id`, `activity`, `effort`, `durationMin`, `elevationM` (D+ in metres), `exercises[]`, `shared`, `weekdays[]` (ISO 1=Lun … 7=Dim, multi-select).
+- **Activity:** `course` | `velo` | `muscu` | `equitation` (Équitation). UI groups cards by activity.
+- **Effort (by activity):** Course/Vélo: Fractionné, Sortie longue, Endurance, Récupération / Zone 2, Trail. Muscu: Circuit HIIT, Force. Équitation: Endurance, Récupération / Zone 2 (extend as needed). D+ is a **numeric target on the session**, not an effort chip.
+- **Exercises:** each row has `target`: `reps` (séries × répétitions) OR `temps` (isométrie / HIIT: `workSec` effort + `restSec` repos). Labels FR: « Répétitions / Durée », « Temps / Isométrie ».
+- Visual dashboard: badges for duration, D+, effort, weekdays; Éditer / Supprimer; Ajouter une séance. Session builder is a sheet (Nouvelle séance / Éditer la séance).
+- **Séance en duo (Alexis & Élodie):** toggle on the builder. `shared: true` + **same `id`** replicated on both `profils.sport_routine`. Badge **Duo**. Edit/delete of a shared session MUST prompt « Mettre à jour pour les deux profils ? » (both vs this profile only). Persist both rows in one `updateSportRoutines` write (avoid racing two catalog updates).
+- Fallback: localStorage overlay if the `sport_routine` column is missing; parse must accept count-only JSON and synthesize sessions.
+
+### Tab 2 — Sunday journal & Renpho
+- Placed **just under** the weight/objectifs card (not at the bottom of Suivi).
+- Sunday journal saves to `pesees.journal_notes` (JSON: mood, wins, blockers, hunger, energy, fatigue) on the Sunday weigh-in row. Unique `(profile_id, date)`.
+- History drawer title: **Historique des notes**, sorted by date desc, loaded from Supabase `journal_notes IS NOT NULL` (merge local rows).
+- Renpho OCR: Gemini Flash fills the review form for the selected profile + date (merge existing `pesees` row if the day already exists). Save to `pesees` ONLY after confirm.
+
+---
+
+## 6. CODE ARCHITECTURE
+- Step-by-Step Generation: Build modularly (DB -> UI -> Features -> APIs).
+- State Management: Use robust React state and `window.storage` for persistence.
+- Zero Regression: Do not break existing UI when adding features. Ask for confirmation before refactoring.
+- Dates: Europe/Paris (`lib/dates.ts`). Seed today + yesterday meals if today’s `repas` is empty.
+- Data model (filter by `profile_id`, not Auth uid):
+  - `profils`: `primary_goal`, `weekly_rate_kg`, `start_weight_kg`, `target_weight_kg`, `current_weight_kg`, **`sport_routine` jsonb**, `target_calories`, `target_protein_g`, `target_carbs_g`, `target_fat_g`, **`applied_adjustments` jsonb**.
+  - `sport_routine` shape: `{ runsPerWeek, ridesPerWeek, strengthDays, targetMinutesPerWeek, sessions: [{ id, activity, effort, durationMin, elevationM, shared, weekdays, exercises: [{ id, name, sets, target, reps, workSec, restSec }] }] }`.
+  - `repas` (incl. `is_skipped`).
+  - `logs_sante`, `parametres` (single `foyer` row), `plans_semaine` (one JSON plan per Monday).
+  - `pesees`: weight / body comp / Sunday **`journal_notes`**; unique `(profile_id, date)`.
+- Tab 1 architecture: meals + **Séance du jour** from the selected profile’s `sport_routine` + weekday; Strava match via `lib/strava-match.ts`. Applied coach diffs (`profils.applied_adjustments` jsonb, week-scoped) show coral **Ajustement Coach** badges. Nutrition badges translate daily macro deltas into **concrete ingredient adds** on the relevant meal (`lib/coach-ingredients.ts`, e.g. `+25g flocons d'avoine` and `Flocons d'avoine 85g [dont +25g coach]`). Sport: duration tags; dismiss via the badge X (or auto-hide a séance once Validé). Rings / macros / meal kcal use `lib/macro-status.ts` vs `primaryGoal`: green when on-track or helping (kcal under for perte, protein ≥95%), red when off-goal (kcal over for perte, under for prise). Tolerance ±5% kcal = achieved. Edit-meal sheet **Ajouter** = 3 saisie rapide modes; skip slot picker.
+- Tab 2 architecture: pesees load/save (`lib/supabase/pesees.ts`); goals (`saveProfileGoals`) + sport (`saveSportRoutines`); journal history `loadJournalHistory`; coach payload `lib/coach-payload.ts` (7-day window). Weight arc `WeightJourneyChart` (open bottom, blue→green). Screen order: objectifs + arc → Renpho → journal → tendance → composition → bilan Coach → **routine sport last**. Body-comp and weight charts share `RangeToggle` / `sliceTrendRange`.
+- Tab 3 architecture: weekly plan UI + `POST /api/generate-meals` (Gemini Pro); `annotatePlan` → `expandPreparedSauces` (`lib/homemade-sauces.ts`) so loaded weeks explode jar sauces; shopping from `lib/shopping-from-plan.ts` (`shoppingDisplayName` merge + aisle fold `œ`→`oe`); Batch Master Plan from `lib/batch-from-plan.ts` (`buildBatchSession`); recipe chrome `RecipeTag` / `lib/plan-colors.ts` / `lib/ingredient-groups.ts` / `HoldTip`. On-screen guide + PDF share the same session object. Never invent a second week source — always the selected `week_start`. Pass applied coach bias (`loadHouseholdCoachBias`) so next-week generation respects Tab 4 targets. Active-week nutrition deltas also bump remaining plan grams + shopping extras (`lib/coach-plan-sync.ts`) **only if** the week’s shopping list is not fully checked.
+- Tab 4 architecture: `EnergyBalanceCard` (top) + `CoachAnalysisCard` + `POST /api/coach-analysis` (Gemini Flash); apply via selected domains → `updateTargets` (`profils.target_*` + `coach-applied-targets`) and/or `updateSportRoutines` (`sport_routine` duration/effort).
+- Tab 5 architecture: `ParametresScreen` — 3 sections. (1) Foyer: `persistKitchenPrefs` → `parametres` (`kitchen_prefs` jsonb + `dinners_low_calorie` / `tofu_never_cooked_in_batch`) + local `lib/kitchen-prefs.ts` (`saveKitchenPrefs`); aversions → `profils.aversions` via `updateAversions`. Gem Chef reads `loadKitchenPrefs()` + catalog aversions at generation. (2) Connexions: `GET /api/connections` (booleans only, never secrets) + masked localStorage `api-keys`; webhook URL `{origin}/api/webhooks/health` (`?profile_id=alexis|elodie`, alias `/api/health-webhook`). POST ingest → `logs_sante` (`kind=activite`, source `apple_health`) then Tab 1 Activité. (3) Thème: `useTheme().setScheme` (same as top-bar Moon/Sun). CTA **Enregistrer les préférences** + toast. PAS de routine sport / objectifs ici (Suivi).
+- Theme: `ThemeProvider` wraps the app; CSS variables + `html.dark` overrides for `bg-white` surfaces and `bg-health-ink text-white` fills.
+- Dev RLS: open `anon` + `authenticated` (`using (true)`). Tighten when household Auth lands.
+- Code Quality: Keep components clean, without missing brackets, using realistic mock data for initial setup. Keep all secrets in `.env.local` (Supabase URLs, Webhook endpoints, Gemini API keys).

@@ -1,0 +1,137 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-top: env(safe-area-inset-top, 0px);
+  --nav-height: 84px;
+  --c-bg: 242 244 248;
+  --c-card: 255 255 255;
+  --c-ink: 28 28 30;
+  --c-muted: 142 142 147;
+  --c-line: 229 231 235;
+  --c-fill: 28 28 30;
+  --c-on-fill: 255 255 255;
+  --c-track: 238 240 244;
+  --c-coral: 255 107 74;
+  --c-coral-soft: 255 232 226;
+  --c-coral-dark: 226 85 56;
+  --c-violet: 107 124 255;
+  --c-violet-soft: 232 235 255;
+  --c-violet-dark: 79 95 224;
+  --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.04), 0 8px 24px rgba(28, 28, 30, 0.04);
+}
+
+html.dark {
+  color-scheme: dark;
+  --c-bg: 0 0 0;
+  --c-card: 28 28 30;
+  --c-ink: 245 245 247;
+  --c-muted: 152 152 157;
+  --c-line: 56 56 58;
+  --c-fill: 245 245 247;
+  --c-on-fill: 28 28 30;
+  --c-track: 44 44 46;
+  --c-coral-soft: 58 31 24;
+  --c-coral-dark: 255 138 112;
+  --c-violet-soft: 28 32 72;
+  --c-violet-dark: 165 174 255;
+  --shadow-card: 0 0 0 0.5px rgba(255, 255, 255, 0.08);
+}
+
+html,
+body {
+  min-height: 100%;
+  background: rgb(var(--c-bg));
+  color: rgb(var(--c-ink));
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  padding-top: var(--safe-top);
+}
+
+* {
+  -webkit-tap-highlight-color: transparent;
+}
+
+::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
+.pb-nav {
+  padding-bottom: calc(var(--nav-height) + var(--safe-bottom) + 16px);
+}
+
+.accent-coral {
+  --accent: #ff6b4a;
+  --accent-soft: rgb(var(--c-coral-soft));
+  --accent-dark: rgb(var(--c-coral-dark));
+}
+
+.accent-violet {
+  --accent: #6b7cff;
+  --accent-soft: rgb(var(--c-violet-soft));
+  --accent-dark: rgb(var(--c-violet-dark));
+}
+
+html.dark .bg-white {
+  background-color: rgb(var(--c-card));
+}
+
+html.dark .bg-white\/92 {
+  background-color: rgb(var(--c-card) / 0.92);
+}
+
+html.dark .bg-white\/70 {
+  background-color: rgb(var(--c-card) / 0.7);
+}
+
+html.dark .bg-white\/50 {
+  background-color: rgb(var(--c-card) / 0.5);
+}
+
+html.dark .hover\:bg-white\/60:hover {
+  background-color: rgb(var(--c-card) / 0.6);
+}
+
+html.dark .bg-health-ink.text-white,
+html.dark .text-white.bg-health-ink {
+  color: rgb(var(--c-on-fill));
+}
+
+html.dark .bg-emerald-50 {
+  background-color: rgb(48 209 88 / 0.16);
+}
+
+html.dark .text-emerald-600,
+html.dark .text-emerald-700 {
+  color: #30d158;
+}
+
+html.dark .bg-red-50 {
+  background-color: rgb(255 69 58 / 0.16);
+}
+
+html.dark .text-red-500,
+html.dark .text-red-600 {
+  color: #ff453a;
+}
+
+html.dark .bg-amber-50 {
+  background-color: rgb(255 159 10 / 0.16);
+}
+
+html.dark .text-amber-600,
+html.dark .text-amber-700,
+html.dark .text-amber-800 {
+  color: #ffd60a;
+}
+
+html.dark input,
+html.dark textarea {
+  color: rgb(var(--c-ink));
+}

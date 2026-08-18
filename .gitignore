@@ -1,0 +1,19 @@
+# dependencies
+node_modules/
+
+# next
+.next/
+out/
+
+# env / secrets
+.env
+.env.local
+.env.*.local
+
+# ts
+*.tsbuildinfo
+
+# os / ide
+.DS_Store
+.vercel
+*.pem

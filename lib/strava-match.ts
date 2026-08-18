@@ -1,0 +1,72 @@
+import { isoWeekday, todayISO } from "@/lib/dates";
+import { storage } from "@/lib/storage";
+import type { ProfileId, SportActivity, SportSession } from "@/lib/types";
+
+export type SimulatedStravaActivity = {
+  name: string;
+  type: SportActivity;
+  durationMin: number;
+  date: string;
+};
+
+type DayValidations = Record<string, { activityName: string }>;
+
+function storageKey(profileId: ProfileId, date: string) {
+  return `strava-match:${profileId}:${date}`;
+}
+
+export function loadSessionValidations(profileId: ProfileId, date = todayISO()): DayValidations {
+  return storage.getJSON<DayValidations>(storageKey(profileId, date), {});
+}
+
+export function markSessionsValidated(
+  profileId: ProfileId,
+  sessionIds: string[],
+  activityName: string,
+  date = todayISO(),
+) {
+  const current = loadSessionValidations(profileId, date);
+  const next = { ...current };
+  for (const id of sessionIds) {
+    next[id] = { activityName };
+  }
+  storage.setJSON(storageKey(profileId, date), next);
+  return next;
+}
+
+export function stravaTypeLabel(type: SportActivity) {
+  if (type === "course") return "Course";
+  if (type === "muscu") return "Musculation";
+  return "Vélo";
+}
+
+/** Type + durée (±15 min ou 25 %) — placeholder avant le vrai webhook Strava. */
+export function activityMatchesSession(activity: SimulatedStravaActivity, session: SportSession) {
+  if (activity.type !== session.activity) return false;
+  const delta = Math.abs(activity.durationMin - session.durationMin);
+  return delta <= 15 || (session.durationMin > 0 && delta / session.durationMin <= 0.25);
+}
+
+export function buildSimulatedStravaActivity(session: SportSession, date = todayISO()): SimulatedStravaActivity {
+  const durationMin =
+    session.activity === "course" && Math.abs(session.durationMin - 40) <= 15
+      ? 40
+      : session.durationMin;
+  return {
+    name: `${stravaTypeLabel(session.activity)} — simulation Strava`,
+    type: session.activity,
+    durationMin,
+    date,
+  };
+}
+
+export function matchPlannedSessions(
+  activity: SimulatedStravaActivity,
+  sessions: SportSession[],
+  weekday = isoWeekday(activity.date),
+) {
+  return sessions.filter(
+    (session) =>
+      (session.weekdays ?? []).includes(weekday) && activityMatchesSession(activity, session),
+  );
+}
