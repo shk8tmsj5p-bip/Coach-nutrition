@@ -130,11 +130,23 @@ export function sumWorkoutMinutes(workouts: IncomingHealthWorkout[], date: strin
     .reduce((sum, item) => sum + item.durationMin, 0);
 }
 
+function recordFromSearchParams(searchParams: URLSearchParams): Record<string, unknown> {
+  const record: Record<string, unknown> = {};
+  for (const [key, value] of searchParams.entries()) {
+    if (value.trim()) record[key] = value;
+  }
+  return record;
+}
+
 export function parseHealthPayload(
   body: unknown,
   searchParams: URLSearchParams,
 ): ParsedHealthPayload {
-  const record = isRecord(body) ? body : {};
+  /** Query string first so Raccourcis can send GET `?steps=…&weight_kg=…` (iOS POST JSON often drops). Body wins if both. */
+  const record = {
+    ...recordFromSearchParams(searchParams),
+    ...(isRecord(body) ? body : {}),
+  };
   const date = parseISODate(
     record.date ?? record.jour ?? searchParams.get("date"),
     todayISO(),
