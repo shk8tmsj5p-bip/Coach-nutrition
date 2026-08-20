@@ -8,10 +8,11 @@ import { useProfile } from "@/context/ProfileContext";
 import {
   analysisToAppliedPlan,
   applyCoachSportPatches,
-  applyToastMessage,
   loadCoachAnalysis,
+  nutritionApplyRecap,
   persistAppliedCoachPlan,
   persistCoachAnalysis,
+  sportApplyRecap,
   syncSharedSportSessions,
   type StoredCoachAnalysis,
 } from "@/lib/coach-apply";
@@ -32,21 +33,27 @@ import {
 } from "@/lib/coach-adjustments";
 import { applyCoachBoostsToLoadedPlan } from "@/lib/coach-plan-sync";
 import { mondayOf, todayISO, formatLongDate } from "@/lib/dates";
+import { createBrowserSupabaseClient } from "@/lib/supabase/client";
+import { fetchDailyFeels, last7DaysRange } from "@/lib/supabase/daily-feel";
+import { hasFeelScore, type DailyFeelEntry } from "@/lib/daily-feel";
 import { loadPesees } from "@/lib/supabase/pesees";
 import { loadWeekPlan, saveWeekPlan } from "@/lib/supabase/week-plans";
 import type { Profile, ProfileId } from "@/lib/types";
 import { formatKcal, cn } from "@/lib/utils";
+import { isEmptyMeal } from "@/lib/weekly-plan";
 
 export function CoachAnalysisCard({ profile }: { profile: Profile }) {
   const { catalog, updateTargets, updateSportRoutines, updateAppliedAdjustments } = useProfile();
   const [payload, setPayload] = useState<CoachWeekPayload | null>(null);
   const [sessions, setSessions] = useState<CoachSessionSnapshot[]>([]);
+  const [dailyFeels, setDailyFeels] = useState<DailyFeelEntry[]>([]);
   const [stored, setStored] = useState<StoredCoachAnalysis | null>(null);
   const [applyNutrition, setApplyNutrition] = useState(true);
   const [applySport, setApplySport] = useState(true);
   const [busy, setBusy] = useState(false);
   const [applying, setApplying] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  const [applyRecap, setApplyRecap] = useState<string[] | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -55,6 +62,10 @@ export function CoachAnalysisCard({ profile }: { profile: Profile }) {
       if (cancelled) return;
       setPayload(buildCoachContextFromRows(profile, rows));
       setSessions(sessionsLast7Days(profile.id, profile.sportRoutine.sessions));
+      const range = last7DaysRange();
+      const feels = await fetchDailyFeels(createBrowserSupabaseClient(), [profile.id], range.from, range.to);
+      if (cancelled) return;
+      setDailyFeels(feels.filter((row) => row.profileId === profile.id));
       const loaded = loadCoachAnalysis(profile.id);
       if (loaded) {
         loaded.warning = friendlyLlmWarning(loaded.warning);
@@ -75,6 +86,14 @@ export function CoachAnalysisCard({ profile }: { profile: Profile }) {
     if (!payload) return;
     setBusy(true);
     try {
+      const range = last7DaysRange();
+      const feels = await fetchDailyFeels(
+        createBrowserSupabaseClient(),
+        [profile.id],
+        range.from,
+        range.to,
+      );
+      setDailyFeels(feels);
       const result = await requestCoachAnalysis({
         profile,
         weightTrend7d: coachWeightTrend(payload),
@@ -83,6 +102,7 @@ export function CoachAnalysisCard({ profile }: { profile: Profile }) {
         plateau: payload.plateau,
         journal: payload.journal,
         recentJournals: payload.recentJournals,
+        dailyFeels: feels,
         sessions,
         currentTargets: profile.targets,
       });
@@ -101,6 +121,7 @@ export function CoachAnalysisCard({ profile }: { profile: Profile }) {
       setStored(next);
       setApplyNutrition(true);
       setApplySport(true);
+      setApplyRecap(null);
       flash(result.mock ? "Bilan local (Gemini indisponible)" : "Bilan 7 j prêt");
     } catch (error) {
       flash(error instanceof Error ? error.message : "Analyse impossible");
@@ -124,6 +145,8 @@ export function CoachAnalysisCard({ profile }: { profile: Profile }) {
       let changedSessionIds: string[] = [];
       let syncedOther = false;
       let shoppingSkipped = false;
+      let planEmpty = false;
+      let planChanged = false;
       const otherId: ProfileId = profile.id === "alexis" ? "elodie" : "alexis";
 
       if (applyNutrition) {
@@ -184,6 +207,7 @@ export function CoachAnalysisCard({ profile }: { profile: Profile }) {
         await updateAppliedAdjustments(profile.id, nextAdj);
         if (nutritionBlock) {
           const week = await loadWeekPlan(weekStart);
+          planEmpty = week.plan.every(isEmptyMeal);
           const synced = applyCoachBoostsToLoadedPlan({
             weekStart,
             plan: week.plan,
@@ -203,6 +227,7 @@ export function CoachAnalysisCard({ profile }: { profile: Profile }) {
             await saveWeekPlan(weekStart, synced.plan, week.theme);
           }
           shoppingSkipped = synced.skippedShopping;
+          planChanged = synced.changed;
         }
       }
 
@@ -229,18 +254,22 @@ export function CoachAnalysisCard({ profile }: { profile: Profile }) {
       };
       persistCoachAnalysis(profile.id, next);
       setStored(next);
-      const toast = applyToastMessage({
-        nutrition: applyNutrition,
-        sport: applySport,
-        sportChanged,
-        nutritionError,
-        sportError,
-      });
-      flash(
-        shoppingSkipped
-          ? `${toast} · courses déjà cochées, plan inchangé`
-          : toast,
-      );
+      const recap: string[] = [];
+      if (applyNutrition) {
+        recap.push(
+          ...nutritionApplyRecap({
+            shoppingSkipped,
+            planEmpty,
+            planChanged,
+            nutritionError,
+          }),
+        );
+      }
+      if (applySport) {
+        recap.push(sportApplyRecap({ sportChanged, sportError }));
+      }
+      setApplyRecap(recap);
+      setToast(null);
     } finally {
       setApplying(false);
     }
@@ -273,6 +302,11 @@ export function CoachAnalysisCard({ profile }: { profile: Profile }) {
           {payload?.journal.date
             ? `Journal ${formatLongDate(payload.journal.date)} · Suivi pour le poids et la routine`
             : "Chargement du contexte 7 j…"}
+        </p>
+        <p className="mt-1 text-center text-[11px] text-health-muted">
+          {dailyFeels.filter(hasFeelScore).length > 0
+            ? `Check-in Aujourd’hui : ${dailyFeels.filter(hasFeelScore).length} j notés sur 7 · jours sans note ignorés`
+            : "Pas encore de check-in quotidien · le coach ignore les jours sans note"}
         </p>
         <button
           type="button"
@@ -352,13 +386,13 @@ export function CoachAnalysisCard({ profile }: { profile: Profile }) {
               <DomainCheck
                 checked={applyNutrition}
                 title="Nutrition"
-                subtitle="Cibles repas (onglet Repas)"
+                subtitle="Nouvelles cibles du jour · suggestions sur les repas"
                 onChange={setApplyNutrition}
               />
               <DomainCheck
                 checked={applySport}
                 title="Sport"
-                subtitle="Durée / intensité (séance du jour)"
+                subtitle="Ajuste durée / intensité des séances existantes. Ne crée pas de nouvelles séances."
                 onChange={setApplySport}
               />
             </div>
@@ -372,6 +406,15 @@ export function CoachAnalysisCard({ profile }: { profile: Profile }) {
               {applying ? <Sparkles size={18} /> : <Check size={18} />}
               {applying ? "Application…" : "Appliquer les ajustements"}
             </button>
+            {applyRecap && applyRecap.length > 0 ? (
+              <ul className="mt-3 space-y-1">
+                {applyRecap.map((line) => (
+                  <li key={line} className="text-center text-[12px] leading-snug text-health-muted">
+                    {line}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
           </Card>
         </>
       )}

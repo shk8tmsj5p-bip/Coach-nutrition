@@ -5,7 +5,7 @@ import { expandPreparedSauces } from "@/lib/homemade-sauces";
 import { adaptMealToTheme, conflictsWithTheme, matchKit, mealMatchesTheme, stripThemeSticker } from "@/lib/theme-kits";
 import { mockSuggestSwap as coherentSuggestSwap } from "@/lib/swap-coherence";
 import { pickUnused } from "@/lib/recipe-diversity";
-import type { PlannedMeal, RecipeIngredient } from "@/lib/types";
+import type { MealType, PlannedMeal, RecipeIngredient } from "@/lib/types";
 
 export { WEEK_DAYS, extraRecipes };
 
@@ -407,6 +407,14 @@ export function emptyMealForSlot(slot: Pick<PlannedMeal, "id" | "day" | "dayInde
   };
 }
 
+/** Vessel for Today Remplacement — PD/collation reuse a lunch-shaped slot. */
+export function dummyTodaySwapSlot(mealType: MealType): PlannedMeal {
+  const plan = emptyWeekPlan();
+  const dinner = plan.find((meal) => meal.dayIndex === 0 && meal.mealType === "diner");
+  const lunch = plan.find((meal) => meal.dayIndex === 0 && meal.mealType === "dejeuner");
+  return mealType === "diner" ? dinner ?? lunch! : lunch!;
+}
+
 export function emptyWeekPlan(): PlannedMeal[] {
   const slots = WEEK_DAYS.flatMap((day, dayIndex) => [
     emptyMealForSlot({
@@ -483,6 +491,24 @@ export function applyRecipeToSlots(
     plan.map((slot) => {
       if (!slotIds.includes(slot.id)) return slot;
       const next = applyTheme(cloneMealIntoSlot(recipe, slot), theme);
+      return {
+        ...next,
+        batchId: pair?.key ?? slot.id,
+        coverLabel: pair?.label ?? "1 repas frais",
+        servingsPerPerson: pair ? 2 : 1,
+        lowCalorie: pair ? pair.lowCalorie || slot.mealType === "diner" : slot.lowCalorie,
+      };
+    }),
+  );
+}
+
+/** Pose une recette telle quelle (favori) — pas de réadaptation de thème. */
+export function placeRecipeInSlots(plan: PlannedMeal[], slotIds: string[], recipe: PlannedMeal): PlannedMeal[] {
+  const pair = pairForSlot(slotIds[0] ?? "");
+  return annotatePlan(
+    plan.map((slot) => {
+      if (!slotIds.includes(slot.id)) return slot;
+      const next = cloneMealIntoSlot(recipe, slot);
       return {
         ...next,
         batchId: pair?.key ?? slot.id,

@@ -7,6 +7,8 @@ import { WeekAgenda } from "@/components/repas/WeekAgenda";
 import { RecipeDetailSheet } from "@/components/repas/RecipeDetailSheet";
 import { MoveMealSheet } from "@/components/repas/MoveMealSheet";
 import { PickMealSlotSheet } from "@/components/repas/PickMealSlotSheet";
+import { FavoriteRecipeSheet, FavoritesPanel } from "@/components/repas/FavoritesPanel";
+import { RejectedPanel, RejectedRecipeSheet } from "@/components/repas/RejectedPanel";
 import { ShoppingListPanel } from "@/components/repas/ShoppingListPanel";
 import { BatchGuidePanel } from "@/components/repas/BatchGuidePanel";
 import { SwapIngredientSheet } from "@/components/repas/SwapIngredientSheet";
@@ -26,16 +28,46 @@ import {
   isEmptyMeal,
   moveMealInPlan,
   pairForSlot,
+  placeRecipeInSlots,
 } from "@/lib/weekly-plan";
 import { planTagByMealId, taggedUniqueMeals } from "@/lib/meal-tags";
 import { QtyScaleToggle } from "@/components/repas/QtyScaleToggle";
 import { cn } from "@/lib/utils";
 import { loadKitchenPrefs, formatKitchenPrefsForPrompt } from "@/lib/kitchen-prefs";
-import { buildMealCoachFromProfiles, formatMealCoachForPrompt } from "@/lib/meal-coach";
+import { buildMealCoachFromProfiles, formatMealCoachForPrompt, scalePlanToGoals } from "@/lib/meal-coach";
+import {
+  clearPlanTargetsSnapshot,
+  ensurePlanTargetsBaseline,
+  savePlanTargetsSnapshot,
+  snapshotFromCoach,
+  snapshotsEqual,
+  type PlanTargetsSnapshot,
+} from "@/lib/plan-targets";
 import { goalLabel } from "@/lib/goals";
+import type { FavoriteRecipe } from "@/lib/favorites";
+import {
+  canFavoriteMeal,
+  favoriteIdFromTitle,
+  isFavoriteTitle,
+  patchFavorite,
+  removeFavorite,
+  upsertFavorite,
+} from "@/lib/favorites";
+import { loadFavorites, persistFavorites } from "@/lib/supabase/favorites";
+import type { RejectedRecipe } from "@/lib/rejected";
+import {
+  canRejectMeal,
+  isRejectedTitle,
+  mergeAvoidTitles,
+  patchRejected,
+  removeRejected,
+  upsertRejected,
+  upsertRejectedTitle,
+} from "@/lib/rejected";
+import { loadRejected, persistRejected } from "@/lib/supabase/rejected";
 import type { QtyMode } from "@/lib/qty-scale";
 
-type Tab = "plan" | "courses" | "batch";
+type Tab = "plan" | "courses" | "batch" | "favoris";
 
 export default function RepasScreen() {
   const { view, catalog } = useProfile();
@@ -52,6 +84,13 @@ export default function RepasScreen() {
   const [swapMeal, setSwapMeal] = useState<PlannedMeal | null>(null);
   const [moveMeal, setMoveMeal] = useState<PlannedMeal | null>(null);
   const [openTag, setOpenTag] = useState<string | null>(null);
+  const [planStamp, setPlanStamp] = useState<PlanTargetsSnapshot | null>(null);
+  const [favorites, setFavorites] = useState<FavoriteRecipe[]>([]);
+  const [rejected, setRejected] = useState<RejectedRecipe[]>([]);
+  const [favPane, setFavPane] = useState<"favoris" | "plus-jamais">("favoris");
+  const [openFavorite, setOpenFavorite] = useState<FavoriteRecipe | null>(null);
+  const [placeFavorite, setPlaceFavorite] = useState<FavoriteRecipe | null>(null);
+  const [openRejected, setOpenRejected] = useState<RejectedRecipe | null>(null);
 
   function kitchenContext() {
     const prefs = formatKitchenPrefsForPrompt(loadKitchenPrefs(), [catalog.alexis, catalog.elodie]);
@@ -61,6 +100,12 @@ export default function RepasScreen() {
 
   function nutritionCoach() {
     return buildMealCoachFromProfiles(catalog.alexis, catalog.elodie);
+  }
+
+  function stampTargets() {
+    const snapshot = snapshotFromCoach(nutritionCoach());
+    savePlanTargetsSnapshot(weekStart, snapshot);
+    setPlanStamp(snapshot);
   }
 
   function coachProfiles() {
@@ -82,6 +127,19 @@ export default function RepasScreen() {
   useEffect(() => {
     let cancelled = false;
     void (async () => {
+      const [favs, bans] = await Promise.all([loadFavorites(), loadRejected()]);
+      if (cancelled) return;
+      setFavorites(favs);
+      setRejected(bans);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
       const loaded = await loadWeekPlan(weekStart);
       if (cancelled) return;
       const synced = applyCoachBoostsToLoadedPlan({
@@ -95,6 +153,9 @@ export default function RepasScreen() {
       if (cancelled) return;
       setPlan(synced.plan);
       if (loaded.theme) setTheme(loaded.theme);
+      const coach = buildMealCoachFromProfiles(catalog.alexis, catalog.elodie);
+      const hasMeals = synced.plan.some((meal) => !isEmptyMeal(meal));
+      setPlanStamp(ensurePlanTargetsBaseline(weekStart, coach, hasMeals));
       if (synced.changed) {
         await saveWeekPlan(weekStart, synced.plan, loaded.theme);
       }
@@ -127,7 +188,7 @@ export default function RepasScreen() {
     const current = plan
       .filter((meal) => !isEmptyMeal(meal) && !skip.has(meal.id))
       .map((meal) => meal.baseName);
-    return [...new Set([...recent, ...current])];
+    return mergeAvoidTitles([...recent, ...current], rejected);
   }
 
   async function generate(mode: GenerateMealsMode, slotId?: string, themeOverride?: string) {
@@ -147,6 +208,7 @@ export default function RepasScreen() {
       });
       if (result.plan) {
         await persist(result.plan);
+        stampTargets();
         setNonce((n) => n + 1);
         const label =
           mode === "weekdays" ? "Lun–Ven généré" : mode === "weekend" ? "Week-end généré" : "Repas généré";
@@ -170,6 +232,8 @@ export default function RepasScreen() {
     setBusy(true);
     try {
       const error = await deleteWeekPlan(weekStart);
+      clearPlanTargetsSnapshot(weekStart);
+      setPlanStamp(null);
       await persist(emptyWeekPlan());
       flash(error ? `Semaine vidée en local · ${error}` : "Semaine vidée");
     } finally {
@@ -196,15 +260,85 @@ export default function RepasScreen() {
     flash("Repas déplacé");
   }
 
+  async function updateQuantities() {
+    setBusy(true);
+    try {
+      await persist(scalePlanToGoals(plan, nutritionCoach()));
+      stampTargets();
+      flash("Quantités mises à jour · mêmes recettes");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function saveFavorites(next: FavoriteRecipe[]) {
+    setFavorites(next);
+    const error = await persistFavorites(next);
+    if (error) flash(`Favoris en local · ${error}`);
+  }
+
+  async function saveRejected(next: RejectedRecipe[]) {
+    setRejected(next);
+    const error = await persistRejected(next);
+    if (error) flash(`Plus jamais en local · ${error}`);
+  }
+
+  async function toggleFavorite(recipe: PlannedMeal) {
+    if (!canFavoriteMeal(recipe)) return;
+    const on = isFavoriteTitle(favorites, recipe.baseName);
+    const next = on
+      ? removeFavorite(favorites, favoriteIdFromTitle(recipe.baseName))
+      : upsertFavorite(favorites, recipe);
+    await saveFavorites(next);
+    if (!on && isRejectedTitle(rejected, recipe.baseName)) {
+      await saveRejected(removeRejected(rejected, favoriteIdFromTitle(recipe.baseName)));
+    }
+    flash(on ? "Retiré des favoris" : "Gardé en favori");
+  }
+
+  async function toggleRejected(recipe: PlannedMeal) {
+    if (!canRejectMeal(recipe)) return;
+    const on = isRejectedTitle(rejected, recipe.baseName);
+    const next = on
+      ? removeRejected(rejected, favoriteIdFromTitle(recipe.baseName))
+      : upsertRejected(rejected, recipe);
+    await saveRejected(next);
+    if (!on && isFavoriteTitle(favorites, recipe.baseName)) {
+      await saveFavorites(removeFavorite(favorites, favoriteIdFromTitle(recipe.baseName)));
+    }
+    flash(on ? "Retiré de Plus jamais" : "Plus jamais ce plat");
+  }
+
+  async function placeFavoriteInWeek(item: FavoriteRecipe, slotId: string) {
+    const slotIds = pairForSlot(slotId)?.slotIds ?? [slotId];
+    setBusy(true);
+    try {
+      await persist(scalePlanToGoals(placeRecipeInSlots(plan, slotIds, item.recipe), nutritionCoach()));
+      stampTargets();
+      setPlaceFavorite(null);
+      setOpenFavorite(null);
+      setTab("plan");
+      flash("Favori posé dans la semaine");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const tags = useMemo(() => planTagByMealId(plan), [plan]);
   const recipes = useMemo(() => taggedUniqueMeals(plan), [plan]);
   const openRecipe = recipes.find((row) => row.tag === openTag) ?? null;
+  const hasMeals = plan.some((meal) => !isEmptyMeal(meal));
+  const targetsStale =
+    hasMeals &&
+    planStamp != null &&
+    !snapshotsEqual(planStamp, snapshotFromCoach(nutritionCoach()));
 
   return (
     <div>
       <h1 className="text-[28px] font-bold tracking-tight">Repas</h1>
       <p className="mt-1 text-[13px] text-health-muted">
-        Batchcooking · double déclinaison · Gem Chef Cuistot
+        Déjeuners & dîners de la semaine. Petit-déj, collations et desserts viennent des Réglages. Le plat du
+        jour se sert sur Aujourd’hui.
       </p>
 
       <div className="mt-4 flex rounded-full bg-white p-1 shadow-card">
@@ -213,6 +347,7 @@ export default function RepasScreen() {
             ["plan", "Semaine"],
             ["courses", "Courses"],
             ["batch", "Batch"],
+            ["favoris", "Favoris"],
           ] as const
         ).map(([id, label]) => (
           <button
@@ -220,7 +355,7 @@ export default function RepasScreen() {
             type="button"
             onClick={() => setTab(id)}
             className={cn(
-              "flex-1 rounded-full py-2 text-[13px] font-semibold",
+              "flex-1 rounded-full py-2 text-[12px] font-semibold",
               tab === id ? "bg-health-ink text-white" : "text-health-muted",
             )}
           >
@@ -229,7 +364,36 @@ export default function RepasScreen() {
         ))}
       </div>
 
-      <WeekNav weekStart={weekStart} onChange={setWeekStart} />
+      {tab !== "favoris" ? <WeekNav weekStart={weekStart} onChange={setWeekStart} /> : null}
+
+      {tab !== "favoris" && targetsStale ? (
+        <div className="mt-3 rounded-card bg-amber-50 px-3 py-3 dark:bg-amber-950/40">
+          <p className="text-[13px] font-semibold text-amber-900 dark:text-amber-100">
+            Cibles changées
+          </p>
+          <p className="mt-0.5 text-[12px] leading-snug text-amber-800 dark:text-amber-200">
+            Les recettes restent les mêmes. Les quantités (et les courses) peuvent être recalées.
+          </p>
+          <div className="mt-2.5 flex gap-2">
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => void updateQuantities()}
+              className="flex-1 rounded-xl bg-health-ink py-2 text-[13px] font-semibold text-white disabled:opacity-50"
+            >
+              Mettre à jour les quantités
+            </button>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => stampTargets()}
+              className="rounded-xl bg-white px-3 py-2 text-[13px] font-semibold text-health-muted dark:bg-health-card"
+            >
+              Plus tard
+            </button>
+          </div>
+        </div>
+      ) : null}
 
       {tab === "plan" && (
         <div className="mt-2">
@@ -275,6 +439,46 @@ export default function RepasScreen() {
             qtyMode={batchQty}
             onOpenRecipe={(tag) => setOpenTag(tag)}
           />
+        </div>
+      )}
+
+      {tab === "favoris" && (
+        <div>
+          <div className="mt-3 flex rounded-full bg-white p-1 shadow-card">
+            {(
+              [
+                ["favoris", "Favoris"],
+                ["plus-jamais", "Plus jamais"],
+              ] as const
+            ).map(([id, label]) => (
+              <button
+                key={id}
+                type="button"
+                onClick={() => setFavPane(id)}
+                className={cn(
+                  "flex-1 rounded-full py-2 text-[12px] font-semibold",
+                  favPane === id ? "bg-health-ink text-white" : "text-health-muted",
+                )}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          {favPane === "favoris" ? (
+            <FavoritesPanel list={favorites} view={view} onOpen={setOpenFavorite} />
+          ) : (
+            <RejectedPanel
+              list={rejected}
+              onOpen={setOpenRejected}
+              onAddTitle={(title) => {
+                void saveRejected(upsertRejectedTitle(rejected, title));
+                if (isFavoriteTitle(favorites, title)) {
+                  void saveFavorites(removeFavorite(favorites, favoriteIdFromTitle(title)));
+                }
+                flash("Ajouté à Plus jamais");
+              }}
+            />
+          )}
         </div>
       )}
 
@@ -368,6 +572,77 @@ export default function RepasScreen() {
             setOpenTag(null);
           }}
           onMove={() => setMoveMeal(openRecipe.meal)}
+          favoriteOn={
+            canFavoriteMeal(openRecipe.meal)
+              ? isFavoriteTitle(favorites, openRecipe.meal.baseName)
+              : false
+          }
+          onToggleFavorite={
+            canFavoriteMeal(openRecipe.meal)
+              ? () => void toggleFavorite(openRecipe.meal)
+              : undefined
+          }
+          rejectedOn={
+            canRejectMeal(openRecipe.meal)
+              ? isRejectedTitle(rejected, openRecipe.meal.baseName)
+              : false
+          }
+          onToggleRejected={
+            canRejectMeal(openRecipe.meal)
+              ? () => void toggleRejected(openRecipe.meal)
+              : undefined
+          }
+        />
+      )}
+
+      {placeFavorite && (
+        <PickMealSlotSheet
+          plan={plan}
+          title="Où le remettre ?"
+          hint="Lun–Ven : les deux créneaux du batch. Week-end : ce repas seulement. Les quantités se recalent sur tes cibles."
+          onClose={() => setPlaceFavorite(null)}
+          onSelect={(slotId) => void placeFavoriteInWeek(placeFavorite, slotId)}
+        />
+      )}
+
+      {openFavorite && (
+        <FavoriteRecipeSheet
+          item={openFavorite}
+          view={view}
+          busy={busy}
+          onClose={() => setOpenFavorite(null)}
+          onPlace={() => setPlaceFavorite(openFavorite)}
+          onRemove={() => {
+            void saveFavorites(removeFavorite(favorites, openFavorite.id));
+            setOpenFavorite(null);
+            flash("Retiré des favoris");
+          }}
+          onSaveMeta={(patch) => {
+            const next = patchFavorite(favorites, openFavorite.id, patch);
+            void saveFavorites(next);
+            const id = favoriteIdFromTitle(patch.title);
+            setOpenFavorite(next.find((item) => item.id === id) ?? next[0] ?? null);
+            flash("Favori mis à jour");
+          }}
+        />
+      )}
+
+      {openRejected && (
+        <RejectedRecipeSheet
+          item={openRejected}
+          onClose={() => setOpenRejected(null)}
+          onRemove={() => {
+            void saveRejected(removeRejected(rejected, openRejected.id));
+            setOpenRejected(null);
+            flash("Retiré de Plus jamais");
+          }}
+          onSaveMeta={(patch) => {
+            const next = patchRejected(rejected, openRejected.id, patch);
+            void saveRejected(next);
+            const id = favoriteIdFromTitle(patch.title);
+            setOpenRejected(next.find((item) => item.id === id) ?? next[0] ?? null);
+            flash("Liste mise à jour");
+          }}
         />
       )}
 

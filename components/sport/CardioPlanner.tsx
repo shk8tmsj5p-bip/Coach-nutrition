@@ -121,7 +121,7 @@ export function CardioPlanner({
     <div className="mt-3 rounded-2xl bg-health-bg px-3 py-3">
       <p className="text-[13px] font-semibold">Course & vélo · coach</p>
       <p className="mt-0.5 text-[11px] leading-snug text-health-muted">
-        Coche tes jours : sport, durée, D+. Le coach choisit le type de sortie ({goalLabel(profile.primaryGoal).toLowerCase()}).
+        Propose les séances. Tu valides → ça devient ta routine. Coche tes jours : sport, durée, D+. Le coach choisit le type de sortie ({goalLabel(profile.primaryGoal).toLowerCase()}).
       </p>
 
       <div className="mt-3 space-y-2">

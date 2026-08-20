@@ -8,17 +8,26 @@ import {
   parseGeminiJson,
   singlePrompt,
   suggestSwapPrompt,
+  todaySwapPrompt,
   weekendPrompt,
   weekdaysPrompt,
   type GenerateMealsMode,
 } from "@/lib/gemini/meals";
-import type { PlannedMeal } from "@/lib/types";
+import type { MealType, PlannedMeal } from "@/lib/types";
 import type { HouseholdCoachBias } from "@/lib/coach-apply";
 import { parseMealCoach, scalePlanToGoals, type MealCoachHousehold } from "@/lib/meal-coach";
 import { diversityProblems } from "@/lib/recipe-diversity";
 import { themeMismatchProblems } from "@/lib/theme-kits";
 import { suggestionsFitRecipe } from "@/lib/swap-coherence";
-import { emptyWeekPlan, annotatePlan, pairForSlot, WEEKDAY_BATCHES, WEEKEND_INDEXES } from "@/lib/weekly-plan";
+import { swapProposalsFromPlanned } from "@/lib/swap-proposals";
+import {
+  emptyWeekPlan,
+  annotatePlan,
+  dummyTodaySwapSlot,
+  pairForSlot,
+  WEEKDAY_BATCHES,
+  WEEKEND_INDEXES,
+} from "@/lib/weekly-plan";
 import { friendlyGeminiError } from "@/lib/gemini/models";
 
 export const maxDuration = 300;
@@ -36,6 +45,7 @@ type Body = {
   pastMeals?: string[];
   kitchenContext?: string;
   nutritionCoach?: MealCoachHousehold;
+  mealType?: MealType;
 };
 
 function applyRecipes(
@@ -120,6 +130,71 @@ export async function POST(request: Request) {
         { error: friendlyGeminiError("Réponse Gemini incomplète"), mock: false },
         { status: 502 },
       );
+    }
+
+    if (body.mode === "today-swap") {
+      const mealType = body.mealType ?? "dejeuner";
+      const kitchenContext = body.kitchenContext;
+      const prompt = todaySwapPrompt(mealType, theme, body.coachBias, body.pastMeals, kitchenContext);
+      try {
+        const first = await callGeminiPro(prompt);
+        let used = first;
+        let recipes: ReturnType<typeof extractRecipes> = [];
+        try {
+          recipes = extractRecipes(parseGeminiJson(first.text));
+        } catch {
+          /* retry below */
+        }
+        if (recipes.length === 0) {
+          const again = await callGeminiPro(
+            `${prompt}
+
+CORRECTION : ta réponse précédente n'était pas du JSON utilisable. Renvoie UNIQUEMENT le JSON demandé, complet.`,
+          );
+          try {
+            recipes = extractRecipes(parseGeminiJson(again.text));
+            used = again;
+          } catch {
+            /* fall through */
+          }
+        }
+        if (!recipes[0]) {
+          return NextResponse.json(
+            { error: friendlyGeminiError("Réponse Gemini incomplète"), mock: false },
+            { status: 502 },
+          );
+        }
+        const slot = dummyTodaySwapSlot(mealType);
+        let planned: PlannedMeal = {
+          ...geminiToPlannedMeal(recipes[0], slot, theme),
+          servingsPerPerson: 1,
+          batchId: slot.id,
+          coverLabel: "1 repas du jour",
+          lowCalorie: mealType === "diner",
+        };
+        const coach = parseMealCoach(body.nutritionCoach);
+        if (coach && (mealType === "dejeuner" || mealType === "diner")) {
+          planned = scalePlanToGoals([planned], coach)[0] ?? planned;
+        }
+        const themeIssues = theme.trim()
+          ? themeMismatchProblems([planned.baseName], theme)
+          : [];
+        const themeWarning =
+          themeIssues.length > 0
+            ? "Thème un peu approximatif — tu peux régénérer un plat."
+            : undefined;
+        console.log("[MEAL GEN] using", used.tier, used.model, "today-swap", planned.baseName);
+        return NextResponse.json({
+          proposals: swapProposalsFromPlanned(planned, theme, mealType),
+          mock: false,
+          model: used.model,
+          warning: [used.warning, themeWarning].filter(Boolean).join(" ") || undefined,
+        });
+      } catch (error) {
+        const raw = error instanceof Error ? error.message : "Gemini indisponible";
+        console.error("[MEAL GEN] today-swap —", raw);
+        return NextResponse.json({ error: friendlyGeminiError(raw), mock: false }, { status: 502 });
+      }
     }
 
     if (body.mode === "apply-swap") {

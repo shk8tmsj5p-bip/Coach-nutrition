@@ -11,7 +11,46 @@ export type AppliedNutrition = {
   next: Macros;
   deltas: NutritionDeltas;
   tags: string[];
+  /** Rapide Flash (ou secours) par repas × macro, clé mealId:kind */
+  quickAdds?: Record<string, StoredCoachQuickAdd>;
 };
+
+export type StoredCoachQuickAdd = {
+  mealId: string;
+  kind: "carbs" | "protein" | "fat";
+  name: string;
+  grams: number;
+  avoided: string[];
+  fromFlash?: boolean;
+};
+
+export function quickAddKey(mealId: string, kind: StoredCoachQuickAdd["kind"]) {
+  return `${mealId}:${kind}`;
+}
+
+export function upsertNutritionQuickAdd(
+  adj: AppliedAdjustments,
+  add: StoredCoachQuickAdd,
+): AppliedAdjustments {
+  if (!adj.nutrition) return adj;
+  const key = quickAddKey(add.mealId, add.kind);
+  return {
+    ...adj,
+    nutrition: {
+      ...adj.nutrition,
+      quickAdds: { ...(adj.nutrition.quickAdds ?? {}), [key]: add },
+    },
+  };
+}
+
+export function upsertNutritionQuickAdds(
+  adj: AppliedAdjustments,
+  adds: StoredCoachQuickAdd[],
+): AppliedAdjustments {
+  let next = adj;
+  for (const add of adds) next = upsertNutritionQuickAdd(next, add);
+  return next;
+}
 
 export type SportSessionDiff = {
   sessionId: string;
@@ -250,6 +289,7 @@ export function parseAppliedAdjustments(value: unknown): AppliedAdjustments | nu
       tags: Array.isArray(n.tags)
         ? n.tags.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
         : [],
+      quickAdds: parseQuickAdds(n.quickAdds),
     };
     if (nutrition.tags.length === 0) {
       nutrition.tags = nutritionDiffTags(nutrition.deltas);
@@ -273,6 +313,31 @@ export function parseAppliedAdjustments(value: unknown): AppliedAdjustments | nu
     nutrition,
     sport,
   };
+}
+
+function parseQuickAdds(value: unknown): Record<string, StoredCoachQuickAdd> | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const rec = value as Record<string, unknown>;
+  const out: Record<string, StoredCoachQuickAdd> = {};
+  for (const [key, item] of Object.entries(rec)) {
+    if (!item || typeof item !== "object") continue;
+    const row = item as Record<string, unknown>;
+    const kind = row.kind;
+    if (kind !== "carbs" && kind !== "protein" && kind !== "fat") continue;
+    const mealId = typeof row.mealId === "string" ? row.mealId : key.split(":")[0];
+    const name = typeof row.name === "string" ? row.name.trim() : "";
+    const grams = Math.round(asNumber(row.grams, 0));
+    if (!mealId || !name || grams <= 0) continue;
+    out[quickAddKey(mealId, kind)] = {
+      mealId,
+      kind,
+      name,
+      grams,
+      avoided: Array.isArray(row.avoided) ? row.avoided.map(String).filter(Boolean) : [],
+      fromFlash: Boolean(row.fromFlash),
+    };
+  }
+  return Object.keys(out).length ? out : undefined;
 }
 
 function parseSportDiff(value: unknown): SportSessionDiff | null {

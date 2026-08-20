@@ -208,6 +208,8 @@ export interface Database {
           strava_athlete_id: string | null;
           health_webhook_enabled: boolean;
           kitchen_prefs: Json;
+          favorite_recipes: Json;
+          rejected_recipes: Json;
           updated_at: string;
         };
         Insert: {
@@ -224,6 +226,8 @@ export interface Database {
           strava_athlete_id?: string | null;
           health_webhook_enabled?: boolean;
           kitchen_prefs?: Json;
+          favorite_recipes?: Json;
+          rejected_recipes?: Json;
           updated_at?: string;
         };
         Update: Partial<Database["public"]["Tables"]["parametres"]["Insert"]>;

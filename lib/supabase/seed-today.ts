@@ -1,11 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { todayISO, yesterdayISO } from "@/lib/dates";
-import {
-  buildTodaySeedMeals,
-  buildYesterdaySeedMeals,
-  SEED_PROFILS,
-} from "@/lib/supabase/seed-data";
-import { applyTodaySlotTemplates } from "@/lib/supabase/today-data";
+import { buildYesterdaySeedMeals, SEED_PROFILS } from "@/lib/supabase/seed-data";
+import { applyTodaySlotTemplates, applyWeekPlatsToToday } from "@/lib/supabase/today-data";
 import type { Database } from "@/lib/supabase/database.types";
 
 export type SeedResult = {
@@ -14,7 +10,7 @@ export type SeedResult = {
   error?: string;
 };
 
-/** Injecte profils + repas du jour (et d'hier) si la table repas est vide pour aujourd'hui. */
+/** Profils + templates du jour + plat de la semaine. Ne plus seed des déjeuners/dîners démo. */
 export async function ensureDemoMeals(
   supabase: SupabaseClient<Database>,
 ): Promise<SeedResult> {
@@ -34,26 +30,21 @@ export async function ensureDemoMeals(
   if (existing.error) {
     return { ok: false, seeded: false, error: existing.error.message };
   }
-  if ((existing.count ?? 0) > 0) {
-    const applied = await applyTodaySlotTemplates(supabase, today);
-    return { ok: true, seeded: applied };
+
+  if ((existing.count ?? 0) === 0) {
+    const yesterdayCount = await supabase
+      .from("repas")
+      .select("id", { count: "exact", head: true })
+      .eq("date", yesterday);
+    if ((yesterdayCount.count ?? 0) === 0) {
+      const inserted = await supabase.from("repas").insert(buildYesterdaySeedMeals(yesterday));
+      if (inserted.error) {
+        return { ok: false, seeded: false, error: inserted.error.message };
+      }
+    }
   }
 
-  const yesterdayCount = await supabase
-    .from("repas")
-    .select("id", { count: "exact", head: true })
-    .eq("date", yesterday);
-
-  const rows = [
-    ...buildTodaySeedMeals(today),
-    ...((yesterdayCount.count ?? 0) > 0 ? [] : buildYesterdaySeedMeals(yesterday)),
-  ];
-
-  const inserted = await supabase.from("repas").insert(rows);
-  if (inserted.error) {
-    return { ok: false, seeded: false, error: inserted.error.message };
-  }
-
-  const applied = await applyTodaySlotTemplates(supabase, today);
-  return { ok: true, seeded: true };
+  const appliedTpl = await applyTodaySlotTemplates(supabase, today);
+  const appliedWeek = await applyWeekPlatsToToday(supabase, today);
+  return { ok: true, seeded: appliedTpl || appliedWeek };
 }

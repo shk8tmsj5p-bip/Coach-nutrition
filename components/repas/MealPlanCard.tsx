@@ -35,10 +35,10 @@ export function MealPlanCard({
   busy?: boolean;
   qtyMode?: QtyMode;
   defaultOpen?: boolean;
-  onRegenerate: () => void;
-  onSwapIngredient: () => void;
-  onDelete: () => void;
-  onMove: () => void;
+  onRegenerate?: () => void;
+  onSwapIngredient?: () => void;
+  onDelete?: () => void;
+  onMove?: () => void;
 }) {
   const [open, setOpen] = useState(defaultOpen);
   const empty = isEmptyMeal(meal);
@@ -134,7 +134,9 @@ export function MealPlanCard({
         </div>
       )}
 
+      {(onRegenerate || onMove || onSwapIngredient || onDelete) && (
       <div className="mt-3 grid grid-cols-2 gap-2">
+        {onRegenerate ? (
         <button
           type="button"
           disabled={busy}
@@ -144,6 +146,8 @@ export function MealPlanCard({
           <RefreshCw size={13} />
           {empty ? "Générer" : "Régénérer"}
         </button>
+        ) : null}
+        {onMove ? (
         <button
           type="button"
           disabled={busy}
@@ -153,7 +157,8 @@ export function MealPlanCard({
           <ArrowRightLeft size={13} />
           Déplacer
         </button>
-        {!empty && (
+        ) : null}
+        {!empty && onSwapIngredient ? (
           <button
             type="button"
             disabled={busy}
@@ -163,8 +168,8 @@ export function MealPlanCard({
             <Repeat2 size={13} />
             Ingrédient
           </button>
-        )}
-        {!empty && (
+        ) : null}
+        {!empty && onDelete ? (
           <button
             type="button"
             disabled={busy}
@@ -174,8 +179,9 @@ export function MealPlanCard({
             <Trash2 size={13} />
             Supprimer
           </button>
-        )}
+        ) : null}
       </div>
+      )}
     </Card>
   );
 }

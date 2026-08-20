@@ -64,5 +64,6 @@ export function mapRepas(row: RepasRow): MealEntry {
     source: row.source,
     items: itemsFromJson(row.items),
     isSkipped: Boolean(row.is_skipped),
+    notes: row.notes ?? undefined,
   };
 }

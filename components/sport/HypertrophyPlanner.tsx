@@ -88,7 +88,7 @@ export function HypertrophyPlanner({
     <div className="mt-3 rounded-2xl bg-health-bg px-3 py-3">
       <p className="text-[13px] font-semibold">Prise de masse · muscu</p>
       <p className="mt-0.5 text-[11px] leading-snug text-health-muted">
-        Zones à muscler, jours et durée. Le coach propose les exercices.
+        Propose les séances. Tu valides → ça devient ta routine. Zones à muscler, jours et durée. Le coach propose les exercices.
       </p>
 
       <p className="mb-1.5 mt-3 text-[11px] font-medium text-health-muted">Je veux muscler</p>

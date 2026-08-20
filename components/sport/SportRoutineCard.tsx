@@ -171,6 +171,9 @@ export function SportRoutineCard({ profile }: { profile: Profile }) {
         Ma routine sport
       </SectionTitle>
       <Card>
+        <p className="mb-3 text-[12px] leading-snug text-health-muted">
+          Ici tu construis la semaine. Aujourd’hui et Métabolisme lisent cette même routine.
+        </p>
         <div className="flex items-end justify-between gap-3">
           <div>
             <p className="text-[13px] text-health-muted">Total visé</p>
@@ -192,7 +195,7 @@ export function SportRoutineCard({ profile }: { profile: Profile }) {
 
         {grouped.length === 0 ? (
           <p className="mt-3 text-[13px] leading-relaxed text-health-muted">
-            Ajoute tes séances types (course, vélo, muscu) pour le coach et Strava.
+            Ajoute tes séances types (course, vélo, muscu). C’est le planning lu par Aujourd’hui et Métabolisme.
           </p>
         ) : (
           <div className="mt-3 space-y-3">

@@ -134,6 +134,8 @@ create table if not exists public.parametres (
   strava_athlete_id text,
   health_webhook_enabled boolean not null default true,
   kitchen_prefs jsonb not null default '{}'::jsonb,
+  favorite_recipes jsonb not null default '[]'::jsonb,
+  rejected_recipes jsonb not null default '[]'::jsonb,
   updated_at timestamptz not null default now()
 );
 

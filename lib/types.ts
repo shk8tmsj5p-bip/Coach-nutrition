@@ -137,6 +137,7 @@ export interface MealEntry {
   source: "plan" | "log" | "photo" | "barcode" | "text";
   items?: string[];
   isSkipped?: boolean;
+  notes?: string;
 }
 
 export interface DetectedIngredient {

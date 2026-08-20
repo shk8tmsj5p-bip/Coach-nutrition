@@ -325,8 +325,8 @@ export default function ParametresScreen() {
 
       <SectionTitle className="mb-1.5 mt-3">Petit-déj, collations & desserts</SectionTitle>
       <p className="mb-1.5 px-0.5 text-[11px] leading-snug text-health-muted">
-        Modèles stables par jour — pas d’IA. Les desserts s’ajoutent au déjeuner / dîner. Enregistrer met à jour
-        Aujourd’hui.
+        Modèles stables par jour — pas d’IA. Les desserts s’ajoutent au déjeuner / dîner. Le plat déjeuner / dîner,
+        lui, vient de l’onglet Repas. Enregistrer met à jour Aujourd’hui.
       </p>
       <MealTemplatesEditor
         profileId="alexis"

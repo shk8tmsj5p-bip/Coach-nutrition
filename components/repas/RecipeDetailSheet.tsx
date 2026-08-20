@@ -5,6 +5,8 @@ import { X } from "lucide-react";
 import { RecipeTag } from "@/components/repas/RecipeTag";
 import { MealPlanCard } from "@/components/repas/MealPlanCard";
 import { QtyScaleToggle } from "@/components/repas/QtyScaleToggle";
+import { FavoriteHeart } from "@/components/today/FavoriteHeart";
+import { RejectMealButton } from "@/components/today/RejectMealButton";
 import type { QtyMode } from "@/lib/qty-scale";
 import type { PlannedMeal, ViewMode } from "@/lib/types";
 
@@ -21,6 +23,10 @@ export function RecipeDetailSheet({
   onSwapIngredient,
   onDelete,
   onMove,
+  favoriteOn,
+  onToggleFavorite,
+  rejectedOn,
+  onToggleRejected,
 }: {
   meal: PlannedMeal;
   planTag?: string;
@@ -34,6 +40,10 @@ export function RecipeDetailSheet({
   onSwapIngredient: () => void;
   onDelete: () => void;
   onMove: () => void;
+  favoriteOn?: boolean;
+  onToggleFavorite?: () => void;
+  rejectedOn?: boolean;
+  onToggleRejected?: () => void;
 }) {
   const [regenOpen, setRegenOpen] = useState(false);
   const [regenTheme, setRegenTheme] = useState(currentTheme);
@@ -51,9 +61,25 @@ export function RecipeDetailSheet({
             Recette
             {planTag ? <RecipeTag recipeNo={planTag} /> : null}
           </h3>
-          <button type="button" onClick={onClose} className="rounded-full bg-white p-1.5 shadow-card">
-            <X size={16} />
-          </button>
+          <div className="flex items-center gap-2">
+            {onToggleFavorite ? (
+              <FavoriteHeart
+                on={Boolean(favoriteOn)}
+                onClick={onToggleFavorite}
+                className={favoriteOn ? "shadow-card" : "bg-white shadow-card"}
+              />
+            ) : null}
+            {onToggleRejected ? (
+              <RejectMealButton
+                on={Boolean(rejectedOn)}
+                onClick={onToggleRejected}
+                className={rejectedOn ? "shadow-card" : "bg-white shadow-card"}
+              />
+            ) : null}
+            <button type="button" onClick={onClose} className="rounded-full bg-white p-1.5 shadow-card">
+              <X size={16} />
+            </button>
+          </div>
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-10">
           <QtyScaleToggle mode={qtyMode} onChange={onQtyMode} />

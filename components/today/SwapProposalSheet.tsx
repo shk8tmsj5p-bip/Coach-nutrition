@@ -1,17 +1,19 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { RefreshCw, Sparkles, X } from "lucide-react";
 import { Card } from "@/components/ui/Card";
+import { useProfile } from "@/context/ProfileContext";
+import { loadHouseholdCoachBias } from "@/lib/coach-apply";
+import { requestGenerateMeals } from "@/lib/gemini/client";
+import { loadKitchenPrefs, formatKitchenPrefsForPrompt } from "@/lib/kitchen-prefs";
+import { buildMealCoachFromProfiles, formatMealCoachForPrompt } from "@/lib/meal-coach";
 import { MEAL_TYPE_OPTIONS } from "@/lib/meal-items";
-import {
-  getSwapPool,
-  pickSwapProposal,
-  SWAP_THEMES,
-  type SwapProposal,
-} from "@/lib/swap-proposals";
+import { pickSwapProposal, SWAP_THEMES, type SwapProposal } from "@/lib/swap-proposals";
 import type { MealEntry, MealType, Profile, ProfileId } from "@/lib/types";
 import { cn, mealTypeLabel } from "@/lib/utils";
+import { loadRejected } from "@/lib/supabase/rejected";
+import { mergeAvoidTitles } from "@/lib/rejected";
 
 export function SwapProposalSheet({
   profiles,
@@ -29,6 +31,7 @@ export function SwapProposalSheet({
     proposals: Partial<Record<ProfileId, SwapProposal>>,
   ) => void;
 }) {
+  const { catalog } = useProfile();
   const availableTypes = MEAL_TYPE_OPTIONS.filter((option) =>
     profiles.some((profile) =>
       meals.some(
@@ -39,12 +42,81 @@ export function SwapProposalSheet({
   );
 
   const [mealType, setMealType] = useState<MealType | null>(null);
-  const [index, setIndex] = useState(0);
+  const [nonce, setNonce] = useState(0);
   const [theme, setTheme] = useState<string | null>(null);
   const [themeOpen, setThemeOpen] = useState(false);
   const [customTheme, setCustomTheme] = useState("");
+  const [proposals, setProposals] = useState<Partial<Record<ProfileId, SwapProposal>> | null>(
+    null,
+  );
+  const [generating, setGenerating] = useState(false);
+  const [fallback, setFallback] = useState(false);
+  const [warning, setWarning] = useState<string | null>(null);
 
   const activeTheme = theme;
+
+  function catalogFallback(type: MealType, index: number, th: string | null) {
+    const next: Partial<Record<ProfileId, SwapProposal>> = {};
+    for (const profile of profiles) {
+      next[profile.id] = pickSwapProposal(profile.id, type, index, th);
+    }
+    return next;
+  }
+
+  useEffect(() => {
+    if (!mealType) return;
+    let cancelled = false;
+    setGenerating(true);
+    setWarning(null);
+    void (async () => {
+      try {
+        const banned = await loadRejected();
+        const pastMeals = mergeAvoidTitles(
+          meals.map((meal) => meal.name.trim()).filter(Boolean),
+          banned,
+        );
+        const kitchenContext = [
+          formatKitchenPrefsForPrompt(loadKitchenPrefs(), [catalog.alexis, catalog.elodie]),
+          formatMealCoachForPrompt(buildMealCoachFromProfiles(catalog.alexis, catalog.elodie)),
+        ]
+          .filter(Boolean)
+          .join("\n\n");
+        const result = await requestGenerateMeals({
+          mode: "today-swap",
+          theme: activeTheme ?? "",
+          mealType,
+          nonce,
+          coachBias: loadHouseholdCoachBias(),
+          pastMeals,
+          kitchenContext,
+          nutritionCoach: buildMealCoachFromProfiles(catalog.alexis, catalog.elodie),
+        });
+        if (cancelled) return;
+        const hasProposal = Boolean(result.proposals?.alexis || result.proposals?.elodie);
+        if (hasProposal && result.proposals) {
+          setProposals(result.proposals);
+          setFallback(false);
+          setWarning(result.warning ?? null);
+        } else {
+          setProposals(catalogFallback(mealType, nonce, activeTheme));
+          setFallback(true);
+          setWarning("Liste de secours — Gem Chef indisponible.");
+        }
+      } catch {
+        if (cancelled) return;
+        setProposals(catalogFallback(mealType, nonce, activeTheme));
+        setFallback(true);
+        setWarning("Liste de secours — Gem Chef indisponible.");
+      } finally {
+        if (!cancelled) setGenerating(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // regenerate only when the slot, theme, or “nouvelle proposition” changes
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mealType, activeTheme, nonce]);
 
   const rows = useMemo(() => {
     if (!mealType) return [];
@@ -52,32 +124,40 @@ export function SwapProposalSheet({
       const current = meals.find(
         (meal) => meal.profileId === profile.id && meal.type === mealType && !meal.isSkipped,
       );
-      const proposal = pickSwapProposal(profile.id, mealType, index, activeTheme);
+      const proposal = generating && !proposals ? null : (proposals?.[profile.id] ?? null);
       return { profile, current, proposal };
     });
-  }, [profiles, meals, mealType, index, activeTheme]);
+  }, [profiles, meals, mealType, generating, proposals]);
 
-  const canSwap = rows.some((row) => row.current);
-  const poolSize = mealType
-    ? Math.max(...profiles.map((profile) => getSwapPool(profile.id, mealType, activeTheme).length), 1)
-    : 1;
+  const canSwap = !generating && rows.some((row) => row.current && row.proposal);
 
   function applyTheme(next: string) {
     const value = next.trim();
     if (!value) return;
     setTheme(value);
-    setIndex(0);
     setThemeOpen(false);
     setCustomTheme("");
+    setProposals(null);
+    setNonce((n) => n + 1);
   }
 
   function confirm() {
-    if (!mealType) return;
-    const proposals: Partial<Record<ProfileId, SwapProposal>> = {};
+    if (!mealType || !proposals) return;
+    const next: Partial<Record<ProfileId, SwapProposal>> = {};
     for (const row of rows) {
-      if (row.current) proposals[row.profile.id] = row.proposal;
+      if (row.current && row.proposal) next[row.profile.id] = row.proposal;
     }
-    onConfirm(mealType, proposals);
+    onConfirm(mealType, next);
+  }
+
+  function resetSlot() {
+    setMealType(null);
+    setTheme(null);
+    setThemeOpen(false);
+    setNonce(0);
+    setProposals(null);
+    setFallback(false);
+    setWarning(null);
   }
 
   return (
@@ -103,8 +183,11 @@ export function SwapProposalSheet({
                     disabled={!enabled}
                     onClick={() => {
                       setMealType(option.id);
-                      setIndex(0);
+                      setNonce(0);
                       setTheme(null);
+                      setProposals(null);
+                      setFallback(false);
+                      setWarning(null);
                     }}
                     className="rounded-card bg-health-bg py-3.5 text-[15px] font-semibold disabled:opacity-40"
                   >
@@ -124,6 +207,7 @@ export function SwapProposalSheet({
             <p className="mb-3 text-[13px] text-health-muted">
               {mealTypeLabel(mealType)}
               {activeTheme ? ` · thème ${activeTheme}` : ""}
+              {fallback ? " · secours" : " · Gem Chef"}
             </p>
 
             <div className="max-h-[38vh] space-y-3 overflow-y-auto">
@@ -142,12 +226,20 @@ export function SwapProposalSheet({
                       <p className="mt-3 text-[11px] font-semibold uppercase tracking-wide text-health-muted">
                         Proposition
                       </p>
-                      <p className="text-[14px] font-medium leading-snug">{proposal.nom}</p>
-                      <p className="mt-1 text-[12px] text-health-muted">{proposal.items.join(" · ")}</p>
-                      <p className="mt-0.5 text-[12px] tabular-nums text-health-muted">
-                        {proposal.calories} kcal · {proposal.proteines_g}g P
-                        {proposal.lowCalorie ? " · low cal" : ""}
-                      </p>
+                      {proposal ? (
+                        <>
+                          <p className="text-[14px] font-medium leading-snug">{proposal.nom}</p>
+                          <p className="mt-1 text-[12px] text-health-muted">
+                            {proposal.items.join(" · ")}
+                          </p>
+                          <p className="mt-0.5 text-[12px] tabular-nums text-health-muted">
+                            {proposal.calories} kcal · {proposal.proteines_g}g P
+                            {proposal.lowCalorie ? " · low cal" : ""}
+                          </p>
+                        </>
+                      ) : (
+                        <p className="text-[13px] text-health-muted">Gem Chef prépare le plat…</p>
+                      )}
                     </>
                   ) : (
                     <p className="mt-2 text-[13px] text-health-muted">Pas de repas à remplacer.</p>
@@ -159,16 +251,21 @@ export function SwapProposalSheet({
             <div className="mt-3 grid grid-cols-2 gap-2">
               <button
                 type="button"
-                onClick={() => setIndex((value) => value + 1)}
-                className="flex items-center justify-center gap-1.5 rounded-card bg-health-bg py-3 text-[13px] font-semibold"
+                disabled={generating}
+                onClick={() => {
+                  setProposals(null);
+                  setNonce((n) => n + 1);
+                }}
+                className="flex items-center justify-center gap-1.5 rounded-card bg-health-bg py-3 text-[13px] font-semibold disabled:opacity-50"
               >
                 <RefreshCw size={14} />
                 Nouvelle proposition
               </button>
               <button
                 type="button"
+                disabled={generating}
                 onClick={() => setThemeOpen((open) => !open)}
-                className="flex items-center justify-center gap-1.5 rounded-card bg-health-bg py-3 text-[13px] font-semibold"
+                className="flex items-center justify-center gap-1.5 rounded-card bg-health-bg py-3 text-[13px] font-semibold disabled:opacity-50"
               >
                 <Sparkles size={14} />
                 Thème
@@ -216,12 +313,7 @@ export function SwapProposalSheet({
             <button
               type="button"
               className="mt-2 text-[12px] font-medium text-health-muted"
-              onClick={() => {
-                setMealType(null);
-                setTheme(null);
-                setThemeOpen(false);
-                setIndex(0);
-              }}
+              onClick={resetSlot}
             >
               Changer de repas
             </button>
@@ -235,7 +327,10 @@ export function SwapProposalSheet({
               {confirming ? "Remplacement…" : "Confirmer le remplacement"}
             </button>
             <p className="mt-2 text-center text-[11px] text-health-muted">
-              Proposition { (index % poolSize) + 1 } / {poolSize}
+              {warning ??
+                (fallback
+                  ? "Catalogue de secours"
+                  : "Même plat, portions par profil · 1 repas aujourd’hui")}
             </p>
           </>
         )}

@@ -178,3 +178,29 @@ export function applyToastMessage(opts: {
   );
   return parts.join(" · ");
 }
+
+export function nutritionApplyRecap(opts: {
+  shoppingSkipped: boolean;
+  planEmpty: boolean;
+  planChanged: boolean;
+  nutritionError: string | null;
+}): string[] {
+  const lines: string[] = [];
+  if (opts.nutritionError) {
+    lines.push(`Cibles enregistrées en local · ${opts.nutritionError}`);
+  } else {
+    lines.push("Cibles du jour mises à jour");
+  }
+  lines.push("Suggestions affichées sur Aujourd'hui (repas déjà loggés inchangés)");
+  if (opts.planEmpty) lines.push("Pas de plan cette semaine à ajuster");
+  else if (opts.shoppingSkipped) lines.push("Plan de la semaine inchangé : courses déjà cochées");
+  else if (opts.planChanged) lines.push("Plan de la semaine mis à jour");
+  else lines.push("Plan de la semaine inchangé");
+  return lines;
+}
+
+export function sportApplyRecap(opts: { sportChanged: number; sportError: string | null }) {
+  if (opts.sportError) return `Sport enregistré en local · ${opts.sportError}`;
+  if (opts.sportChanged > 0) return "Sport : durée / intensité mises à jour";
+  return "Sport : routine inchangée";
+}

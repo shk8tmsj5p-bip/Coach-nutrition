@@ -1,8 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, type Dispatch, type SetStateAction } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import {
   Camera,
+  Check,
   Copy,
   Plus,
   RefreshCw,
@@ -17,14 +18,16 @@ import { CopyYesterdaySheet } from "@/components/today/CopyYesterdaySheet";
 import { EditMealSheet } from "@/components/today/EditMealSheet";
 import { SwapProposalSheet } from "@/components/today/SwapProposalSheet";
 import { TodayPlannedCard } from "@/components/today/TodayPlannedCard";
+import { TodayDayCoach } from "@/components/today/TodayDayCoach";
+import { FavoriteHeart } from "@/components/today/FavoriteHeart";
+import { RejectMealButton } from "@/components/today/RejectMealButton";
 import { HealthMetricTile } from "@/components/today/HealthMetricTile";
 import { TodayEnergyCard } from "@/components/today/TodayEnergyCard";
-import { CoachBadge, CoachDiffTags, coachHighlightClass } from "@/components/today/CoachDelta";
+import { CoachBadge, CoachDiffTags, CoachMealAddTags, coachHighlightClass } from "@/components/today/CoachDelta";
 import { Card, SectionTitle } from "@/components/ui/Card";
 import { GoalBadge } from "@/components/ui/MacroProgress";
-import { formatLongDate, isoWeekday, todayISO, yesterdayISO } from "@/lib/dates";
+import { formatLongDate, isoWeekday, mondayOf, todayISO, yesterdayISO } from "@/lib/dates";
 import {
-  coachInsights,
   mockBarcodeProduct,
   suggestedSnacks,
   todayMeals,
@@ -44,6 +47,7 @@ import { fetchTodayActivity } from "@/lib/supabase/health-logs";
 import { ensureDemoMeals } from "@/lib/supabase/seed-today";
 import { macrosFromIngredients, parseFoodTextLocal, scaleDetected } from "@/lib/food-log";
 import { withGeminiWait } from "@/lib/gemini/wait";
+import { requestCoachQuickAdd } from "@/lib/gemini/client";
 import {
   copyYesterdayMeals,
   fetchTodayMeals,
@@ -51,10 +55,38 @@ import {
   insertMeal,
   plannedMealEntry,
   restorePlannedMeals,
+  applyWeekPlatsToToday,
+  applyTodaySlotTemplates,
   setMealSkipped,
   swapMeal,
   updateMeal,
 } from "@/lib/supabase/today-data";
+import { loadWeekPlan } from "@/lib/supabase/week-plans";
+import { clearDailyFeel, fetchTodayFeels, upsertDailyFeel } from "@/lib/supabase/daily-feel";
+import { emptyFeel, hasCompleteFeel, hasFeelScore, type DailyFeelScores } from "@/lib/daily-feel";
+import { todayCoachRemark } from "@/lib/today-coach";
+import type { FavoriteRecipe } from "@/lib/favorites";
+import {
+  canFavoriteMeal,
+  favoriteIdFromTitle,
+  isFavoriteTitle,
+  removeFavorite,
+  upsertFavorite,
+} from "@/lib/favorites";
+import { loadFavorites, persistFavorites } from "@/lib/supabase/favorites";
+import type { RejectedRecipe } from "@/lib/rejected";
+import {
+  canRejectMeal,
+  isRejectedTitle,
+  removeRejected,
+  upsertRejected,
+} from "@/lib/rejected";
+import { loadRejected, persistRejected } from "@/lib/supabase/rejected";
+import {
+  fillMissingPlatsFromWeekPlan,
+  isServingThisWeekPlat,
+  plannedMealForDay,
+} from "@/lib/serve-week-plan";
 import { storage } from "@/lib/storage";
 import type {
   DailyMovement,
@@ -62,6 +94,7 @@ import type {
   Macros,
   MealEntry,
   MealType,
+  PlannedMeal,
   Profile,
   ProfileId,
   Workout,
@@ -69,10 +102,19 @@ import type {
 import { sanitizeRestingKcal } from "@/lib/health-energy";
 import { macroStatus, slotCalorieTarget, TONE_TEXT } from "@/lib/macro-status";
 import { cn, formatKcal, formatKm, formatMin, formatSteps, mealTypeLabel, passiveKcalFromMovement } from "@/lib/utils";
-import { dismissNutrition, visibleNutrition } from "@/lib/coach-adjustments";
+import {
+  dismissNutrition,
+  quickAddKey,
+  upsertNutritionQuickAdd,
+  upsertNutritionQuickAdds,
+  visibleNutrition,
+  type StoredCoachQuickAdd,
+} from "@/lib/coach-adjustments";
 import {
   collectDayBadges,
+  needsPrepToAdd,
   translateMealAdjustments,
+  type MacroKind,
   type MealIngredientView,
 } from "@/lib/coach-ingredients";
 
@@ -153,9 +195,9 @@ type SyncStatus = "loading" | "seeded" | "ready" | "offline" | "error";
 export default function AujourdhuiScreen() {
   const { activeProfiles, view, catalog } = useProfile();
   const [meals, setMeals] = useState<MealEntry[]>([]);
-  const [ratings, setRatings] = useState<Record<ProfileId, { hunger: number; energy: number }>>({
-    alexis: { hunger: 3, energy: 4 },
-    elodie: { hunger: 2, energy: 4 },
+  const [ratings, setRatings] = useState<Record<ProfileId, DailyFeelScores>>({
+    alexis: emptyFeel(),
+    elodie: emptyFeel(),
   });
   const [logMode, setLogMode] = useState<LogMode>(null);
   const [addSlot, setAddSlot] = useState<{ profileId: ProfileId; type: MealType } | null>(null);
@@ -174,10 +216,33 @@ export default function AujourdhuiScreen() {
   const [yesterdayMeals, setYesterdayMeals] = useState<MealEntry[]>([]);
   const [workouts, setWorkouts] = useState<Workout[]>([]);
   const [movement, setMovement] = useState<Record<ProfileId, DailyMovement>>(emptyMovement);
+  const [weekPlan, setWeekPlan] = useState<PlannedMeal[]>([]);
+  const [favorites, setFavorites] = useState<FavoriteRecipe[]>([]);
+  const [rejected, setRejected] = useState<RejectedRecipe[]>([]);
 
   function flash(message: string) {
     setToast(message);
     window.setTimeout(() => setToast(null), 2200);
+  }
+
+  async function persistFeel(profileId: ProfileId, key: "hunger" | "energy" | "fatigue", value: number) {
+    const next = { ...(ratings[profileId] ?? emptyFeel()), [key]: value };
+    setRatings((prev) => ({ ...prev, [profileId]: next }));
+    const error = await upsertDailyFeel(createBrowserSupabaseClient(), profileId, todayISO(), next);
+    if (error) flash(error);
+  }
+
+  async function validateFeel(profileId: ProfileId) {
+    const next = { ...(ratings[profileId] ?? emptyFeel()), validated: true };
+    setRatings((prev) => ({ ...prev, [profileId]: next }));
+    const error = await upsertDailyFeel(createBrowserSupabaseClient(), profileId, todayISO(), next);
+    if (error) flash(error);
+  }
+
+  async function resetFeel(profileId: ProfileId) {
+    setRatings((prev) => ({ ...prev, [profileId]: emptyFeel() }));
+    const error = await clearDailyFeel(createBrowserSupabaseClient(), profileId, todayISO());
+    if (error) flash(error);
   }
 
   const householdTemplates = useMemo(
@@ -188,18 +253,70 @@ export default function AujourdhuiScreen() {
     [catalog.alexis.mealTemplates, catalog.elodie.mealTemplates],
   );
 
+  useEffect(() => {
+    void (async () => {
+      const [favs, bans] = await Promise.all([loadFavorites(), loadRejected()]);
+      setFavorites(favs);
+      setRejected(bans);
+    })();
+  }, []);
+
+  async function toggleFavorite(recipe: PlannedMeal) {
+    if (!canFavoriteMeal(recipe)) return;
+    const on = isFavoriteTitle(favorites, recipe.baseName);
+    const next = on
+      ? removeFavorite(favorites, favoriteIdFromTitle(recipe.baseName))
+      : upsertFavorite(favorites, recipe);
+    setFavorites(next);
+    const error = await persistFavorites(next);
+    if (!on && isRejectedTitle(rejected, recipe.baseName)) {
+      const nextRejected = removeRejected(rejected, favoriteIdFromTitle(recipe.baseName));
+      setRejected(nextRejected);
+      await persistRejected(nextRejected);
+    }
+    if (error) flash(`Favoris en local · ${error}`);
+    else flash(on ? "Retiré des favoris" : "Gardé en favori");
+  }
+
+  async function toggleRejected(recipe: PlannedMeal) {
+    if (!canRejectMeal(recipe)) return;
+    const on = isRejectedTitle(rejected, recipe.baseName);
+    const next = on
+      ? removeRejected(rejected, favoriteIdFromTitle(recipe.baseName))
+      : upsertRejected(rejected, recipe);
+    setRejected(next);
+    const error = await persistRejected(next);
+    if (!on && isFavoriteTitle(favorites, recipe.baseName)) {
+      const nextFav = removeFavorite(favorites, favoriteIdFromTitle(recipe.baseName));
+      setFavorites(nextFav);
+      await persistFavorites(nextFav);
+    }
+    if (error) flash(`Plus jamais en local · ${error}`);
+    else flash(on ? "Retiré de Plus jamais" : "Plus jamais ce plat");
+  }
+
   const reload = useCallback(async () => {
     const supabase = createBrowserSupabaseClient();
     const ids = profileIdsForView(view);
-    if (!supabase) {
-      setMeals(
-        fillMissingSlotsFromTemplates(
-          todayMeals.filter((meal) => ids.includes(meal.profileId)),
-          ids,
-          todayISO(),
-          householdTemplates,
-        ),
+    const date = todayISO();
+    const { plan } = await loadWeekPlan(mondayOf(date));
+    setWeekPlan(plan);
+    const feels = await fetchTodayFeels(supabase, ids);
+    setRatings({
+      alexis: feels.alexis,
+      elodie: feels.elodie,
+    });
+
+    const withTemplatesAndPlan = (rows: MealEntry[], createMissing: boolean) =>
+      fillMissingPlatsFromWeekPlan(
+        fillMissingSlotsFromTemplates(rows, ids, date, householdTemplates, { createMissing }),
+        plan,
+        ids,
+        date,
       );
+
+    if (!supabase) {
+      setMeals(withTemplatesAndPlan(todayMeals.filter((meal) => ids.includes(meal.profileId)), true));
       setWorkouts(todayWorkouts.filter((workout) => ids.includes(workout.profileId)));
       setMovement(todayMovement);
       setStatus("offline");
@@ -209,14 +326,7 @@ export default function AujourdhuiScreen() {
 
     const seed = await ensureDemoMeals(supabase);
     if (!seed.ok) {
-      setMeals(
-        fillMissingSlotsFromTemplates(
-          todayMeals.filter((meal) => ids.includes(meal.profileId)),
-          ids,
-          todayISO(),
-          householdTemplates,
-        ),
-      );
+      setMeals(withTemplatesAndPlan(todayMeals.filter((meal) => ids.includes(meal.profileId)), true));
       setWorkouts(todayWorkouts.filter((workout) => ids.includes(workout.profileId)));
       setMovement(todayMovement);
       setStatus("error");
@@ -235,15 +345,11 @@ export default function AujourdhuiScreen() {
       return;
     }
 
-    setMeals(
-      fillMissingSlotsFromTemplates(rows, ids, todayISO(), householdTemplates, {
-        createMissing: false,
-      }),
-    );
+    setMeals(withTemplatesAndPlan(rows, false));
     setWorkouts(activity.workouts);
     setMovement(activity.movement);
     setStatus(seed.seeded ? "seeded" : "ready");
-    setStatusDetail(seed.seeded ? "Mocks écrits dans repas" : "Lecture filtrée par profile_id");
+    setStatusDetail(seed.seeded ? "Journée à jour (templates + plan)" : "Lecture filtrée par profile_id");
   }, [view, householdTemplates]);
 
   useEffect(() => {
@@ -519,6 +625,31 @@ export default function AujourdhuiScreen() {
     flash("Repas enregistré");
   }
 
+  async function serveWeekPlat(profileId: ProfileId, type: "dejeuner" | "diner") {
+    const supabase = createBrowserSupabaseClient();
+    if (!supabase) {
+      setMeals((prev) =>
+        fillMissingPlatsFromWeekPlan(prev, weekPlan, [profileId], todayISO(), { force: true }),
+      );
+      flash("Plat de la semaine");
+      return;
+    }
+    setBusy(true);
+    const applied = await applyWeekPlatsToToday(supabase, todayISO(), {
+      profileIds: [profileId],
+      types: [type],
+      force: true,
+    });
+    await applyTodaySlotTemplates(supabase, todayISO());
+    setBusy(false);
+    if (!applied) {
+      flash("Pas de plat prévu cette semaine");
+      return;
+    }
+    await reload();
+    flash("Plat de la semaine");
+  }
+
   async function restoreMeals(profileId: ProfileId, types: MealType[]) {
     if (types.length === 0) return;
     const supabase = createBrowserSupabaseClient();
@@ -530,7 +661,13 @@ export default function AujourdhuiScreen() {
         const restored = types
           .map((type) => plannedMealEntry(profileId, type))
           .filter((row): row is MealEntry => Boolean(row));
-        return [...keep, ...restored];
+        return fillMissingPlatsFromWeekPlan(
+          [...keep, ...restored],
+          weekPlan,
+          [profileId],
+          todayISO(),
+          { force: types.some((type) => type === "dejeuner" || type === "diner") },
+        );
       });
       flash(types.length > 1 ? "Journée réinitialisée" : "Repas réinitialisé");
       return;
@@ -568,16 +705,22 @@ export default function AujourdhuiScreen() {
           key={profile.id}
           profile={profile}
           meals={meals.filter((m) => m.profileId === profile.id)}
-          ratings={ratings[profile.id]}
-          onRate={(key, value) =>
-            setRatings((r) => ({ ...r, [profile.id]: { ...r[profile.id], [key]: value } }))
-          }
+          ratings={ratings[profile.id] ?? emptyFeel()}
+          onRate={(key, value) => void persistFeel(profile.id, key, value)}
+          onResetFeel={() => void resetFeel(profile.id)}
+          onValidateFeel={() => void validateFeel(profile.id)}
           onAddToSlot={(type) => setAddSlot({ profileId: profile.id, type })}
           onEditMeal={setEditingMeal}
           onToggleSkip={(meal) => void toggleSkip(meal)}
           onSkipEmpty={(type) => void skipEmptySlot(profile.id, type)}
           onResetMeal={(type) => void restoreMeals(profile.id, [type])}
           onResetAll={() => void restoreMeals(profile.id, ALL_MEAL_SLOTS)}
+          onServeWeekPlat={(type) => void serveWeekPlat(profile.id, type)}
+          weekPlan={weekPlan}
+          favorites={favorites}
+          rejected={rejected}
+          onToggleFavorite={(recipe) => void toggleFavorite(recipe)}
+          onToggleRejected={(recipe) => void toggleRejected(recipe)}
           resetting={busy}
           workouts={workouts.filter((workout) => workout.profileId === profile.id)}
           movement={movement[profile.id]}
@@ -748,26 +891,42 @@ function ProfileToday({
   meals,
   ratings,
   onRate,
+  onResetFeel,
+  onValidateFeel,
   onAddToSlot,
   onEditMeal,
   onToggleSkip,
   onSkipEmpty,
   onResetMeal,
   onResetAll,
+  onServeWeekPlat,
+  weekPlan,
+  favorites,
+  rejected,
+  onToggleFavorite,
+  onToggleRejected,
   resetting,
   workouts,
   movement,
 }: {
   profile: Profile;
   meals: MealEntry[];
-  ratings: { hunger: number; energy: number };
-  onRate: (key: "hunger" | "energy", value: number) => void;
+  ratings: DailyFeelScores;
+  onRate: (key: "hunger" | "energy" | "fatigue", value: number) => void;
+  onResetFeel: () => void;
+  onValidateFeel: () => void;
   onAddToSlot: (type: MealType) => void;
   onEditMeal: (meal: MealEntry) => void;
   onToggleSkip: (meal: MealEntry) => void;
   onSkipEmpty: (type: MealType) => void;
   onResetMeal: (type: MealType) => void;
   onResetAll: () => void;
+  onServeWeekPlat: (type: "dejeuner" | "diner") => void;
+  weekPlan: PlannedMeal[];
+  favorites: FavoriteRecipe[];
+  rejected: RejectedRecipe[];
+  onToggleFavorite: (recipe: PlannedMeal) => void;
+  onToggleRejected: (recipe: PlannedMeal) => void;
   resetting: boolean;
   workouts: Workout[];
   movement: DailyMovement;
@@ -775,6 +934,10 @@ function ProfileToday({
   const { updateAppliedAdjustments } = useProfile();
   const [confirmResetAll, setConfirmResetAll] = useState(false);
   const current = useMemo(() => sumMacros(meals), [meals]);
+  const today = todayISO();
+  const weekStart = mondayOf(today);
+  const weekLunch = plannedMealForDay(weekPlan, today, "dejeuner");
+  const weekDinner = plannedMealForDay(weekPlan, today, "diner");
   const snackTemplate = templateForSlot(
     profile.mealTemplates ?? [],
     "collation",
@@ -789,8 +952,17 @@ function ProfileToday({
     bmr: profile.bmr,
     tdee: profile.tdee,
   }).value;
-  const insights = coachInsights[profile.id];
   const goal = profile.primaryGoal;
+  const remark = todayCoachRemark({
+    validated: Boolean(ratings.validated),
+    profile,
+    meals,
+    weekPlan,
+    workouts,
+    steps: movement.steps,
+    feels: ratings,
+    date: today,
+  });
   const collations = meals.filter((m) => m.type === "collation");
   const collation = collations[0];
   const nutritionAdj = visibleNutrition(profile.appliedAdjustments);
@@ -801,8 +973,14 @@ function ProfileToday({
   const mealCoachViews = useMemo(() => {
     const map = new Map<string, MealIngredientView>();
     if (!nutritionAdj) return map;
+    const stored = nutritionAdj.quickAdds ?? {};
     for (const meal of meals) {
       if (meal.isSkipped) continue;
+      const quickOverrides: Partial<Record<MacroKind, { name: string; grams: number }>> = {};
+      for (const add of Object.values(stored)) {
+        if (add.mealId !== meal.id) continue;
+        quickOverrides[add.kind] = { name: add.name, grams: add.grams };
+      }
       map.set(
         meal.id,
         translateMealAdjustments({
@@ -811,6 +989,7 @@ function ProfileToday({
           deltas: nutritionAdj.deltas,
           profileId: profile.id,
           presentTypes,
+          quickOverrides,
         }),
       );
     }
@@ -820,10 +999,169 @@ function ProfileToday({
     () => collectDayBadges([...mealCoachViews.values()]),
     [mealCoachViews],
   );
+  const quickInflight = useRef("");
 
   async function hideNutrition() {
     if (!profile.appliedAdjustments) return;
     await updateAppliedAdjustments(profile.id, dismissNutrition(profile.appliedAdjustments));
+  }
+
+  function pantryFallback(
+    mealId: string,
+    kind: MacroKind,
+    view: MealIngredientView | undefined,
+    avoided: string[],
+  ): StoredCoachQuickAdd | null {
+    const add = view?.adds.find((item) => item.kind === kind);
+    if (!add?.quickName || !add.quickGrams) return null;
+    return {
+      mealId,
+      kind,
+      name: add.quickName,
+      grams: add.quickGrams,
+      avoided: [...new Set([...avoided, add.quickName])],
+      fromFlash: false,
+    };
+  }
+
+  useEffect(() => {
+    if (!nutritionAdj || !profile.appliedAdjustments) return;
+    const slots = meals.flatMap((meal) => {
+      if (meal.isSkipped) return [];
+      const view = mealCoachViews.get(meal.id);
+      if (!view) return [];
+      return view.adds
+        .filter((add) => add.addGrams > 0 && needsPrepToAdd(add.name))
+        .filter((add) => !nutritionAdj.quickAdds?.[quickAddKey(meal.id, add.kind)])
+        .map((add) => ({
+          mealId: meal.id,
+          mealName: meal.name,
+          mealType: meal.type,
+          items: (meal.items ?? []).filter((line) => line.trim()),
+          kind: add.kind,
+          macroG: Math.abs(Math.round(nutritionAdj.deltas[add.kind])),
+          idealName: add.name,
+          avoid: [add.name],
+        }));
+    });
+    if (slots.length === 0) return;
+    const signature = slots.map((slot) => `${slot.mealId}:${slot.kind}`).join("|");
+    if (quickInflight.current === signature) return;
+    quickInflight.current = signature;
+    let cancelled = false;
+    void (async () => {
+      const adj = profile.appliedAdjustments;
+      if (!adj) return;
+      try {
+        const result = await requestCoachQuickAdd({
+          name: profile.name,
+          diet: profile.diet,
+          aversions: profile.aversions ?? [],
+          slots,
+        });
+        if (cancelled) return;
+        const stored: StoredCoachQuickAdd[] = [];
+        for (const slot of slots) {
+          const hit = result.suggestions?.find(
+            (item) => item.mealId === slot.mealId && item.kind === slot.kind,
+          ) ?? result.suggestions?.find((item) => item.mealId === slot.mealId);
+          if (hit) {
+            stored.push({
+              mealId: slot.mealId,
+              kind: slot.kind,
+              name: hit.name,
+              grams: hit.grams,
+              avoided: [slot.idealName, hit.name],
+              fromFlash: true,
+            });
+          } else {
+            const fallback = pantryFallback(slot.mealId, slot.kind, mealCoachViews.get(slot.mealId), [
+              slot.idealName,
+            ]);
+            if (fallback) stored.push(fallback);
+          }
+        }
+        if (stored.length > 0) {
+          await updateAppliedAdjustments(profile.id, upsertNutritionQuickAdds(adj, stored));
+        }
+      } catch {
+        if (cancelled) return;
+        const fallback = slots
+          .map((slot) =>
+            pantryFallback(slot.mealId, slot.kind, mealCoachViews.get(slot.mealId), [slot.idealName]),
+          )
+          .filter((item): item is StoredCoachQuickAdd => Boolean(item));
+        if (fallback.length > 0) {
+          await updateAppliedAdjustments(profile.id, upsertNutritionQuickAdds(adj, fallback));
+        }
+      } finally {
+        if (quickInflight.current === signature) quickInflight.current = "";
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    meals,
+    mealCoachViews,
+    nutritionAdj,
+    profile.appliedAdjustments,
+    profile.aversions,
+    profile.diet,
+    profile.id,
+    profile.name,
+    updateAppliedAdjustments,
+  ]);
+
+  async function autreIdeeRapide(meal: MealEntry, kind: MacroKind) {
+    const adj = profile.appliedAdjustments;
+    if (!adj?.nutrition || !nutritionAdj) return;
+    const view = mealCoachViews.get(meal.id);
+    const add = view?.adds.find((item) => item.kind === kind);
+    if (!add) return;
+    const stored = nutritionAdj.quickAdds?.[quickAddKey(meal.id, kind)];
+    const avoid = [
+      ...new Set(
+        [add.name, add.quickName, ...(stored?.avoided ?? [])].filter(
+          (item): item is string => Boolean(item),
+        ),
+      ),
+    ];
+    try {
+      const result = await requestCoachQuickAdd({
+        name: profile.name,
+        diet: profile.diet,
+        aversions: profile.aversions ?? [],
+        slots: [
+          {
+            mealId: meal.id,
+            mealName: meal.name,
+            mealType: meal.type,
+            items: (meal.items ?? []).filter((line) => line.trim()),
+            kind,
+            macroG: Math.abs(Math.round(nutritionAdj.deltas[kind])),
+            idealName: add.name,
+            avoid,
+          },
+        ],
+      });
+      const hit =
+        result.suggestions?.find((item) => item.kind === kind) ?? result.suggestions?.[0];
+      if (!hit) return;
+      await updateAppliedAdjustments(
+        profile.id,
+        upsertNutritionQuickAdd(adj, {
+          mealId: meal.id,
+          kind,
+          name: hit.name,
+          grams: hit.grams,
+          avoided: [...avoid, hit.name],
+          fromFlash: true,
+        }),
+      );
+    } catch {
+      /* keep current rapide */
+    }
   }
 
   return (
@@ -893,22 +1231,60 @@ function ProfileToday({
             if (Boolean(a.isSkipped) !== Boolean(b.isSkipped)) return a.isSkipped ? 1 : -1;
             return b.macros.calories - a.macros.calories;
           })[0];
+          const weekDish =
+            slot === "dejeuner" ? weekLunch : slot === "diner" ? weekDinner : null;
           if (!meal) {
             return (
               <Card key={slot}>
                 <div className="flex items-start justify-between gap-3">
-                  <button type="button" className="min-w-0 flex-1 text-left" onClick={() => onAddToSlot(slot)}>
+                  <div className="min-w-0 flex-1">
                     <p className="text-[11px] font-semibold uppercase tracking-wide text-health-muted">
                       {mealTypeLabel(slot)}
                     </p>
-                    <p className="mt-0.5 text-[14px] text-health-muted">Pas encore enregistré</p>
-                    <p className="mt-1 text-[12px] font-medium">Toucher pour ajouter</p>
-                  </button>
-                  <SkipToggle skipped={false} onClick={() => onSkipEmpty(slot)} />
+                    {weekDish ? (
+                      <>
+                        <p className="mt-0.5 text-[15px] font-medium leading-snug">{weekDish.baseName}</p>
+                        <p className="mt-1 text-[12px] text-health-muted">Prévu dans Repas · 1 portion</p>
+                        <button
+                          type="button"
+                          onClick={() => onServeWeekPlat(slot as "dejeuner" | "diner")}
+                          className="mt-2 text-[12px] font-semibold"
+                        >
+                          Mettre le plat de la semaine
+                        </button>
+                      </>
+                    ) : (
+                      <button type="button" className="w-full text-left" onClick={() => onAddToSlot(slot)}>
+                        <p className="mt-0.5 text-[14px] text-health-muted">Pas encore enregistré</p>
+                        {slot === "dejeuner" || slot === "diner" ? (
+                          <p className="mt-1 text-[12px] text-health-muted">Pas de plat prévu cette semaine</p>
+                        ) : null}
+                        <p className="mt-1 text-[12px] font-medium">Toucher pour ajouter</p>
+                      </button>
+                    )}
+                  </div>
+                  <div className="flex shrink-0 flex-col items-end gap-2">
+                    {canFavoriteMeal(weekDish) ? (
+                      <div className="flex items-center gap-1.5">
+                        <FavoriteHeart
+                          on={isFavoriteTitle(favorites, weekDish.baseName)}
+                          onClick={() => onToggleFavorite(weekDish)}
+                        />
+                        <RejectMealButton
+                          on={isRejectedTitle(rejected, weekDish.baseName)}
+                          onClick={() => onToggleRejected(weekDish)}
+                        />
+                      </div>
+                    ) : null}
+                    <SkipToggle skipped={false} onClick={() => onSkipEmpty(slot)} />
+                  </div>
                 </div>
               </Card>
             );
           }
+          const fromWeek = Boolean(
+            weekDish && isServingThisWeekPlat(meal, weekDish, weekStart),
+          );
           return (
             <MealCard
               key={meal.id}
@@ -916,10 +1292,31 @@ function ProfileToday({
               dailyCalories={profile.targets.calories}
               goal={goal}
               coachView={mealCoachViews.get(meal.id)}
+              fromWeek={fromWeek}
               onDismissCoach={nutritionAdj ? () => void hideNutrition() : undefined}
+              onAutreIdee={
+                nutritionAdj ? (kind) => void autreIdeeRapide(meal, kind) : undefined
+              }
               onClick={() => onEditMeal(meal)}
               onToggleSkip={() => onToggleSkip(meal)}
               onReset={() => onResetMeal(meal.type)}
+              onServeWeek={
+                weekDish && !fromWeek && !meal.isSkipped
+                  ? () => onServeWeekPlat(slot as "dejeuner" | "diner")
+                  : undefined
+              }
+              favoriteOn={
+                canFavoriteMeal(weekDish) ? isFavoriteTitle(favorites, weekDish.baseName) : undefined
+              }
+              onToggleFavorite={
+                canFavoriteMeal(weekDish) ? () => onToggleFavorite(weekDish) : undefined
+              }
+              rejectedOn={
+                canFavoriteMeal(weekDish) ? isRejectedTitle(rejected, weekDish.baseName) : undefined
+              }
+              onToggleRejected={
+                canFavoriteMeal(weekDish) ? () => onToggleRejected(weekDish) : undefined
+              }
             />
           );
         })}
@@ -931,6 +1328,9 @@ function ProfileToday({
             goal={goal}
             coachView={mealCoachViews.get(collation.id)}
             onDismissCoach={nutritionAdj ? () => void hideNutrition() : undefined}
+            onAutreIdee={
+              nutritionAdj ? (kind) => void autreIdeeRapide(collation, kind) : undefined
+            }
             onClick={() => onEditMeal(collation)}
             onToggleSkip={() => onToggleSkip(collation)}
             onReset={() => onResetMeal(collation.type)}
@@ -957,6 +1357,51 @@ function ProfileToday({
           </Card>
         )}
       </div>
+
+      <SectionTitle
+        action={
+          <button
+            type="button"
+            disabled={!hasFeelScore(ratings)}
+            onClick={onResetFeel}
+            className="inline-flex items-center gap-1 text-[12px] font-semibold text-health-muted disabled:opacity-40"
+          >
+            <RotateCcw size={12} />
+            Réinit.
+          </button>
+        }
+      >
+        Faim, énergie & fatigue
+      </SectionTitle>
+      <Card>
+        <RatingRow label="Faim" value={ratings.hunger} onChange={(v) => onRate("hunger", v)} />
+        <div className="my-3 h-px bg-health-line" />
+        <RatingRow label="Énergie" value={ratings.energy} onChange={(v) => onRate("energy", v)} />
+        <div className="my-3 h-px bg-health-line" />
+        <RatingRow label="Fatigue" value={ratings.fatigue} onChange={(v) => onRate("fatigue", v)} />
+        {ratings.validated ? (
+          <p className="mt-3 text-[11px] leading-snug text-health-muted">
+            Noté. Le coach du jour se met à jour si tu logges un repas ou une séance.
+          </p>
+        ) : (
+          <>
+            <p className="mt-3 text-[11px] leading-snug text-health-muted">
+              Note les trois, puis Validé — le coach lit aussi mangé, brûlé et l’activité.
+            </p>
+            <button
+              type="button"
+              disabled={!hasCompleteFeel(ratings)}
+              onClick={onValidateFeel}
+              className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-card bg-health-ink py-2.5 text-[13px] font-semibold text-white disabled:opacity-40"
+            >
+              <Check size={14} />
+              Validé
+            </button>
+          </>
+        )}
+      </Card>
+
+      <TodayDayCoach remark={remark} />
 
       <TodayPlannedCard profile={profile} />
 
@@ -1014,23 +1459,6 @@ function ProfileToday({
           </div>
         )}
       </Card>
-
-      <SectionTitle>Faim & énergie</SectionTitle>
-      <Card>
-        <RatingRow label="Faim" value={ratings.hunger} onChange={(v) => onRate("hunger", v)} />
-        <div className="my-3 h-px bg-health-line" />
-        <RatingRow label="Énergie" value={ratings.energy} onChange={(v) => onRate("energy", v)} />
-      </Card>
-
-      <SectionTitle>Coach</SectionTitle>
-      <div className="space-y-2">
-        {insights.map((insight) => (
-          <Card key={insight.title}>
-            <p className="text-[13px] font-semibold">{insight.title}</p>
-            <p className="mt-1 text-[13px] leading-relaxed text-health-muted">{insight.message}</p>
-          </Card>
-        ))}
-      </div>
     </section>
   );
 }
@@ -1058,19 +1486,33 @@ function MealCard({
   dailyCalories,
   goal,
   coachView,
+  fromWeek,
   onDismissCoach,
+  onAutreIdee,
   onClick,
   onToggleSkip,
   onReset,
+  onServeWeek,
+  favoriteOn,
+  onToggleFavorite,
+  rejectedOn,
+  onToggleRejected,
 }: {
   meal: MealEntry;
   dailyCalories: number;
   goal: Profile["primaryGoal"];
   coachView?: MealIngredientView;
+  fromWeek?: boolean;
   onDismissCoach?: () => void;
+  onAutreIdee?: (kind: MacroKind) => void;
   onClick: () => void;
   onToggleSkip: () => void;
   onReset?: () => void;
+  onServeWeek?: () => void;
+  favoriteOn?: boolean;
+  onToggleFavorite?: () => void;
+  rejectedOn?: boolean;
+  onToggleRejected?: () => void;
 }) {
   const skipped = Boolean(meal.isSkipped);
   const adds = coachView?.adds ?? [];
@@ -1116,9 +1558,24 @@ function MealCard({
             {highlighted && (
               <div className="mt-2">
                 <CoachBadge onDismiss={onDismissCoach} />
-                <CoachDiffTags tags={coachView?.badges ?? []} />
+                <CoachMealAddTags adds={adds} onAutreIdee={onAutreIdee} />
               </div>
             )}
+            {fromWeek ? (
+              <p className="mt-1 text-[11px] font-medium text-health-muted">Plat de la semaine</p>
+            ) : null}
+            {onServeWeek ? (
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onServeWeek();
+                }}
+                className="mt-2 inline-flex items-center gap-1 text-[11px] font-semibold"
+              >
+                Mettre le plat de la semaine
+              </button>
+            ) : null}
             {onReset && (
               <button
                 type="button"
@@ -1134,6 +1591,16 @@ function MealCard({
             )}
           </div>
           <div className="flex shrink-0 flex-col items-end gap-2">
+            {onToggleFavorite || onToggleRejected ? (
+              <div className="flex items-center gap-1.5">
+                {onToggleFavorite ? (
+                  <FavoriteHeart on={Boolean(favoriteOn)} onClick={onToggleFavorite} />
+                ) : null}
+                {onToggleRejected ? (
+                  <RejectMealButton on={Boolean(rejectedOn)} onClick={onToggleRejected} />
+                ) : null}
+              </div>
+            ) : null}
             <SkipToggle skipped={skipped} onClick={onToggleSkip} />
             <p
               className={cn(
@@ -1198,7 +1665,7 @@ function MealItemsList({
       ) : null}
       <div className="rounded-lg bg-amber-50 px-2 py-1.5 dark:bg-amber-950/40">
         <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-amber-800 dark:text-amber-200">
-          Dessert
+          Dessert · Réglages
         </p>
         <p className="mt-0.5 text-[12px] leading-relaxed text-health-ink">
           {dessert.map((item, index) => (
@@ -1240,7 +1707,7 @@ function RatingRow({
   onChange,
 }: {
   label: string;
-  value: number;
+  value: number | null;
   onChange: (value: number) => void;
 }) {
   return (
@@ -1254,7 +1721,7 @@ function RatingRow({
             onClick={() => onChange(n)}
             className={cn(
               "h-8 w-8 rounded-full text-[13px] font-semibold",
-              n <= value ? "bg-health-ink text-white" : "bg-health-bg text-health-muted",
+              value != null && n <= value ? "bg-health-ink text-white" : "bg-health-bg text-health-muted",
             )}
           >
             {n}

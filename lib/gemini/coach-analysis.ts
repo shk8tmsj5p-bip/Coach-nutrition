@@ -1,6 +1,8 @@
 import type { Macros, Profile, SportActivity, SportEffort } from "@/lib/types";
 import type { CoachSessionSnapshot } from "@/lib/coach-week-sessions";
 import type { CoachTrendPoint, CoachWeekPayload } from "@/lib/coach-payload";
+import type { DailyFeelEntry } from "@/lib/daily-feel";
+import { formatDailyFeelsForPrompt, isStressedDaily, isStressedNotes } from "@/lib/daily-feel";
 import { formatWeeklyRate, goalLabel } from "@/lib/goals";
 import { activityLabel, effortAllowed, effortLabel } from "@/lib/sport-routine";
 
@@ -35,6 +37,7 @@ export type CoachAnalysisRequest = {
   plateau: boolean;
   journal: CoachWeekPayload["journal"];
   recentJournals: CoachWeekPayload["recentJournals"];
+  dailyFeels?: DailyFeelEntry[];
   sessions: CoachSessionSnapshot[];
   currentTargets: Macros;
 };
@@ -112,8 +115,11 @@ export function coachHeadline(analysis: CoachAnalysis) {
   return { tone: "ok" as const, title: "Rythme tenu — cible conservée" };
 }
 
-export function isStressedWeek(notes: { hunger: number; energy: number; fatigue: number }) {
-  return notes.hunger >= 4 || notes.fatigue >= 4 || notes.energy <= 2;
+export function isStressedWeek(
+  notes: { hunger: number; energy: number; fatigue: number },
+  dailyFeels?: DailyFeelEntry[],
+) {
+  return isStressedNotes(notes) || isStressedDaily(dailyFeels);
 }
 
 const ACTIVITIES: SportActivity[] = ["course", "velo", "muscu"];
@@ -203,7 +209,7 @@ export function formatSportPatch(patch: CoachSportPatch) {
 export function localCoachAnalysis(body: CoachAnalysisRequest): CoachAnalysis {
   const current = body.currentTargets;
   const notes = body.journal.notes;
-  const stressed = isStressedWeek(notes);
+  const stressed = isStressedWeek(notes, body.dailyFeels);
   const hasRun = body.sessions.some((session) => session.activity === "course");
   const hasIntervals = body.sessions.some(
     (session) => session.effort === "fractionne" || session.effort === "circuit-hiit",
@@ -227,8 +233,11 @@ export function localCoachAnalysis(body: CoachAnalysisRequest): CoachAnalysis {
       { ...current, calories: current.calories + 80, carbs: current.carbs + 20 },
       true,
     );
+    const feelLine = isStressedDaily(body.dailyFeels)
+      ? "Un check-in quotidien signale faim, fatigue ou énergie basse."
+      : `Journal dimanche : faim ${notes.hunger}/5, énergie ${notes.energy}/5, fatigue ${notes.fatigue}/5.`;
     return {
-      analysis: `Sur 7 jours : faim ${notes.hunger}/5, énergie ${notes.energy}/5, fatigue ${notes.fatigue}/5. ${weightLine} Séances ${completed}/${planned || 0} validées. La récupération prime : pas de coupe calorique cette semaine.`,
+      analysis: `Sur 7 jours : ${feelLine} ${weightLine} Séances ${completed}/${planned || 0} validées. La récupération prime : pas de coupe calorique cette semaine.`,
       nutrition: [
         "Maintenir les calories actuelles (pas de déficit supplémentaire)",
         hasRun ? "+20g glucides les jours de course" : "+15g glucides les jours d’entraînement",
@@ -368,6 +377,8 @@ humeur="${notes.mood}" victoires="${notes.wins}" freins="${notes.blockers}"
 faim=${notes.hunger}/5 énergie=${notes.energy}/5 fatigue=${notes.fatigue}/5
 ${recent ? `Autres notes :\n${recent}` : ""}
 
+${formatDailyFeelsForPrompt(body.dailyFeels)}
+
 Séances 7 j (prévues + validées Strava) :
 ${sessions}
 
@@ -380,8 +391,9 @@ Mission :
 3. Ajuster l'intensité / la durée sport si faim/fatigue hautes (alléger fractionné → Zone 2, raccourcir 10 min). Ne pas inventer de nouvelles séances.
 
 Règles :
-- Si faim ≥ 4 OU fatigue ≥ 4 OU énergie ≤ 2 : INTERDIT de baisser les calories. calorie_delta = 0. Préférer glucides d'entraînement + récupération. sport_adjustments : duration_delta_min négatif (−10) et next_effort plus facile si fractionné / HIIT.
-- Plateau perte ET notes OK : −150 kcal/j max, plutôt les jours de repos. Jamais plus de −200 kcal/j. sport_adjustments = [] (volume conservé).
+- Si faim ≥ 4 OU fatigue ≥ 4 OU énergie ≤ 2 (journal dimanche OU n'importe quel check-in quotidien noté) : INTERDIT de baisser les calories. calorie_delta = 0. Préférer glucides d'entraînement + récupération. sport_adjustments : duration_delta_min négatif (−10) et next_effort plus facile si fractionné / HIIT.
+- Jours SANS check-in quotidien : ignorer complètement (ne pas inventer de 3/5).
+- Plateau perte ET notes OK (journal dimanche + check-ins notés, jours sans note ignorés) : −150 kcal/j max, plutôt les jours de repos. Jamais plus de −200 kcal/j. sport_adjustments = [] (volume conservé).
 - Prise de masse : ne pas couper les kcal.
 - Maintien : viser ~0 de delta moyen.
 - targets = cible journalière moyenne à appliquer aux anneaux / Gem Chef.
@@ -411,7 +423,7 @@ export function parseCoachAnalysisJson(parsed: unknown, body: CoachAnalysisReque
   if (!analysis) return null;
 
   const current = body.currentTargets;
-  const stressed = isStressedWeek(body.journal.notes);
+  const stressed = isStressedWeek(body.journal.notes, body.dailyFeels);
   const calorieDelta = clampDelta(Number(rec.calorie_delta ?? 0) || 0, stressed ? 0 : -200, 150);
   const proteinDelta = clampDelta(Number(rec.protein_delta ?? 0) || 0, -10, 25);
   const carbsDelta = clampDelta(Number(rec.carbs_delta ?? 0) || 0, -40, 50);

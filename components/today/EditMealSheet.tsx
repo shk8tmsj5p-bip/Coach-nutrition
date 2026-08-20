@@ -133,7 +133,7 @@ export function EditMealSheet({
           {showDessert ? (
             <div>
               <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-amber-800 dark:text-amber-200">
-                Dessert
+                Dessert · Réglages
               </p>
               {dessertItems.map((item) => (
                 <ItemRow

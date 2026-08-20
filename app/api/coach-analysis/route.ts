@@ -23,6 +23,7 @@ export async function POST(request: Request) {
     sessions: body.sessions ?? [],
     recentJournals: body.recentJournals ?? [],
     journal: body.journal ?? { date: "", notes: { mood: "", wins: "", blockers: "", hunger: 3, energy: 3, fatigue: 3 } },
+    dailyFeels: body.dailyFeels ?? [],
   };
 
   try {

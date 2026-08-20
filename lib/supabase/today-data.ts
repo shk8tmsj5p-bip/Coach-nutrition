@@ -1,7 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { isoWeekday, todayISO, yesterdayISO } from "@/lib/dates";
+import { isoWeekday, mondayOf, todayISO, yesterdayISO } from "@/lib/dates";
 import { mapProfil, mapRepas } from "@/lib/mappers";
-import { seedMealFor } from "@/lib/supabase/seed-data";
 import type { SwapProposal } from "@/lib/swap-proposals";
 import type { Database } from "@/lib/supabase/database.types";
 import type { MealEntry, MealType, Profile, ProfileId, SlotTemplate } from "@/lib/types";
@@ -16,6 +15,13 @@ import {
   templateForSlot,
   withKeptDessert,
 } from "@/lib/meal-templates";
+import {
+  mergeWeekPlatIntoMeal,
+  plannedMealForDay,
+  shouldAutoServePlat,
+  todayPlatFromPlanned,
+} from "@/lib/serve-week-plan";
+import { loadWeekPlan } from "@/lib/supabase/week-plans";
 
 export async function fetchProfils(
   supabase: SupabaseClient<Database>,
@@ -87,6 +93,7 @@ export async function insertMeal(
     lipides_g: meal.macros.fat,
     source: meal.source,
     is_skipped: meal.isSkipped ?? false,
+    notes: meal.notes ?? null,
   });
   return error?.message;
 }
@@ -106,6 +113,7 @@ export async function updateMeal(
       glucides_g: meal.macros.carbs,
       lipides_g: meal.macros.fat,
       is_skipped: meal.isSkipped ?? false,
+      notes: meal.notes ?? null,
     })
     .eq("id", meal.id);
   return error?.message;
@@ -126,59 +134,48 @@ export async function restorePlannedMeals(
     .in("type", types);
   if (removed.error) return { error: removed.error.message };
 
-  const rows = types
+  const templateTypes = types.filter((type) => type === "petit-dejeuner" || type === "collation");
+  const rows = templateTypes
     .map((type) => rowForPlannedSlot(profileId, today, type))
     .filter((row): row is NonNullable<typeof row> => Boolean(row));
-  if (rows.length === 0) return {};
+  if (rows.length > 0) {
+    const inserted = await supabase.from("repas").insert(rows);
+    if (inserted.error) return { error: inserted.error.message };
+  }
 
-  const inserted = await supabase.from("repas").insert(rows);
-  if (inserted.error) return { error: inserted.error.message };
+  const weekTypes = types.filter((type): type is "dejeuner" | "diner" => type === "dejeuner" || type === "diner");
+  if (weekTypes.length > 0) {
+    await applyWeekPlatsToToday(supabase, today, { profileIds: [profileId], types: weekTypes, force: true });
+  }
+  await applyTodaySlotTemplates(supabase, today);
   return {};
 }
 
 export function plannedMealEntry(profileId: ProfileId, type: MealType): MealEntry | null {
   const fromTemplate = plannedSlotEntry(profileId, type);
   if (fromTemplate) return fromTemplate;
-  const row = seedMealFor(profileId, todayISO(), type);
-  if (!row?.nom) return null;
-  return {
-    id: `plan-${profileId}-${type}`,
-    name: row.nom,
-    type,
-    time: row.heure ?? "",
-    macros: {
-      calories: row.calories ?? 0,
-      protein: row.proteines_g ?? 0,
-      carbs: row.glucides_g ?? 0,
-      fat: row.lipides_g ?? 0,
-    },
-    profileId,
-    source: "plan",
-    items: Array.isArray(row.items) ? row.items.map(String) : [],
-    isSkipped: false,
-  };
+  return null;
 }
 
 function rowForPlannedSlot(profileId: ProfileId, date: string, type: MealType) {
   const fromTemplate = plannedSlotEntry(profileId, type, date);
-  if (fromTemplate) {
-    return {
-      profile_id: profileId,
-      date,
-      type,
-      heure: fromTemplate.time || null,
-      nom: fromTemplate.name,
-      items: fromTemplate.items ?? [],
-      calories: fromTemplate.macros.calories,
-      proteines_g: fromTemplate.macros.protein,
-      glucides_g: fromTemplate.macros.carbs,
-      lipides_g: fromTemplate.macros.fat,
-      source: "plan" as const,
-      is_planned: true,
-      is_skipped: false,
-    };
-  }
-  return seedMealFor(profileId, date, type) ?? null;
+  return fromTemplate
+    ? {
+        profile_id: profileId,
+        date,
+        type,
+        heure: fromTemplate.time || null,
+        nom: fromTemplate.name,
+        items: fromTemplate.items ?? [],
+        calories: fromTemplate.macros.calories,
+        proteines_g: fromTemplate.macros.protein,
+        glucides_g: fromTemplate.macros.carbs,
+        lipides_g: fromTemplate.macros.fat,
+        source: "plan" as const,
+        is_planned: true,
+        is_skipped: false,
+      }
+    : null;
 }
 
 function isLoggedSource(source: MealEntry["source"] | string | null | undefined) {
@@ -201,6 +198,7 @@ function dessertMealFromRow(
     source: string | null;
     is_skipped: boolean | null;
     items: unknown;
+    notes?: string | null;
   },
   profileId: ProfileId,
   type: MealType,
@@ -224,6 +222,7 @@ function dessertMealFromRow(
     source,
     items: Array.isArray(row.items) ? row.items.map(String) : [],
     isSkipped: Boolean(row.is_skipped),
+    notes: row.notes ?? undefined,
   };
 }
 
@@ -396,6 +395,80 @@ export async function applyTodaySlotTemplates(
           proteines_g: merged.macros.protein,
           glucides_g: merged.macros.carbs,
           lipides_g: merged.macros.fat,
+        })
+        .eq("id", current.id);
+      if (!updated.error) changed = true;
+    }
+  }
+  return changed;
+}
+
+export async function applyWeekPlatsToToday(
+  supabase: SupabaseClient<Database>,
+  date = todayISO(),
+  opts: {
+    profileIds?: ProfileId[];
+    types?: Array<"dejeuner" | "diner">;
+    force?: boolean;
+  } = {},
+): Promise<boolean> {
+  const { plan } = await loadWeekPlan(mondayOf(date));
+  const profileIds = opts.profileIds ?? (["alexis", "elodie"] as const);
+  const types = opts.types ?? (["dejeuner", "diner"] as const);
+  const existing = await supabase
+    .from("repas")
+    .select("id, profile_id, type, source, is_skipped, nom, items, calories, proteines_g, glucides_g, lipides_g, heure, notes")
+    .eq("date", date);
+  if (existing.error) return false;
+
+  const byKey = new Map(
+    (existing.data ?? []).map((row) => [`${row.profile_id}:${row.type}`, row] as const),
+  );
+  let changed = false;
+
+  for (const id of profileIds) {
+    for (const type of types) {
+      const planned = plannedMealForDay(plan, date, type);
+      if (!planned) continue;
+      const plat = todayPlatFromPlanned(planned, id, date);
+      const current = byKey.get(`${id}:${type}`);
+      if (!current) {
+        const inserted = await supabase.from("repas").insert({
+          profile_id: id,
+          date,
+          type,
+          heure: plat.time || null,
+          nom: plat.name,
+          items: plat.items ?? [],
+          calories: plat.macros.calories,
+          proteines_g: plat.macros.protein,
+          glucides_g: plat.macros.carbs,
+          lipides_g: plat.macros.fat,
+          source: "plan",
+          is_planned: true,
+          is_skipped: false,
+          notes: plat.notes ?? null,
+        });
+        if (!inserted.error) changed = true;
+        continue;
+      }
+      const meal = dessertMealFromRow(current, id, type);
+      if (!opts.force && !shouldAutoServePlat(meal)) continue;
+      const merged = mergeWeekPlatIntoMeal(meal, plat);
+      const updated = await supabase
+        .from("repas")
+        .update({
+          nom: merged.name,
+          items: merged.items ?? [],
+          calories: merged.macros.calories,
+          proteines_g: merged.macros.protein,
+          glucides_g: merged.macros.carbs,
+          lipides_g: merged.macros.fat,
+          heure: merged.time || current.heure,
+          source: "plan",
+          is_planned: true,
+          is_skipped: false,
+          notes: merged.notes ?? null,
         })
         .eq("id", current.id);
       if (!updated.error) changed = true;

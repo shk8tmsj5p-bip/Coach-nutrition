@@ -31,8 +31,8 @@ export function EnergyBalanceCard({ profile }: { profile: Profile }) {
   const scale = Math.max(eaten, burned, Math.abs(delta), 1);
   const eatenColor = profile.accent === "coral" ? "#FF6B4A" : "#6B7CFF";
   const bars = [
-    { label: "Mangées", value: eaten, color: eatenColor, display: kcal(eaten) },
-    { label: "Brûlées", value: burned, color: "#5AC8FA", display: kcal(burned) },
+    { label: "Cible", value: eaten, color: eatenColor, display: kcal(eaten) },
+    { label: "Dépense estimée", value: burned, color: "#5AC8FA", display: kcal(burned) },
     {
       label: tone.label,
       value: Math.abs(delta),
@@ -43,15 +43,15 @@ export function EnergyBalanceCard({ profile }: { profile: Profile }) {
 
   const caption =
     delta > 80
-      ? `Tu brûles ${kcal(delta)} kcal de plus que tu ne manges.`
+      ? `Le plan vise un déficit de ${kcal(delta)} kcal par jour.`
       : delta < -80
-        ? `Tu manges ${kcal(Math.abs(delta))} kcal de plus que tu ne brûles.`
-        : "Mangées et brûlées sont alignées.";
+        ? `Le plan vise un surplus de ${kcal(Math.abs(delta))} kcal par jour.`
+        : "Cible et dépense estimée sont alignées.";
 
   return (
     <Card>
       <p className="text-[11px] font-semibold uppercase tracking-wide text-health-muted">
-        Énergie du jour
+        Plan semaine
       </p>
       <div className="mt-3 flex items-end justify-around gap-2">
         {bars.map((bar) => {
@@ -68,7 +68,7 @@ export function EnergyBalanceCard({ profile }: { profile: Profile }) {
                   style={{ height, background: bar.color }}
                 />
               </div>
-              <p className="mt-2 text-[12px] font-semibold">{bar.label}</p>
+              <p className="mt-2 text-center text-[12px] font-semibold leading-tight">{bar.label}</p>
             </div>
           );
         })}

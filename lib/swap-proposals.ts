@@ -1,4 +1,5 @@
-import type { MealType, ProfileId } from "@/lib/types";
+import { macrosFromPlanned, platLinesFromPlanned } from "@/lib/serve-week-plan";
+import type { MealType, PlannedMeal, ProfileId } from "@/lib/types";
 
 export type SwapProposal = {
   nom: string;
@@ -112,4 +113,27 @@ export function pickSwapProposal(
 ): SwapProposal {
   const pool = getSwapPool(profileId, mealType, theme);
   return pool[index % pool.length];
+}
+
+export function swapProposalsFromPlanned(
+  meal: PlannedMeal,
+  theme: string,
+  mealType: MealType,
+): Record<ProfileId, SwapProposal> {
+  const lowCalorie = mealType === "diner" || meal.lowCalorie;
+  const label = theme.trim() || meal.theme || "Base";
+  const one = (id: ProfileId): SwapProposal => {
+    const macros = macrosFromPlanned(meal, id);
+    return {
+      nom: meal.baseName,
+      calories: macros.calories,
+      proteines_g: macros.protein,
+      glucides_g: macros.carbs,
+      lipides_g: macros.fat,
+      items: platLinesFromPlanned(meal, id),
+      theme: label,
+      lowCalorie,
+    };
+  };
+  return { alexis: one("alexis"), elodie: one("elodie") };
 }

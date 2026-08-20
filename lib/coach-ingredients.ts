@@ -15,6 +15,10 @@ export type CoachIngredientAdd = {
   addGrams: number;
   newTotalGrams: number | null;
   badge: string;
+  /** No-prep option for a meal already cooked / prepared (Today only). */
+  quickName?: string;
+  quickGrams?: number;
+  quickBadge?: string;
 };
 
 export type DisplayMealItem = {
@@ -194,7 +198,7 @@ function densityForName(name: string, kind: MacroKind, mealType: MealType) {
   return 0.31;
 }
 
-function gramsFromMacro(name: string, kind: MacroKind, mealType: MealType, macroG: number) {
+export function gramsFromMacro(name: string, kind: MacroKind, mealType: MealType, macroG: number) {
   const density = densityForName(name, kind, mealType);
   if (density <= 0) return 0;
   return roundTo5(macroG / density);
@@ -207,6 +211,47 @@ export function prettyIngredientBadge(name: string, grams: number) {
     if (Math.abs(grams) <= 130) return grams > 0 ? "+1 banane" : "−1 banane";
   }
   return `${signedGrams(grams)} ${short}`;
+}
+
+export function needsPrepToAdd(name: string) {
+  const key = normalizeFoodName(name);
+  return /flocon|avoine|riz|quinoa|lentille|pate|pates|penne|orzo|vermicelle|sarrasin|patate|pomme de terre|chia/.test(
+    key,
+  );
+}
+
+function quickCompanionName(kind: MacroKind, mealType: MealType, profileId: ProfileId) {
+  if (kind === "carbs") {
+    return mealType === "dejeuner" || mealType === "diner" ? "Pain complet" : "Banane";
+  }
+  if (kind === "protein") {
+    if (mealType === "dejeuner" || mealType === "diner") {
+      return profileId === "elodie" ? "Skyr" : "Yaourt soja nature";
+    }
+    return profileId === "elodie" ? "Skyr" : "Protein crunch";
+  }
+  if (mealType === "petit-dejeuner" || mealType === "collation") return "Beurre d'amande";
+  return "Huile d'olive";
+}
+
+function withQuickOption(
+  add: CoachIngredientAdd,
+  mealType: MealType,
+  profileId: ProfileId,
+  macroG: number,
+): CoachIngredientAdd {
+  if (add.addGrams <= 0 || !needsPrepToAdd(add.name)) return add;
+  const quickName = quickCompanionName(add.kind, mealType, profileId);
+  if (namesOverlap(quickName, add.name)) return add;
+  const quickGrams = gramsFromMacro(quickName, add.kind, mealType, macroG);
+  if (quickGrams <= 0) return add;
+  return {
+    ...add,
+    badge: `Idéal · ${add.badge}`,
+    quickName,
+    quickGrams,
+    quickBadge: `Rapide · ${prettyIngredientBadge(quickName, quickGrams)}`,
+  };
 }
 
 function stapleScore(name: string, kind: MacroKind) {
@@ -245,8 +290,16 @@ function namesOverlap(a: string, b: string) {
 function rewriteItems(items: string[], adds: CoachIngredientAdd[]): DisplayMealItem[] {
   const parsed = items.map(parseMealItem);
   const assigned = new Map<number, CoachIngredientAdd>();
+  const extras: DisplayMealItem[] = [];
 
   for (const add of adds) {
+    if (add.quickName && add.quickGrams != null && add.quickGrams > 0) {
+      extras.push({
+        text: `${add.quickName} ${Math.round(add.quickGrams)}g [sur le moment]`,
+        boosted: true,
+      });
+      continue;
+    }
     const named = parsed.findIndex(
       (item, index) =>
         !assigned.has(index) &&
@@ -282,6 +335,7 @@ function rewriteItems(items: string[], adds: CoachIngredientAdd[]): DisplayMealI
   });
 
   for (const add of adds) {
+    if (add.quickName) continue;
     if ([...assigned.values()].includes(add)) continue;
     const total = add.newTotalGrams ?? add.addGrams;
     lines.push({
@@ -289,7 +343,7 @@ function rewriteItems(items: string[], adds: CoachIngredientAdd[]): DisplayMealI
       boosted: true,
     });
   }
-  return lines;
+  return [...lines, ...extras];
 }
 
 export function translateMealAdjustments(opts: {
@@ -299,6 +353,7 @@ export function translateMealAdjustments(opts: {
   profileId: ProfileId;
   presentTypes: MealType[];
   skipped?: boolean;
+  quickOverrides?: Partial<Record<MacroKind, { name: string; grams: number }>>;
 }): MealIngredientView {
   if (opts.skipped) {
     return {
@@ -334,17 +389,33 @@ export function translateMealAdjustments(opts: {
     if (addGrams === 0) return;
 
     const newTotalGrams = matched?.grams != null ? Math.max(0, matched.grams + addGrams) : addGrams;
-    adds.push({
+    const base: CoachIngredientAdd = {
       kind,
       name,
       addGrams,
       newTotalGrams,
       badge: prettyIngredientBadge(name, addGrams),
-    });
+    };
+    const override = opts.quickOverrides?.[kind];
+    if (override && addGrams > 0 && needsPrepToAdd(name)) {
+      adds.push({
+        ...base,
+        badge: `Idéal · ${base.badge}`,
+        quickName: override.name,
+        quickGrams: override.grams,
+        quickBadge: `Rapide · ${prettyIngredientBadge(override.name, override.grams)}`,
+      });
+    } else {
+      adds.push(withQuickOption(base, opts.mealType, opts.profileId, macroG));
+    }
   });
 
   const items = rewriteItems(opts.items ?? [], adds);
-  return { adds, items, badges: adds.map((add) => add.badge) };
+  return {
+    adds,
+    items,
+    badges: adds.flatMap((add) => [add.badge, add.quickBadge].filter((tag): tag is string => Boolean(tag))),
+  };
 }
 
 export function collectDayBadges(views: MealIngredientView[]) {

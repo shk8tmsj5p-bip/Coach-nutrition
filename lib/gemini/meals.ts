@@ -1,4 +1,4 @@
-import type { Appliance, PlannedMeal, RecipeDeclination, RecipeIngredient } from "@/lib/types";
+import type { Appliance, MealType, PlannedMeal, RecipeDeclination, RecipeIngredient } from "@/lib/types";
 import { WEEKDAY_BATCHES, type BatchPair } from "@/lib/weekly-plan";
 import { formatCoachBiasForPrompt, type HouseholdCoachBias } from "@/lib/coach-apply";
 import {
@@ -22,7 +22,8 @@ export type GenerateMealsMode =
   | "weekend"
   | "single"
   | "suggest-swap"
-  | "apply-swap";
+  | "apply-swap"
+  | "today-swap";
 
 export type GeminiMealJson = {
   title: string;
@@ -150,7 +151,7 @@ export function formatPastMealsForPrompt(pastMeals?: string[]) {
     return `DIVERSITÉ : dans ce lot, chaque recette a une identité propre (féculent, sauce, pays, légumes). Interdit de décliner 5 fois la même sauce (ex. 5 chermoula).`;
   }
   const families = [...new Set(titles.flatMap((title) => motifsIn(title)))];
-  return `TITRES INTERDITS (ne les réécris JAMAIS, même reformulés) : [${titles.join(" | ")}].
+  return `TITRES INTERDITS (ne les réécris JAMAIS, même reformulés — y compris la liste foyer « Plus jamais ») : [${titles.join(" | ")}].
 ${families.length ? `FAMILLES DÉJÀ SERVIÉS — change de sauce ET de plat : ${families.join(", ")}.` : ""}
 Invente des recettes nouvelles. 1 lot = 1 identité par recette. Max 1 fois la même famille (chermoula, yassa, satay, etc.).`;
 }
@@ -608,6 +609,45 @@ N'écris aucune formule négative (« sans X »).
 JSON : { "suggestions": ["alt1", "alt2", "alt3"] }`,
     undefined,
     undefined,
+    kitchenContext,
+  );
+}
+
+function todaySlotBrief(mealType: MealType) {
+  switch (mealType) {
+    case "petit-dejeuner":
+      return `PETIT-DÉJEUNER du jour. Vise ~25 % des kcal journalières de CHAQUE profil (bloc COACH NUTRITION, daily). Express OK (overnight oats, scramble tofu/œufs, toast). Tartinade / sauce maison si pertinent.`;
+    case "collation":
+      return `COLLATION du jour. Vise ~15 % des kcal journalières. Dense en protéine, pas un snack industriel sucré.`;
+    case "diner":
+      return `DÎNER du jour, LOW CAL : cibles soir COACH NUTRITION (hors dessert). Huile serrée, féculent allégé, protéine gardée.`;
+    default:
+      return `DÉJEUNER du jour : cibles midi COACH NUTRITION (hors dessert).`;
+  }
+}
+
+export function todaySwapPrompt(
+  mealType: MealType,
+  theme: string,
+  coachBias?: HouseholdCoachBias | null,
+  pastMeals?: string[],
+  kitchenContext?: string,
+) {
+  return culinaryPrompt(
+    `Génère 1 SEUL repas FRAIS pour AUJOURD'HUI — pas un batch de la semaine, pas un couple Lun+Mer.
+Règle : 1 recette = 1 portion / personne (comme un repas week-end). INTERDIT de doubler.
+MÊME plat pour Alexis et Élodie. grams_alexis / grams_elodie selon COACH NUTRITION. INTERDIT deux recettes.
+PAS de dessert, yaourt sucré, granola dessert (déjà sur la carte Aujourd'hui).
+${todaySlotBrief(mealType)}
+Repas du jour (pas une session batch Lun–Ven) : tofu cuit et simili-carnés OK si le plat le demande.
+Houmous / satay / pesto / vinaigrette = sous-recette maison dosée.
+${themeConstraintLine(theme, 1)}
+Chaque titre NOMME la sauce. step_groups : robot seulement si valeur ajoutée ; omettre un bloc vide.
+tips_and_cautions : logistique du repas du jour seulement.
+
+JSON : un objet ${MEAL_JSON_SHAPE} ou { "recipes": [objet] }.`,
+    coachBias,
+    pastMeals,
     kitchenContext,
   );
 }
