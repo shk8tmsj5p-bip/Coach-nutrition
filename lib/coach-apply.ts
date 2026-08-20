@@ -1,6 +1,6 @@
 import type { Macros, ProfileId, SportRoutine, SportSession } from "@/lib/types";
 import type { CoachAnalysis, CoachSportPatch } from "@/lib/gemini/coach-analysis";
-import { deriveRoutine, effortAllowed } from "@/lib/sport-routine";
+import { effortAllowed, withSessions } from "@/lib/sport-routine";
 import { storage } from "@/lib/storage";
 import { todayISO } from "@/lib/dates";
 
@@ -115,7 +115,7 @@ export function applyCoachSportPatches(
     changedSessionIds.push(session.id);
     return { ...session, durationMin, effort };
   });
-  return { routine: deriveRoutine(sessions), changedSessionIds };
+  return { routine: withSessions(routine, sessions), changedSessionIds };
 }
 
 export function syncSharedSportSessions(
@@ -134,7 +134,7 @@ export function syncSharedSportSessions(
     if (!match || !session.shared) return session;
     return { ...session, durationMin: match.durationMin, effort: match.effort };
   });
-  return deriveRoutine(sessions);
+  return withSessions(other, sessions);
 }
 
 export function applyToastMessage(opts: {

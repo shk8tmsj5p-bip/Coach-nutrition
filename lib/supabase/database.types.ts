@@ -31,6 +31,7 @@ export interface Database {
           primary_goal: "perte" | "maintien" | "prise";
           weekly_rate_kg: number;
           sport_routine: Json;
+          meal_templates: Json;
           applied_adjustments: Json | null;
           target_calories: number;
           target_protein_g: number;
@@ -57,6 +58,7 @@ export interface Database {
           primary_goal?: "perte" | "maintien" | "prise";
           weekly_rate_kg?: number;
           sport_routine?: Json;
+          meal_templates?: Json;
           applied_adjustments?: Json | null;
           target_calories: number;
           target_protein_g: number;

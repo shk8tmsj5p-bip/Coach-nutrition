@@ -13,11 +13,11 @@ import { profiles as mockProfiles } from "@/lib/mock-data";
 import { createBrowserSupabaseClient } from "@/lib/supabase/client";
 import { fetchProfils } from "@/lib/supabase/today-data";
 import { storage } from "@/lib/storage";
-import { overlayLocalGoals, saveAppliedAdjustments, saveProfileAversions, saveProfileGoals, saveProfileTargets, saveSportRoutines } from "@/lib/supabase/profil-goals";
+import { overlayLocalGoals, saveAppliedAdjustments, saveMealTemplates, saveProfileAversions, saveProfileGoals, saveProfileTargets, saveSportRoutines } from "@/lib/supabase/profil-goals";
 import { hydrateKitchenPrefsFromSupabase } from "@/lib/supabase/parametres";
 import type { GoalPatch } from "@/lib/goals";
 import type { AppliedAdjustments } from "@/lib/coach-adjustments";
-import type { Macros, Profile, ProfileId, SportRoutine, ViewMode } from "@/lib/types";
+import type { Macros, Profile, ProfileId, SlotTemplate, SportRoutine, ViewMode } from "@/lib/types";
 
 interface ProfileContextValue {
   view: ViewMode;
@@ -38,6 +38,9 @@ interface ProfileContextValue {
     adjustments: AppliedAdjustments | null,
   ) => Promise<string | null>;
   updateAversions: (profileId: ProfileId, aversions: string[]) => Promise<string | null>;
+  updateMealTemplates: (
+    templates: Partial<Record<ProfileId, SlotTemplate[]>>,
+  ) => Promise<string | null>;
 }
 
 const ProfileContext = createContext<ProfileContextValue | null>(null);
@@ -133,6 +136,23 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
     return saveProfileAversions(profileId, aversions);
   }, []);
 
+  const updateMealTemplates = useCallback(
+    async (templates: Partial<Record<ProfileId, SlotTemplate[]>>) => {
+      setCatalog((current) => {
+        const next = { ...current };
+        if (templates.alexis !== undefined) {
+          next.alexis = { ...next.alexis, mealTemplates: templates.alexis };
+        }
+        if (templates.elodie !== undefined) {
+          next.elodie = { ...next.elodie, mealTemplates: templates.elodie };
+        }
+        return next;
+      });
+      return saveMealTemplates(templates);
+    },
+    [],
+  );
+
   const value = useMemo<ProfileContextValue>(() => {
     const activeProfiles =
       view === "couple" ? [catalog.alexis, catalog.elodie] : [catalog[view]];
@@ -150,6 +170,7 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
       updateTargets,
       updateAppliedAdjustments,
       updateAversions,
+      updateMealTemplates,
     };
   }, [
     view,
@@ -162,6 +183,7 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
     updateTargets,
     updateAppliedAdjustments,
     updateAversions,
+    updateMealTemplates,
   ]);
 
   if (!hydrated) {

@@ -11,10 +11,15 @@ import {
   sumEditableMacros,
   type EditableItem,
 } from "@/lib/meal-items";
+import { parseFoodTextLocal } from "@/lib/food-log";
 import type { MealEntry, MealType } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 export type QuickLogMode = "text" | "barcode" | "photo";
+
+function hasDessertSlot(type: MealType) {
+  return type === "dejeuner" || type === "diner";
+}
 
 export function EditMealSheet({
   meal,
@@ -31,13 +36,50 @@ export function EditMealSheet({
 }) {
   const [type, setType] = useState<MealType>(meal.type);
   const [items, setItems] = useState<EditableItem[]>(() => parseMealItems(meal));
+  const [dessertDraft, setDessertDraft] = useState("");
+  const startedWithDessert = useMemo(
+    () => parseMealItems(meal).some((item) => item.dessert),
+    [meal],
+  );
   const totals = useMemo(() => sumEditableMacros(items), [items]);
+  const showDessert = hasDessertSlot(type);
+  const platItems = showDessert ? items.filter((item) => !item.dessert) : items;
+  const dessertItems = showDessert ? items.filter((item) => item.dessert) : [];
+
+  function patch(id: string, next: EditableItem) {
+    setItems((list) => list.map((row) => (row.id === id ? next : row)));
+  }
+
+  function remove(id: string) {
+    setItems((list) => list.filter((row) => row.id !== id));
+  }
+
+  function addDessert() {
+    const raw = dessertDraft.trim();
+    if (!raw) return;
+    const parsed = parseFoodTextLocal(raw);
+    const extra = parsed.map((item, index) => ({
+      ...item,
+      id: `dessert-${Date.now()}-${index}`,
+      carbs: item.carbs ?? 0,
+      fat: item.fat ?? 0,
+      dessert: true as const,
+    }));
+    if (!extra.length) return;
+    setItems((list) => [...list, ...extra]);
+    setDessertDraft("");
+  }
 
   function commit() {
     onSave({
       ...meal,
       type,
-      items: serializeItems(items),
+      items: serializeItems(
+        showDessert ? items : items.map((item) => ({ ...item, dessert: false })),
+        {
+          markEmptyDessert: showDessert && startedWithDessert,
+        },
+      ),
       macros: {
         calories: Math.round(totals.calories),
         protein: Math.round(totals.protein),
@@ -75,70 +117,66 @@ export function EditMealSheet({
           ))}
         </div>
 
-        <div className="max-h-[28vh] space-y-2 overflow-y-auto">
-          {items.map((item) => (
-            <div key={item.id} className="flex items-center gap-2 rounded-card bg-health-bg p-3">
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-[14px] font-medium">{item.name}</p>
-                <p className="text-[11px] text-health-muted">
-                  {item.calories} kcal · {Math.round(item.protein)}g P
-                </p>
-              </div>
-              <div className="flex items-center gap-1">
-                <button
-                  type="button"
-                  className="h-8 w-8 rounded-full bg-white text-lg leading-none"
-                  onClick={() =>
-                    setItems((list) =>
-                      list.map((row) => (row.id === item.id ? scaleItem(row, item.grams - 10) : row)),
-                    )
-                  }
-                >
-                  −
-                </button>
-                <input
-                  value={item.grams}
-                  onChange={(e) => {
-                    const grams = Number(e.target.value) || 1;
-                    setItems((list) =>
-                      list.map((row) => (row.id === item.id ? scaleItem(row, grams) : row)),
-                    );
-                  }}
-                  className="w-12 rounded-md bg-white text-center text-[13px] tabular-nums"
+        <div className="max-h-[36vh] space-y-3 overflow-y-auto">
+          {showDessert ? (
+            <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-health-muted">Plat</p>
+          ) : null}
+          {platItems.map((item) => (
+            <ItemRow key={item.id} item={item} onChange={(next) => patch(item.id, next)} onRemove={() => remove(item.id)} />
+          ))}
+          {platItems.length === 0 && (
+            <p className="py-2 text-center text-[13px] text-health-muted">
+              {showDessert ? "Pas encore de plat — tu peux en ajouter ci-dessous." : "Tous les ingrédients ont été retirés."}
+            </p>
+          )}
+
+          {showDessert ? (
+            <div>
+              <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-amber-800 dark:text-amber-200">
+                Dessert
+              </p>
+              {dessertItems.map((item) => (
+                <ItemRow
+                  key={item.id}
+                  item={item}
+                  dessert
+                  onChange={(next) => patch(item.id, { ...next, dessert: true })}
+                  onRemove={() => remove(item.id)}
                 />
-                <span className="text-[11px] text-health-muted">g</span>
+              ))}
+              {dessertItems.length === 0 ? (
+                <p className="mb-2 text-[12px] text-health-muted">Aucun dessert pour ce repas.</p>
+              ) : null}
+              <div className="mt-1.5 flex gap-1.5">
+                <input
+                  value={dessertDraft}
+                  onChange={(e) => setDessertDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      addDessert();
+                    }
+                  }}
+                  placeholder="Ex. Skyr 150g"
+                  className="min-w-0 flex-1 rounded-card bg-amber-50 px-3 py-2 text-[13px] outline-none dark:bg-amber-950/40"
+                />
                 <button
                   type="button"
-                  className="h-8 w-8 rounded-full bg-white text-lg leading-none"
-                  onClick={() =>
-                    setItems((list) =>
-                      list.map((row) => (row.id === item.id ? scaleItem(row, item.grams + 10) : row)),
-                    )
-                  }
+                  onClick={addDessert}
+                  disabled={!dessertDraft.trim()}
+                  className="rounded-card bg-health-ink px-3 text-[12px] font-semibold text-white disabled:opacity-40"
                 >
-                  +
-                </button>
-                <button
-                  type="button"
-                  className="ml-1 text-health-muted"
-                  onClick={() => setItems((list) => list.filter((row) => row.id !== item.id))}
-                >
-                  <Trash2 size={16} />
+                  Ajouter
                 </button>
               </div>
             </div>
-          ))}
-          {items.length === 0 && (
-            <p className="py-4 text-center text-[13px] text-health-muted">
-              Tous les ingrédients ont été retirés.
-            </p>
-          )}
+          ) : null}
         </div>
 
         <div className="mt-3">
           <p className="mb-2 flex items-center gap-1.5 text-[12px] font-medium text-health-muted">
             <Plus size={14} />
-            Ajouter
+            Ajouter au plat
           </p>
           <div className="grid grid-cols-3 gap-2">
             <AddLogTile icon={Sparkles} label="Texte / IA" onClick={() => onAdd("text")} />
@@ -161,6 +199,59 @@ export function EditMealSheet({
           className="mt-3 w-full rounded-card bg-health-ink py-3 text-[15px] font-semibold text-white disabled:opacity-50"
         >
           {saving ? "Enregistrement…" : "Enregistrer"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function ItemRow({
+  item,
+  dessert,
+  onChange,
+  onRemove,
+}: {
+  item: EditableItem;
+  dessert?: boolean;
+  onChange: (next: EditableItem) => void;
+  onRemove: () => void;
+}) {
+  return (
+    <div
+      className={cn(
+        "mb-1.5 flex items-center gap-2 rounded-card p-3",
+        dessert ? "bg-amber-50 dark:bg-amber-950/40" : "bg-health-bg",
+      )}
+    >
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-[14px] font-medium">{item.name}</p>
+        <p className="text-[11px] text-health-muted">
+          {item.calories} kcal · {Math.round(item.protein)}g P
+        </p>
+      </div>
+      <div className="flex items-center gap-1">
+        <button
+          type="button"
+          className="h-8 w-8 rounded-full bg-white text-lg leading-none"
+          onClick={() => onChange(scaleItem(item, item.grams - 10))}
+        >
+          −
+        </button>
+        <input
+          value={item.grams}
+          onChange={(e) => onChange(scaleItem(item, Number(e.target.value) || 1))}
+          className="w-12 rounded-md bg-white text-center text-[13px] tabular-nums"
+        />
+        <span className="text-[11px] text-health-muted">g</span>
+        <button
+          type="button"
+          className="h-8 w-8 rounded-full bg-white text-lg leading-none"
+          onClick={() => onChange(scaleItem(item, item.grams + 10))}
+        >
+          +
+        </button>
+        <button type="button" className="ml-1 text-health-muted" onClick={onRemove}>
+          <Trash2 size={16} />
         </button>
       </div>
     </div>

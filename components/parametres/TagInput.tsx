@@ -9,11 +9,15 @@ export function TagInput({
   onChange,
   placeholder,
   accent,
+  addLabel = "Ajouter",
+  commitOnComma = true,
 }: {
   tags: string[];
   onChange: (next: string[]) => void;
   placeholder: string;
-  accent: "coral" | "violet";
+  accent: "coral" | "violet" | "ink";
+  addLabel?: string;
+  commitOnComma?: boolean;
 }) {
   const [draft, setDraft] = useState("");
 
@@ -33,7 +37,9 @@ export function TagInput({
             key={tag}
             className={cn(
               "inline-flex max-w-full items-center gap-0.5 rounded-full px-2 py-0.5 text-[11px] font-medium",
-              accent === "coral" ? "bg-coral-soft text-coral-dark" : "bg-violet-soft text-violet-dark",
+              accent === "coral" && "bg-coral-soft text-coral-dark",
+              accent === "violet" && "bg-violet-soft text-violet-dark",
+              accent === "ink" && "bg-health-bg text-health-ink",
             )}
           >
             <span className="truncate">{tag}</span>
@@ -59,7 +65,11 @@ export function TagInput({
           value={draft}
           onChange={(event) => setDraft(event.target.value)}
           onKeyDown={(event) => {
-            if (event.key === "," || event.key === "Enter") {
+            if (event.key === "Enter") {
+              event.preventDefault();
+              add(draft);
+            }
+            if (commitOnComma && event.key === ",") {
               event.preventDefault();
               add(draft.replace(/,/g, ""));
             }
@@ -71,7 +81,7 @@ export function TagInput({
           type="submit"
           className="shrink-0 rounded-lg bg-health-bg px-2.5 py-1.5 text-[12px] font-semibold"
         >
-          Ajouter
+          {addLabel}
         </button>
       </form>
     </div>

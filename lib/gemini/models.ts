@@ -55,7 +55,7 @@ function sortNewest(ids: string[]) {
 }
 
 function retryable(status: number) {
-  return status === 404 || status === 429 || status === 503 || status === 400;
+  return status === 404 || status === 429 || status === 503 || status === 500;
 }
 
 function isQuota(status: number, detail: string) {
@@ -64,6 +64,12 @@ function isQuota(status: number, detail: string) {
 
 export function friendlyGeminiError(raw?: string | null) {
   if (!raw?.trim()) return "Gemini n'a pas pu répondre. Réessaie.";
+  if (/timeout|aborted|AbortError|DEADLINE|timed out|504|UND_ERR|ECONNRESET|socket/i.test(raw)) {
+    return "Gemini a mis trop longtemps. Réessaie — Lun–Ven peut prendre 1 à 2 min.";
+  }
+  if (/JSON|sans recette|Unexpected token|incomplète/i.test(raw)) {
+    return "Réponse Gemini incomplète. Réessaie, le modèle a parfois besoin d'un second essai.";
+  }
   if (/no longer available|NOT_FOUND|404/i.test(raw)) {
     return "Aucun modèle Gemini disponible pour cette clé. Réessaie dans un instant.";
   }
@@ -73,7 +79,14 @@ export function friendlyGeminiError(raw?: string | null) {
   if (/quota|429|RESOURCE_EXHAUSTED|rate-limits/i.test(raw)) {
     return "Limite Gemini (Pro et Flash) atteinte. Réessaie dans quelques minutes.";
   }
+  if (/503|overloaded|UNAVAILABLE/i.test(raw)) {
+    return "Gemini est saturé pour le moment. Réessaie dans une minute.";
+  }
   return "Gemini n'a pas pu répondre. Réessaie.";
+}
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 async function fetchListedModels(): Promise<ListedModel[]> {
@@ -187,47 +200,71 @@ export async function generateGeminiJson(opts: {
     tried.add(model);
     console.log(`[${opts.logLabel}] Calling model:`, model, `(${tier})`);
     const started = Date.now();
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
-      {
-        method: "POST",
-        cache: "no-store",
-        headers: {
-          "Content-Type": "application/json",
-          "x-goog-api-key": key,
-        },
-        body: JSON.stringify({
-          contents: [{ role: "user", parts: opts.parts }],
-          generationConfig: {
-            temperature: opts.temperature,
-            responseMimeType: "application/json",
+    const budgetMs = tier === "pro" ? 120_000 : 75_000;
+    try {
+      const response = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
+        {
+          method: "POST",
+          cache: "no-store",
+          headers: {
+            "Content-Type": "application/json",
+            "x-goog-api-key": key,
           },
-        }),
-      },
-    );
+          signal: AbortSignal.timeout(budgetMs),
+          body: JSON.stringify({
+            contents: [{ role: "user", parts: opts.parts }],
+            generationConfig: {
+              temperature: opts.temperature,
+              responseMimeType: "application/json",
+            },
+          }),
+        },
+      );
 
-    if (!response.ok) {
-      const detail = await response.text();
-      console.error(`[${opts.logLabel}] FAIL:`, model, response.status, detail.slice(0, 220));
-      lastError = `Gemini ${response.status}: ${detail.slice(0, 220)}`;
-      if (response.status === 404) invalidateListedModels();
-      if (isQuota(response.status, detail)) sawQuota = true;
-      if (response.status === 401 || response.status === 403) throw new Error(lastError);
-      if (retryable(response.status)) return null;
-      throw new Error(lastError);
-    }
+      if (!response.ok) {
+        const detail = await response.text();
+        console.error(`[${opts.logLabel}] FAIL:`, model, response.status, detail.slice(0, 220));
+        lastError = `Gemini ${response.status}: ${detail.slice(0, 220)}`;
+        if (response.status === 404) invalidateListedModels();
+        if (isQuota(response.status, detail)) {
+          sawQuota = true;
+          await sleep(1500);
+        }
+        if (response.status === 503) await sleep(1200);
+        if (response.status === 401 || response.status === 403) throw new Error(lastError);
+        if (retryable(response.status)) return null;
+        throw new Error(lastError);
+      }
 
-    const payload = (await response.json()) as {
-      candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
-    };
-    const text = payload.candidates?.[0]?.content?.parts?.[0]?.text;
-    if (!text) {
-      lastError = "Réponse Gemini vide";
-      console.error(`[${opts.logLabel}] FAIL: réponse vide`, model);
+      const payload = (await response.json()) as {
+        candidates?: Array<{
+          content?: { parts?: Array<{ text?: string }> };
+          finishReason?: string;
+        }>;
+      };
+      const text = payload.candidates?.[0]?.content?.parts?.[0]?.text;
+      const finish = payload.candidates?.[0]?.finishReason ?? "";
+      if (!text) {
+        lastError = finish === "MAX_TOKENS" ? "Réponse Gemini incomplète (MAX_TOKENS)" : "Réponse Gemini vide";
+        console.error(`[${opts.logLabel}] FAIL:`, lastError, model);
+        return null;
+      }
+      if (finish === "MAX_TOKENS") {
+        lastError = "Réponse Gemini incomplète (MAX_TOKENS)";
+        console.warn(`[${opts.logLabel}] MAX_TOKENS`, model, `${text.length} chars`);
+      }
+      console.log(`[${opts.logLabel}] OK:`, model, `${Date.now() - started}ms`, `${text.length} chars`);
+      return { text, model, tier };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Gemini indisponible";
+      lastError = message;
+      console.error(`[${opts.logLabel}] FAIL:`, model, message);
+      if (/401|403|API_KEY|API key/i.test(message) && !/timeout|aborted/i.test(message)) {
+        throw error instanceof Error ? error : new Error(message);
+      }
       return null;
     }
-    console.log(`[${opts.logLabel}] OK:`, model, `${Date.now() - started}ms`, `${text.length} chars`);
-    return { text, model, tier };
   }
 
   for (const model of primary) {

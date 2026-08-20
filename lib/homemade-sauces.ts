@@ -11,16 +11,18 @@ type SauceDef = {
   baseReplace?: [RegExp, string];
 };
 
-function hasIng(meal: PlannedMeal, pattern: RegExp) {
-  return meal.ingredients.some((item) => pattern.test(item.name));
-}
-
 /** Nom d'un pot / d'une sauce toute faite à éclater en sous-recette. */
 export function isPreparedSauceName(name: string) {
   const n = name.trim();
   if (/sauce soja/i.test(n)) return false;
   return /satay|houmous|hummus|\bnuoc\b|\bpesto\b|\bpistou\b|vinaigrette|sauce tahini|tahini-citron|tahini citron/i.test(
     n,
+  );
+}
+
+function hasIng(meal: PlannedMeal, pattern: RegExp) {
+  return meal.ingredients.some(
+    (item) => pattern.test(item.name) && !isPreparedSauceName(item.name),
   );
 }
 

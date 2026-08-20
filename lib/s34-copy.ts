@@ -8,6 +8,7 @@ import {
   scaleVisualQuantity,
   visualForIngredient,
 } from "@/lib/visual-quantity";
+import { portionsDiffer } from "@/lib/meal-coach";
 
 function gramsOf(ing: RecipeIngredient, scale: number) {
   return Math.round((ing.gramsAlexis + ing.gramsElodie) * scale);
@@ -50,6 +51,11 @@ export function visualPhrase(ing: RecipeIngredient, scale: number) {
     return `${prep} (${visual} ${name.toLowerCase()})`;
   }
   if (prep) return `${visual} ${name.toLowerCase()} (${prep})`;
+  if (ing.role === "shared" && portionsDiffer(ing.gramsAlexis, ing.gramsElodie)) {
+    const a = Math.round(ing.gramsAlexis * scale);
+    const e = Math.round(ing.gramsElodie * scale);
+    return `${visual} ${name.toLowerCase()} (Alexis ${a}g · Élodie ${e}g)`;
+  }
   return `${visual} ${name.toLowerCase()}`;
 }
 
@@ -172,7 +178,7 @@ export function groupedCellIngredients(ings: BatchStepIngredient[]) {
     const split = qty.match(/^(.+?)\s*:\s*(.+)$/);
     return split ? `${split[1].trim()} ${split[2].trim()}` : qty;
   };
-  const commun = ings.filter((ing) => !ing.who);
+  const commun = ings.filter((ing) => !ing.who || ing.who === "Alexis / Élodie");
   const alexis = ings.filter((ing) => ing.who === "Alexis");
   const elodie = ings.filter((ing) => ing.who === "Élodie");
   const rows: { label: "Commun" | "Alexis" | "Élodie"; text: string }[] = [];
@@ -182,18 +188,69 @@ export function groupedCellIngredients(ings: BatchStepIngredient[]) {
   return rows;
 }
 
-export function cellIngredients(ings: BatchStepIngredient[]) {
-  return groupedCellIngredients(ings)
-    .map((row) => `${row.label} : ${row.text}`)
-    .join("\n");
+export function packingQty(grams: number) {
+  if (grams <= 0) return "";
+  return `${Math.round(grams)}g`;
+}
+
+export type PackLine = { name: string; qty: string };
+
+export function packingLists(block: BatchStepRecipeBlock) {
+  const boxA: PackLine[] = [];
+  const boxE: PackLine[] = [];
+  const pot: PackLine[] = [];
+  for (const ing of block.ingredients) {
+    const a = Math.round(ing.gramsAlexis ?? 0);
+    const e = Math.round(ing.gramsElodie ?? 0);
+    if (a <= 0 && e <= 0) continue;
+    if (ing.sauce) {
+      const qty =
+        a > 0 && e > 0 && Math.abs(a - e) / Math.max(a, e) >= 0.12
+          ? `Alexis ${packingQty(a)} · Élodie ${packingQty(e)}`
+          : packingQty(a || e);
+      pot.push({ name: ing.name, qty });
+      continue;
+    }
+    if (a > 0) boxA.push({ name: ing.name, qty: packingQty(a) });
+    if (e > 0) boxE.push({ name: ing.name, qty: packingQty(e) });
+  }
+  const servings = block.servingsPerPerson === 2 ? 2 : 1;
+  return {
+    boxA,
+    boxE,
+    pot,
+    servings,
+    boxLabel:
+      servings === 2
+        ? "1 repas / boîte · à faire ×2"
+        : "1 repas / boîte",
+  };
+}
+
+export function assemblyHowto(block: BatchStepRecipeBlock) {
+  const howto = blockHowto(block);
+  if (howto) return howto;
+  return "Légumes au fond, protéine sur le côté, sauce au pot — jamais dans la boîte.";
 }
 
 export function cellSetting(block: BatchStepRecipeBlock) {
   const setting = (block.setting ?? "").trim();
   if (setting) return setting;
   const action = (block.action.split(/(?<=[.!?])\s+/)[0] ?? "").trim();
-  if (/cuire |cuisson|trancher |tailler |émincer|râper /i.test(action)) return "";
+  if (/cuire |cuisson|trancher |tailler |émincer|râper |mariner /i.test(action)) return "";
   return action.length > 72 ? `${action.slice(0, 70)}…` : action;
+}
+
+export function blockHowto(block: BatchStepRecipeBlock) {
+  const action = block.action.trim();
+  if (!action) return "";
+  if (/cuisson parallèle vegan|cuire le féculent, égoutter/i.test(action)) return "";
+  const setting = (block.setting ?? "").trim();
+  if (setting && (action === setting || action.startsWith(setting))) return "";
+  const names = block.ingredients.map((ing) => ing.name.toLowerCase());
+  const restatesQty = names.length > 0 && names.every((name) => action.toLowerCase().includes(name.split(/[\s,(]/)[0] ?? name));
+  if (restatesQty && setting && /cuiseur|cookeo|eau|min|°c/i.test(action) && action.length < 80) return "";
+  return action;
 }
 
 export function shortCoverDays(coverLabel: string) {

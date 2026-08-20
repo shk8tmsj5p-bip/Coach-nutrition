@@ -12,11 +12,13 @@ export function GenerateControls({
   onGenerateWeekend,
   onGenerateSingle,
   onClearWeek,
+  coachHint,
 }: {
   theme: string;
   onThemeChange: (value: string) => void;
   busy: boolean;
   canClear?: boolean;
+  coachHint?: string;
   onGenerateWeekdays: () => void;
   onGenerateWeekend: () => void;
   onGenerateSingle: () => void;
@@ -61,7 +63,8 @@ export function GenerateControls({
       </button>
       <p className="mt-2 text-[11px] leading-relaxed text-health-muted">
         Semaine vide par défaut. Un thème (Coréen, Thaï…) s’applique à TOUS les plats.
-        Lun–Ven : 2 déjeuners + 2 dîners low cal + Ven même base. Week-end : 4 repas.
+        Lun–Ven : 2 déjeuners + 2 dîners low cal + Ven même base. Week-end : 4 repas. Compte 1 à 2 min pour Lun–Ven.
+        {coachHint ? ` ${coachHint}` : ""}
       </p>
     </div>
   );

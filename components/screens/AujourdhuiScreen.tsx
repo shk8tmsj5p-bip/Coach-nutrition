@@ -6,6 +6,7 @@ import {
   Copy,
   Plus,
   RefreshCw,
+  RotateCcw,
   ScanBarcode,
   Sparkles,
   Trash2,
@@ -14,31 +15,42 @@ import {
 import { useProfile } from "@/context/ProfileContext";
 import { CopyYesterdaySheet } from "@/components/today/CopyYesterdaySheet";
 import { EditMealSheet } from "@/components/today/EditMealSheet";
-import { MealTargetSheet } from "@/components/today/MealTargetSheet";
 import { SwapProposalSheet } from "@/components/today/SwapProposalSheet";
 import { TodayPlannedCard } from "@/components/today/TodayPlannedCard";
 import { HealthMetricTile } from "@/components/today/HealthMetricTile";
+import { TodayEnergyCard } from "@/components/today/TodayEnergyCard";
 import { CoachBadge, CoachDiffTags, coachHighlightClass } from "@/components/today/CoachDelta";
 import { Card, SectionTitle } from "@/components/ui/Card";
-import { GoalBadge, MacroRing, MacrosGrid } from "@/components/ui/MacroProgress";
-import { formatLongDate, todayISO, yesterdayISO } from "@/lib/dates";
+import { GoalBadge } from "@/components/ui/MacroProgress";
+import { formatLongDate, isoWeekday, todayISO, yesterdayISO } from "@/lib/dates";
 import {
   coachInsights,
   mockBarcodeProduct,
-  mockPhotoIngredients,
   suggestedSnacks,
   todayMeals,
   todayMovement,
   todayWorkouts,
 } from "@/lib/mock-data";
+import {
+  templateForSlot,
+  isDessertItemLine,
+  isEmptyDessertMarker,
+  stripDessertPrefix,
+  appendPlatKeepingDessert,
+} from "@/lib/meal-templates";
 import { createBrowserSupabaseClient } from "@/lib/supabase/client";
 import { profileIdsForView } from "@/lib/supabase/filters";
 import { fetchTodayActivity } from "@/lib/supabase/health-logs";
 import { ensureDemoMeals } from "@/lib/supabase/seed-today";
+import { macrosFromIngredients, parseFoodTextLocal, scaleDetected } from "@/lib/food-log";
+import { withGeminiWait } from "@/lib/gemini/wait";
 import {
   copyYesterdayMeals,
   fetchTodayMeals,
+  fillMissingSlotsFromTemplates,
   insertMeal,
+  plannedMealEntry,
+  restorePlannedMeals,
   setMealSkipped,
   swapMeal,
   updateMeal,
@@ -54,6 +66,7 @@ import type {
   ProfileId,
   Workout,
 } from "@/lib/types";
+import { sanitizeRestingKcal } from "@/lib/health-energy";
 import { macroStatus, slotCalorieTarget, TONE_TEXT } from "@/lib/macro-status";
 import { cn, formatKcal, formatKm, formatMin, formatSteps, mealTypeLabel, passiveKcalFromMovement } from "@/lib/utils";
 import { dismissNutrition, visibleNutrition } from "@/lib/coach-adjustments";
@@ -64,6 +77,7 @@ import {
 } from "@/lib/coach-ingredients";
 
 const MEAL_SLOTS: MealType[] = ["petit-dejeuner", "dejeuner", "diner"];
+const ALL_MEAL_SLOTS: MealType[] = [...MEAL_SLOTS, "collation"];
 
 function emptyMovement(date = todayISO()): Record<ProfileId, DailyMovement> {
   return {
@@ -75,6 +89,7 @@ function emptyMovement(date = todayISO()): Record<ProfileId, DailyMovement> {
       restingEnergyKcal: 0,
       workoutMinutes: 0,
       distanceKm: 0,
+      cyclingDistanceKm: 0,
       source: "apple-health",
     },
     elodie: {
@@ -85,6 +100,7 @@ function emptyMovement(date = todayISO()): Record<ProfileId, DailyMovement> {
       restingEnergyKcal: 0,
       workoutMinutes: 0,
       distanceKm: 0,
+      cyclingDistanceKm: 0,
       source: "apple-health",
     },
   };
@@ -101,33 +117,6 @@ function defaultMealTime(type: MealType) {
     default:
       return "16:30";
   }
-}
-
-function analyzeTextToIngredients(text: string): DetectedIngredient[] {
-  const parts = text
-    .split(/[+,\n]/)
-    .map((part) => part.trim())
-    .filter(Boolean);
-  const lines = parts.length > 0 ? parts : [text.trim() || "Aliment saisi"];
-  return lines.map((name, index) => ({
-    id: `t-${Date.now()}-${index}`,
-    name,
-    grams: 80,
-    calories: 90,
-    protein: 6,
-  }));
-}
-
-function macrosFromIngredients(ingredients: DetectedIngredient[]): Macros {
-  return ingredients.reduce(
-    (acc, item) => ({
-      calories: acc.calories + item.calories,
-      protein: acc.protein + item.protein,
-      carbs: acc.carbs + Math.round(item.grams * 0.15),
-      fat: acc.fat + Math.round(item.grams * 0.04),
-    }),
-    emptyMacros(),
-  );
 }
 
 function scaleMacros(base: Macros, fromG: number, toG: number): Macros {
@@ -162,18 +151,18 @@ type LogMode = "text" | "barcode" | "photo" | null;
 type SyncStatus = "loading" | "seeded" | "ready" | "offline" | "error";
 
 export default function AujourdhuiScreen() {
-  const { activeProfiles, view } = useProfile();
+  const { activeProfiles, view, catalog } = useProfile();
   const [meals, setMeals] = useState<MealEntry[]>([]);
   const [ratings, setRatings] = useState<Record<ProfileId, { hunger: number; energy: number }>>({
     alexis: { hunger: 3, energy: 4 },
     elodie: { hunger: 2, energy: 4 },
   });
   const [logMode, setLogMode] = useState<LogMode>(null);
-  const [pendingLog, setPendingLog] = useState<Exclude<LogMode, null> | null>(null);
+  const [addSlot, setAddSlot] = useState<{ profileId: ProfileId; type: MealType } | null>(null);
   const [logMealType, setLogMealType] = useState<MealType | null>(null);
   const [logProfile, setLogProfile] = useState<ProfileId>("alexis");
   const [textInput, setTextInput] = useState("");
-  const [ingredients, setIngredients] = useState<DetectedIngredient[]>(mockPhotoIngredients);
+  const [ingredients, setIngredients] = useState<DetectedIngredient[]>([]);
   const [toast, setToast] = useState<string | null>(null);
   const [status, setStatus] = useState<SyncStatus>("loading");
   const [statusDetail, setStatusDetail] = useState<string | null>(null);
@@ -191,11 +180,26 @@ export default function AujourdhuiScreen() {
     window.setTimeout(() => setToast(null), 2200);
   }
 
+  const householdTemplates = useMemo(
+    () => ({
+      alexis: catalog.alexis.mealTemplates,
+      elodie: catalog.elodie.mealTemplates,
+    }),
+    [catalog.alexis.mealTemplates, catalog.elodie.mealTemplates],
+  );
+
   const reload = useCallback(async () => {
     const supabase = createBrowserSupabaseClient();
     const ids = profileIdsForView(view);
     if (!supabase) {
-      setMeals(todayMeals.filter((meal) => ids.includes(meal.profileId)));
+      setMeals(
+        fillMissingSlotsFromTemplates(
+          todayMeals.filter((meal) => ids.includes(meal.profileId)),
+          ids,
+          todayISO(),
+          householdTemplates,
+        ),
+      );
       setWorkouts(todayWorkouts.filter((workout) => ids.includes(workout.profileId)));
       setMovement(todayMovement);
       setStatus("offline");
@@ -205,7 +209,14 @@ export default function AujourdhuiScreen() {
 
     const seed = await ensureDemoMeals(supabase);
     if (!seed.ok) {
-      setMeals(todayMeals.filter((meal) => ids.includes(meal.profileId)));
+      setMeals(
+        fillMissingSlotsFromTemplates(
+          todayMeals.filter((meal) => ids.includes(meal.profileId)),
+          ids,
+          todayISO(),
+          householdTemplates,
+        ),
+      );
       setWorkouts(todayWorkouts.filter((workout) => ids.includes(workout.profileId)));
       setMovement(todayMovement);
       setStatus("error");
@@ -224,12 +235,16 @@ export default function AujourdhuiScreen() {
       return;
     }
 
-    setMeals(rows);
+    setMeals(
+      fillMissingSlotsFromTemplates(rows, ids, todayISO(), householdTemplates, {
+        createMissing: false,
+      }),
+    );
     setWorkouts(activity.workouts);
     setMovement(activity.movement);
     setStatus(seed.seeded ? "seeded" : "ready");
     setStatusDetail(seed.seeded ? "Mocks écrits dans repas" : "Lecture filtrée par profile_id");
-  }, [view]);
+  }, [view, householdTemplates]);
 
   useEffect(() => {
     void reload();
@@ -302,7 +317,7 @@ export default function AujourdhuiScreen() {
                   name: existing.isSkipped ? incoming.name : meal.name,
                   items: existing.isSkipped
                     ? incoming.items
-                    : [...(meal.items ?? []), ...(incoming.items ?? [])],
+                    : appendPlatKeepingDessert(meal.items, incoming.items ?? []),
                   macros: existing.isSkipped
                     ? incoming.macros
                     : {
@@ -327,7 +342,7 @@ export default function AujourdhuiScreen() {
         : {
             ...existing,
             isSkipped: false,
-            items: [...(existing.items ?? []), ...(incoming.items ?? [])],
+            items: appendPlatKeepingDessert(existing.items, incoming.items ?? []),
             macros: {
               calories: existing.macros.calories + incoming.macros.calories,
               protein: existing.macros.protein + incoming.macros.protein,
@@ -352,9 +367,19 @@ export default function AujourdhuiScreen() {
 
   function closeLog() {
     setLogMode(null);
-    setPendingLog(null);
+    setAddSlot(null);
     setLogMealType(null);
     setTextInput("");
+  }
+
+  function startLog(profileId: ProfileId, type: MealType, mode: Exclude<LogMode, null>) {
+    setAddSlot(null);
+    setEditingMeal(null);
+    setLogProfile(profileId);
+    setLogMealType(type);
+    setLogMode(mode);
+    setTextInput("");
+    setIngredients([]);
   }
 
   async function toggleSkip(meal: MealEntry) {
@@ -494,6 +519,33 @@ export default function AujourdhuiScreen() {
     flash("Repas enregistré");
   }
 
+  async function restoreMeals(profileId: ProfileId, types: MealType[]) {
+    if (types.length === 0) return;
+    const supabase = createBrowserSupabaseClient();
+    if (!supabase) {
+      setMeals((prev) => {
+        const keep = prev.filter(
+          (meal) => meal.profileId !== profileId || !types.includes(meal.type),
+        );
+        const restored = types
+          .map((type) => plannedMealEntry(profileId, type))
+          .filter((row): row is MealEntry => Boolean(row));
+        return [...keep, ...restored];
+      });
+      flash(types.length > 1 ? "Journée réinitialisée" : "Repas réinitialisé");
+      return;
+    }
+    setBusy(true);
+    const { error } = await restorePlannedMeals(supabase, profileId, types);
+    setBusy(false);
+    if (error) {
+      flash(error);
+      return;
+    }
+    await reload();
+    flash(types.length > 1 ? "Journée réinitialisée" : "Repas réinitialisé");
+  }
+
   return (
     <div>
       <p className="text-[13px] capitalize text-health-muted">{formatLongDate(todayISO())}</p>
@@ -520,17 +572,13 @@ export default function AujourdhuiScreen() {
           onRate={(key, value) =>
             setRatings((r) => ({ ...r, [profile.id]: { ...r[profile.id], [key]: value } }))
           }
-          onOpenLog={(mode) => {
-            setLogProfile(profile.id);
-            setPendingLog(mode);
-            setLogMode(null);
-            setLogMealType(null);
-            setTextInput("");
-            if (mode === "photo") setIngredients(mockPhotoIngredients.map((i) => ({ ...i })));
-          }}
+          onAddToSlot={(type) => setAddSlot({ profileId: profile.id, type })}
           onEditMeal={setEditingMeal}
           onToggleSkip={(meal) => void toggleSkip(meal)}
           onSkipEmpty={(type) => void skipEmptySlot(profile.id, type)}
+          onResetMeal={(type) => void restoreMeals(profile.id, [type])}
+          onResetAll={() => void restoreMeals(profile.id, ALL_MEAL_SLOTS)}
+          resetting={busy}
           workouts={workouts.filter((workout) => workout.profileId === profile.id)}
           movement={movement[profile.id]}
         />
@@ -556,18 +604,28 @@ export default function AujourdhuiScreen() {
         />
       )}
 
-      {pendingLog && (
-        <MealTargetSheet
-          onClose={closeLog}
-          onSelect={(type) => {
-            setLogMealType(type);
-            setLogMode(pendingLog);
-            setPendingLog(null);
-            if (pendingLog === "photo") {
-              setIngredients(mockPhotoIngredients.map((i) => ({ ...i })));
-            }
-          }}
-        />
+      {addSlot && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/30">
+          <div className="w-full max-w-[430px] rounded-t-[24px] bg-white p-4 pb-8 shadow-card">
+            <div className="mb-3 flex items-center justify-between">
+              <h3 className="text-[17px] font-semibold">
+                Ajouter · {mealTypeLabel(addSlot.type)}
+              </h3>
+              <button
+                type="button"
+                onClick={() => setAddSlot(null)}
+                className="rounded-full bg-health-bg p-1.5"
+              >
+                <X size={16} />
+              </button>
+            </div>
+            <div className="grid grid-cols-3 gap-2">
+              <LogTile icon={Sparkles} label="Texte / IA" onClick={() => startLog(addSlot.profileId, addSlot.type, "text")} />
+              <LogTile icon={ScanBarcode} label="Code-barres" onClick={() => startLog(addSlot.profileId, addSlot.type, "barcode")} />
+              <LogTile icon={Camera} label="Photo" onClick={() => startLog(addSlot.profileId, addSlot.type, "photo")} />
+            </div>
+          </div>
+        </div>
       )}
 
       {logMode && logMealType && (
@@ -580,13 +638,33 @@ export default function AujourdhuiScreen() {
           ingredients={ingredients}
           setIngredients={setIngredients}
           onClose={closeLog}
-          onAnalyzeText={() => {
-            setIngredients(analyzeTextToIngredients(textInput));
+          onAnalyzeText={async () => {
+            const diet = logProfile === "elodie" ? "omnivore" : "vegan";
+            try {
+              const res = await withGeminiWait("Gemini lit le texte…", () =>
+                fetch("/api/log-text", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ text: textInput, diet }),
+                }),
+              );
+              const data = (await res.json()) as { ingredients?: DetectedIngredient[] };
+              if (Array.isArray(data.ingredients) && data.ingredients.length > 0) {
+                setIngredients(data.ingredients);
+                return;
+              }
+            } catch {
+              /* parseur local ci-dessous */
+            }
+            setIngredients(parseFoodTextLocal(textInput));
           }}
           onSaveText={() => {
             const macros = macrosFromIngredients(ingredients);
             void persistLoggedFood("text", {
-              name: textInput.trim() || "Saisie texte / IA",
+              name:
+                ingredients.map((item) => item.name).join(" + ") ||
+                textInput.trim() ||
+                "Saisie texte / IA",
               macros,
               items: ingredients.map((item) => `${item.name} ${item.grams}g`),
             });
@@ -610,7 +688,8 @@ export default function AujourdhuiScreen() {
           onSavePhoto={() => {
             const macros = macrosFromIngredients(ingredients);
             void persistLoggedFood("photo", {
-              name: "Photo repas (révisée)",
+              name:
+                ingredients.map((item) => item.name).join(" + ") || "Photo repas",
               macros,
               items: ingredients.map((item) => `${item.name} ${item.grams}g`),
             });
@@ -627,16 +706,7 @@ export default function AujourdhuiScreen() {
           saving={savingEdit}
           onClose={() => setEditingMeal(null)}
           onSave={(next) => void persistEditedMeal(next)}
-          onAdd={(mode) => {
-            const meal = editingMeal;
-            setEditingMeal(null);
-            setLogProfile(meal.profileId);
-            setLogMealType(meal.type);
-            setPendingLog(null);
-            setLogMode(mode);
-            setTextInput("");
-            if (mode === "photo") setIngredients(mockPhotoIngredients.map((i) => ({ ...i })));
-          }}
+          onAdd={(mode) => startLog(editingMeal.profileId, editingMeal.type, mode)}
         />
       )}
 
@@ -678,10 +748,13 @@ function ProfileToday({
   meals,
   ratings,
   onRate,
-  onOpenLog,
+  onAddToSlot,
   onEditMeal,
   onToggleSkip,
   onSkipEmpty,
+  onResetMeal,
+  onResetAll,
+  resetting,
   workouts,
   movement,
 }: {
@@ -689,18 +762,33 @@ function ProfileToday({
   meals: MealEntry[];
   ratings: { hunger: number; energy: number };
   onRate: (key: "hunger" | "energy", value: number) => void;
-  onOpenLog: (mode: Exclude<LogMode, null>) => void;
+  onAddToSlot: (type: MealType) => void;
   onEditMeal: (meal: MealEntry) => void;
   onToggleSkip: (meal: MealEntry) => void;
   onSkipEmpty: (type: MealType) => void;
+  onResetMeal: (type: MealType) => void;
+  onResetAll: () => void;
+  resetting: boolean;
   workouts: Workout[];
   movement: DailyMovement;
 }) {
   const { updateAppliedAdjustments } = useProfile();
+  const [confirmResetAll, setConfirmResetAll] = useState(false);
   const current = useMemo(() => sumMacros(meals), [meals]);
-  const snack = suggestedSnacks[profile.id];
+  const snackTemplate = templateForSlot(
+    profile.mealTemplates ?? [],
+    "collation",
+    isoWeekday(),
+  );
+  const snack = snackTemplate
+    ? { name: snackTemplate.name, macros: snackTemplate.macros }
+    : suggestedSnacks[profile.id];
   const sportKcal = workouts.reduce((sum, workout) => sum + workout.calories, 0);
   const passiveKcal = passiveKcalFromMovement(movement.activeEnergyKcal, sportKcal);
+  const restingDisplay = sanitizeRestingKcal(movement.restingEnergyKcal, {
+    bmr: profile.bmr,
+    tdee: profile.tdee,
+  }).value;
   const insights = coachInsights[profile.id];
   const goal = profile.primaryGoal;
   const collations = meals.filter((m) => m.type === "collation");
@@ -749,27 +837,55 @@ function ProfileToday({
       </div>
 
       <Card className={coachHighlightClass(Boolean(nutritionAdj))}>
-        <div className="flex items-start justify-between gap-3">
-          <MacroRing
-            current={current.calories}
-            target={profile.targets.calories}
-            goal={goal}
-          />
-          <div className="min-w-0 flex-1 pt-2">
-            <MacrosGrid current={current} target={profile.targets} goal={goal} />
-            {nutritionAdj && <CoachDiffTags tags={dayIngredientTags} />}
-          </div>
-        </div>
+        <TodayEnergyCard
+          current={current}
+          targets={profile.targets}
+          goal={goal}
+          accent={profile.accent}
+          movement={movement}
+          profile={profile}
+          coachTags={nutritionAdj ? dayIngredientTags : undefined}
+        />
       </Card>
 
-      <SectionTitle>Saisie rapide</SectionTitle>
-      <div className="grid grid-cols-3 gap-2">
-        <LogTile icon={Sparkles} label="Texte / IA" onClick={() => onOpenLog("text")} />
-        <LogTile icon={ScanBarcode} label="Code-barres" onClick={() => onOpenLog("barcode")} />
-        <LogTile icon={Camera} label="Photo" onClick={() => onOpenLog("photo")} />
-      </div>
-
-      <SectionTitle>Repas</SectionTitle>
+      <SectionTitle
+        action={
+          confirmResetAll ? (
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setConfirmResetAll(false)}
+                className="text-[12px] font-semibold text-health-muted"
+              >
+                Annuler
+              </button>
+              <button
+                type="button"
+                disabled={resetting}
+                onClick={() => {
+                  setConfirmResetAll(false);
+                  onResetAll();
+                }}
+                className="text-[12px] font-semibold text-coral-dark"
+              >
+                Confirmer
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              disabled={resetting}
+              onClick={() => setConfirmResetAll(true)}
+              className="inline-flex items-center gap-1 text-[12px] font-semibold text-health-muted"
+            >
+              <RotateCcw size={12} />
+              Tout réinit.
+            </button>
+          )
+        }
+      >
+        Repas
+      </SectionTitle>
       <div className="space-y-2">
         {MEAL_SLOTS.map((slot) => {
           const slotMeals = meals.filter((m) => m.type === slot);
@@ -781,12 +897,13 @@ function ProfileToday({
             return (
               <Card key={slot}>
                 <div className="flex items-start justify-between gap-3">
-                  <div>
+                  <button type="button" className="min-w-0 flex-1 text-left" onClick={() => onAddToSlot(slot)}>
                     <p className="text-[11px] font-semibold uppercase tracking-wide text-health-muted">
                       {mealTypeLabel(slot)}
                     </p>
                     <p className="mt-0.5 text-[14px] text-health-muted">Pas encore enregistré</p>
-                  </div>
+                    <p className="mt-1 text-[12px] font-medium">Toucher pour ajouter</p>
+                  </button>
                   <SkipToggle skipped={false} onClick={() => onSkipEmpty(slot)} />
                 </div>
               </Card>
@@ -802,6 +919,7 @@ function ProfileToday({
               onDismissCoach={nutritionAdj ? () => void hideNutrition() : undefined}
               onClick={() => onEditMeal(meal)}
               onToggleSkip={() => onToggleSkip(meal)}
+              onReset={() => onResetMeal(meal.type)}
             />
           );
         })}
@@ -815,11 +933,16 @@ function ProfileToday({
             onDismissCoach={nutritionAdj ? () => void hideNutrition() : undefined}
             onClick={() => onEditMeal(collation)}
             onToggleSkip={() => onToggleSkip(collation)}
+            onReset={() => onResetMeal(collation.type)}
           />
         ) : (
           <Card>
             <div className="flex items-start justify-between gap-3">
-              <div>
+              <button
+                type="button"
+                className="min-w-0 flex-1 text-left"
+                onClick={() => onAddToSlot("collation")}
+              >
                 <p className="text-[11px] font-semibold uppercase tracking-wide text-health-muted">
                   Collation (reste macros)
                 </p>
@@ -827,7 +950,8 @@ function ProfileToday({
                 <p className="mt-2 text-[13px] font-semibold tabular-nums">
                   {formatKcal(snack.macros.calories)} · {snack.macros.protein}g P
                 </p>
-              </div>
+                <p className="mt-1 text-[12px] font-medium text-health-muted">Toucher pour ajouter</p>
+              </button>
               <SkipToggle skipped={false} onClick={() => onSkipEmpty("collation")} />
             </div>
           </Card>
@@ -856,37 +980,39 @@ function ProfileToday({
 
         <div className="my-3 h-px bg-health-line" />
 
-        <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-health-muted">
+        <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-health-muted">
           Apple Santé
         </p>
-        <div className="grid grid-cols-2 gap-2">
-          <HealthMetricTile label="Pas" value={formatSteps(movement.steps)} />
-          <HealthMetricTile label="Distance" value={formatKm(movement.distanceKm)} />
-          <HealthMetricTile label="Minutes d'exercice" value={formatMin(movement.workoutMinutes)} />
-          <HealthMetricTile label="Énergie active" value={formatKcal(movement.activeEnergyKcal)} />
-          <HealthMetricTile label="Énergie au repos" value={formatKcal(movement.restingEnergyKcal)} />
-          <HealthMetricTile label="kcal hors séances" value={String(passiveKcal)} />
-        </div>
-        {(movement.weightKg != null || movement.fatMassPct != null || movement.bmi != null) && (
-          <div className="mt-2 grid grid-cols-3 gap-2">
+        <div className="grid grid-cols-4 gap-1.5">
+          <HealthMetricTile compact label="Pas" value={formatSteps(movement.steps)} />
+          <HealthMetricTile compact label="Marche" value={formatKm(movement.distanceKm)} />
+          <HealthMetricTile compact label="Vélo" value={formatKm(movement.cyclingDistanceKm)} />
+          <HealthMetricTile compact label="Exercice" value={formatMin(movement.workoutMinutes)} />
+          <HealthMetricTile compact label="Active" value={formatKcal(movement.activeEnergyKcal)} />
+          <HealthMetricTile compact label="Repos" value={formatKcal(restingDisplay)} />
+          <HealthMetricTile compact label="Hors sport" value={`${passiveKcal}`} />
+          {movement.weightKg != null ? (
             <HealthMetricTile
+              compact
               label="Poids"
-              value={movement.weightKg != null ? `${String(movement.weightKg).replace(".", ",")} kg` : "—"}
+              value={`${String(movement.weightKg).replace(".", ",")} kg`}
             />
-            <HealthMetricTile
-              label="Masse grasse"
-              value={movement.fatMassPct != null ? `${String(movement.fatMassPct).replace(".", ",")} %` : "—"}
-            />
-            <HealthMetricTile
-              label="IMC"
-              value={movement.bmi != null ? String(movement.bmi).replace(".", ",") : "—"}
-            />
+          ) : null}
+        </div>
+        {(movement.fatMassPct != null || movement.bmi != null) && (
+          <div className="mt-1.5 grid grid-cols-4 gap-1.5">
+            {movement.fatMassPct != null ? (
+              <HealthMetricTile
+                compact
+                label="MG"
+                value={`${String(movement.fatMassPct).replace(".", ",")} %`}
+              />
+            ) : null}
+            {movement.bmi != null ? (
+              <HealthMetricTile compact label="IMC" value={String(movement.bmi).replace(".", ",")} />
+            ) : null}
           </div>
         )}
-        <p className="mt-2 text-[11px] leading-relaxed text-health-muted">
-          Hors sport = énergie active {movement.activeEnergyKcal} kcal − {sportKcal} kcal déjà
-          comptées dans les séances.
-        </p>
       </Card>
 
       <SectionTitle>Faim & énergie</SectionTitle>
@@ -935,6 +1061,7 @@ function MealCard({
   onDismissCoach,
   onClick,
   onToggleSkip,
+  onReset,
 }: {
   meal: MealEntry;
   dailyCalories: number;
@@ -943,6 +1070,7 @@ function MealCard({
   onDismissCoach?: () => void;
   onClick: () => void;
   onToggleSkip: () => void;
+  onReset?: () => void;
 }) {
   const skipped = Boolean(meal.isSkipped);
   const adds = coachView?.adds ?? [];
@@ -978,24 +1106,31 @@ function MealCard({
               {mealTypeLabel(meal.type)}
               {meal.time ? ` · ${meal.time}` : ""}
             </p>
-            <p className="mt-0.5 text-[15px] font-medium leading-snug">{meal.name}</p>
+            {meal.name.trim() &&
+            meal.name.trim().toLowerCase() !== mealTypeLabel(meal.type).toLowerCase() ? (
+              <p className="mt-0.5 text-[15px] font-medium leading-snug">{meal.name}</p>
+            ) : null}
             {displayItems.length > 0 && (
-              <p className="mt-1 text-[12px] leading-relaxed text-health-muted">
-                {displayItems.map((item, index) => (
-                  <span key={`${item.text}-${index}`}>
-                    {index > 0 ? " · " : null}
-                    <span className={item.boosted ? "font-medium text-coral-dark" : undefined}>
-                      {item.text}
-                    </span>
-                  </span>
-                ))}
-              </p>
+              <MealItemsList items={displayItems} mealType={meal.type} />
             )}
             {highlighted && (
               <div className="mt-2">
                 <CoachBadge onDismiss={onDismissCoach} />
                 <CoachDiffTags tags={coachView?.badges ?? []} />
               </div>
+            )}
+            {onReset && (
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onReset();
+                }}
+                className="mt-2 inline-flex items-center gap-1 text-[11px] font-semibold text-health-muted"
+              >
+                <RotateCcw size={11} />
+                Réinit.
+              </button>
             )}
           </div>
           <div className="flex shrink-0 flex-col items-end gap-2">
@@ -1018,6 +1153,66 @@ function MealCard({
   );
 }
 
+function MealItemsList({
+  items,
+  mealType,
+}: {
+  items: { text: string; boosted: boolean }[];
+  mealType: MealType;
+}) {
+  const showSplit = mealType === "dejeuner" || mealType === "diner";
+  const plat = items.filter((item) => !isDessertItemLine(item.text) && !isEmptyDessertMarker(item.text));
+  const dessert = items.filter((item) => isDessertItemLine(item.text) && !isEmptyDessertMarker(item.text));
+
+  if (!showSplit || dessert.length === 0) {
+    const visible = items.filter((item) => !isEmptyDessertMarker(item.text));
+    if (visible.length === 0) return null;
+    return (
+      <p className="mt-1 text-[12px] leading-relaxed text-health-muted">
+        {visible.map((item, index) => (
+          <span key={`${item.text}-${index}`}>
+            {index > 0 ? " · " : null}
+            <span className={item.boosted ? "font-medium text-coral-dark" : undefined}>
+              {isDessertItemLine(item.text) ? stripDessertPrefix(item.text) : item.text}
+            </span>
+          </span>
+        ))}
+      </p>
+    );
+  }
+
+  return (
+    <div className="mt-1.5 space-y-1.5">
+      {plat.length > 0 ? (
+        <div>
+          <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-health-muted">Plat</p>
+          <p className="mt-0.5 text-[12px] leading-relaxed text-health-muted">
+            {plat.map((item, index) => (
+              <span key={`plat-${item.text}-${index}`}>
+                {index > 0 ? " · " : null}
+                <span className={item.boosted ? "font-medium text-coral-dark" : undefined}>{item.text}</span>
+              </span>
+            ))}
+          </p>
+        </div>
+      ) : null}
+      <div className="rounded-lg bg-amber-50 px-2 py-1.5 dark:bg-amber-950/40">
+        <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-amber-800 dark:text-amber-200">
+          Dessert
+        </p>
+        <p className="mt-0.5 text-[12px] leading-relaxed text-health-ink">
+          {dessert.map((item, index) => (
+            <span key={`dessert-${item.text}-${index}`}>
+              {index > 0 ? " · " : null}
+              {stripDessertPrefix(item.text)}
+            </span>
+          ))}
+        </p>
+      </div>
+    </div>
+  );
+}
+
 function LogTile({
   icon: Icon,
   label,
@@ -1031,7 +1226,7 @@ function LogTile({
     <button
       type="button"
       onClick={onClick}
-      className="flex flex-col items-center gap-2 rounded-card bg-white py-3.5 shadow-card"
+      className="flex flex-col items-center gap-2 rounded-card bg-health-bg py-3.5"
     >
       <Icon size={20} />
       <span className="text-[11px] font-semibold">{label}</span>
@@ -1092,7 +1287,7 @@ function LogSheet({
   ingredients: DetectedIngredient[];
   setIngredients: Dispatch<SetStateAction<DetectedIngredient[]>>;
   onClose: () => void;
-  onAnalyzeText: () => void;
+  onAnalyzeText: () => void | Promise<void>;
   onSaveText: () => void;
   onSaveBarcode: (grams: number) => void;
   onSavePhoto: () => void;
@@ -1101,13 +1296,52 @@ function LogSheet({
   const [newGrams, setNewGrams] = useState("10");
   const [textReview, setTextReview] = useState(false);
   const [photoReady, setPhotoReady] = useState(false);
+  const [photoPreview, setPhotoPreview] = useState<string | null>(null);
+  const [photoError, setPhotoError] = useState<string | null>(null);
   const [barcodeGrams, setBarcodeGrams] = useState(mockBarcodeProduct.servingG);
+  const [analyzing, setAnalyzing] = useState(false);
 
   useEffect(() => {
     setTextReview(false);
     setPhotoReady(false);
+    setPhotoError(null);
+    setPhotoPreview((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return null;
+    });
     setBarcodeGrams(mockBarcodeProduct.servingG);
   }, [mode]);
+
+  async function analyzePhoto(file: File) {
+    setAnalyzing(true);
+    setPhotoError(null);
+    setPhotoReady(false);
+    setIngredients([]);
+    const url = URL.createObjectURL(file);
+    setPhotoPreview((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return url;
+    });
+    try {
+      const form = new FormData();
+      form.append("image", file);
+      form.append("diet", profileId === "elodie" ? "omnivore" : "vegan");
+      const res = await withGeminiWait("Gemini lit la photo…", () =>
+        fetch("/api/log-photo", { method: "POST", body: form }),
+      );
+      const data = (await res.json()) as { ingredients?: DetectedIngredient[]; error?: string };
+      if (!res.ok || !Array.isArray(data.ingredients) || data.ingredients.length === 0) {
+        setPhotoError(data.error ?? "Aucun aliment reconnu. Réessaie avec une autre photo.");
+        return;
+      }
+      setIngredients(data.ingredients);
+      setPhotoReady(true);
+    } catch {
+      setPhotoError("Analyse photo indisponible. Réessaie.");
+    } finally {
+      setAnalyzing(false);
+    }
+  }
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/30">
@@ -1131,18 +1365,29 @@ function LogSheet({
             <textarea
               value={textInput}
               onChange={(e) => setTextInput(e.target.value)}
-              placeholder="Ex. 2 tranches pain complet + houmous 40g"
+              placeholder="Ex. tranche de pain bûcheron avec de la margarine"
               className="h-24 w-full rounded-card bg-health-bg p-3 text-[14px] outline-none"
             />
+            <p className="mt-2 text-[11px] leading-relaxed text-health-muted">
+              Chaque aliment est séparé (avec, et, virgule). Un poids écrit comme 20 g / 20 gr est repris tel quel.
+            </p>
             <button
               type="button"
+              disabled={analyzing || !textInput.trim()}
               onClick={() => {
-                onAnalyzeText();
-                setTextReview(true);
+                void (async () => {
+                  setAnalyzing(true);
+                  try {
+                    await onAnalyzeText();
+                    setTextReview(true);
+                  } finally {
+                    setAnalyzing(false);
+                  }
+                })();
               }}
-              className="mt-3 w-full rounded-card bg-health-ink py-3 text-[15px] font-semibold text-white"
+              className="mt-3 w-full rounded-card bg-health-ink py-3 text-[15px] font-semibold text-white disabled:opacity-50"
             >
-              Analyser
+              {analyzing ? "Analyse…" : "Analyser"}
             </button>
           </>
         )}
@@ -1171,36 +1416,61 @@ function LogSheet({
         {mode === "photo" && !photoReady && (
           <>
             <label className="flex cursor-pointer flex-col items-center gap-2 rounded-card bg-health-bg py-8">
-              <Camera size={28} />
-              <span className="text-[14px] font-semibold">Prendre / importer une photo</span>
+              {photoPreview ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={photoPreview}
+                  alt="Aperçu du repas"
+                  className="h-28 w-28 rounded-2xl object-cover"
+                />
+              ) : (
+                <Camera size={28} />
+              )}
+              <span className="text-[14px] font-semibold">
+                {analyzing ? "Analyse de la photo…" : "Prendre / importer une photo"}
+              </span>
               <input
                 type="file"
                 accept="image/*"
                 capture="environment"
                 className="hidden"
-                onChange={() => setPhotoReady(true)}
+                disabled={analyzing}
+                onChange={(event) => {
+                  const file = event.target.files?.[0];
+                  event.target.value = "";
+                  if (file) void analyzePhoto(file);
+                }}
               />
             </label>
-            <button
-              type="button"
-              onClick={() => setPhotoReady(true)}
-              className="mt-3 w-full rounded-card bg-health-ink py-3 text-[15px] font-semibold text-white"
-            >
-              Simuler l&apos;analyse
-            </button>
+            {photoError ? <p className="mt-2 text-[12px] text-coral">{photoError}</p> : null}
+            <p className="mt-2 text-[11px] leading-relaxed text-health-muted">
+              L&apos;IA liste les aliments visibles. Tu corriges les grammes avant d&apos;enregistrer.
+            </p>
           </>
         )}
 
         {mode === "photo" && photoReady && (
-          <IngredientReview
-            ingredients={ingredients}
-            setIngredients={setIngredients}
-            newName={newName}
-            setNewName={setNewName}
-            newGrams={newGrams}
-            setNewGrams={setNewGrams}
-            onSave={onSavePhoto}
-          />
+          <>
+            <button
+              type="button"
+              onClick={() => {
+                setPhotoReady(false);
+                setPhotoError(null);
+              }}
+              className="mb-3 text-[12px] font-semibold text-health-muted"
+            >
+              Autre photo
+            </button>
+            <IngredientReview
+              ingredients={ingredients}
+              setIngredients={setIngredients}
+              newName={newName}
+              setNewName={setNewName}
+              newGrams={newGrams}
+              setNewGrams={setNewGrams}
+              onSave={onSavePhoto}
+            />
+          </>
         )}
       </div>
     </div>
@@ -1325,6 +1595,14 @@ function IngredientReview({
   setNewGrams: (value: string) => void;
   onSave: () => void;
 }) {
+  const totals = macrosFromIngredients(ingredients);
+
+  function bumpGrams(id: string, delta: number) {
+    setIngredients((list) =>
+      list.map((item) => (item.id === id ? scaleDetected(item, item.grams + delta) : item)),
+    );
+  }
+
   return (
     <>
       <p className="mb-2 text-[12px] leading-relaxed text-health-muted">
@@ -1336,35 +1614,24 @@ function IngredientReview({
             <div className="min-w-0 flex-1">
               <p className="truncate text-[14px] font-medium">{ing.name}</p>
               <p className="text-[11px] text-health-muted">
-                {ing.calories} kcal · {ing.protein}g P
+                {ing.calories} kcal · {ing.protein}g P · {ing.carbs ?? 0}g G · {ing.fat ?? 0}g L
               </p>
             </div>
             <div className="flex items-center gap-1">
               <button
                 type="button"
                 className="h-8 w-8 rounded-full bg-white text-lg leading-none"
-                onClick={() =>
-                  setIngredients((list) =>
-                    list.map((i) =>
-                      i.id === ing.id
-                        ? {
-                            ...i,
-                            grams: Math.max(5, i.grams - 10),
-                            calories: Math.max(5, i.calories - 12),
-                          }
-                        : i,
-                    ),
-                  )
-                }
+                onClick={() => bumpGrams(ing.id, -10)}
               >
                 −
               </button>
               <input
                 value={ing.grams}
                 onChange={(e) => {
-                  const grams = Number(e.target.value) || 0;
+                  const grams = Number(e.target.value);
+                  if (!Number.isFinite(grams) || grams <= 0) return;
                   setIngredients((list) =>
-                    list.map((i) => (i.id === ing.id ? { ...i, grams } : i)),
+                    list.map((item) => (item.id === ing.id ? scaleDetected(item, grams) : item)),
                   );
                 }}
                 className="w-12 rounded-md bg-white text-center text-[13px] tabular-nums"
@@ -1373,22 +1640,14 @@ function IngredientReview({
               <button
                 type="button"
                 className="h-8 w-8 rounded-full bg-white text-lg leading-none"
-                onClick={() =>
-                  setIngredients((list) =>
-                    list.map((i) =>
-                      i.id === ing.id
-                        ? { ...i, grams: i.grams + 10, calories: i.calories + 12 }
-                        : i,
-                    ),
-                  )
-                }
+                onClick={() => bumpGrams(ing.id, 10)}
               >
                 +
               </button>
               <button
                 type="button"
                 className="ml-1 text-health-muted"
-                onClick={() => setIngredients((list) => list.filter((i) => i.id !== ing.id))}
+                onClick={() => setIngredients((list) => list.filter((item) => item.id !== ing.id))}
               >
                 <Trash2 size={16} />
               </button>
@@ -1396,6 +1655,11 @@ function IngredientReview({
           </div>
         ))}
       </div>
+      {ingredients.length > 0 && (
+        <p className="mt-2 text-[12px] font-semibold tabular-nums text-health-muted">
+          Total {totals.calories} kcal · {totals.protein}g P · {totals.carbs}g G · {totals.fat}g L
+        </p>
+      )}
       <div className="mt-2 flex gap-2">
         <input
           value={newName}
@@ -1414,15 +1678,18 @@ function IngredientReview({
           onClick={() => {
             if (!newName.trim()) return;
             const grams = Number(newGrams) || 10;
+            const parsed = parseFoodTextLocal(`${newName.trim()} ${grams}g`)[0];
             setIngredients((list) => [
               ...list,
-              {
-                id: `n-${Date.now()}`,
-                name: newName.trim(),
-                grams,
-                calories: Math.round(grams * 4.5),
-                protein: 0,
-              },
+              parsed
+                ? { ...scaleDetected(parsed, grams), id: `n-${Date.now()}` }
+                : {
+                    id: `n-${Date.now()}`,
+                    name: newName.trim(),
+                    grams,
+                    calories: Math.round(grams * 4.5),
+                    protein: 0,
+                  },
             ]);
             setNewName("");
           }}

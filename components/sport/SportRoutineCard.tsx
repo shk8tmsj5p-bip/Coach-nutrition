@@ -4,10 +4,11 @@ import { Bike, Dumbbell, Footprints, Pencil, Plus, Trash2, Users, X } from "luci
 import { useMemo, useState, type ReactNode } from "react";
 import { useProfile } from "@/context/ProfileContext";
 import { Card, SectionTitle } from "@/components/ui/Card";
+import { CardioPlanner } from "@/components/sport/CardioPlanner";
+import { HypertrophyPlanner } from "@/components/sport/HypertrophyPlanner";
 import { SportSessionSheet } from "@/components/sport/SportSessionSheet";
 import {
   activityLabel,
-  deriveRoutine,
   effortLabel,
   emptySession,
   formatExercises,
@@ -17,8 +18,9 @@ import {
   removeSessionById,
   unshareById,
   upsertSession,
+  withSessions,
 } from "@/lib/sport-routine";
-import type { Profile, ProfileId, SportActivity, SportSession } from "@/lib/types";
+import type { Profile, ProfileId, SportActivity, SportRoutine, SportSession } from "@/lib/types";
 
 const ACTIVITY_ORDER: SportActivity[] = ["course", "velo", "muscu"];
 
@@ -49,15 +51,19 @@ export function SportRoutineCard({ profile }: { profile: Profile }) {
     return parseSportRoutine(catalog[id].sportRoutine).sessions;
   }
 
-  async function persistSelf(sessions: SportSession[]) {
+  async function persistRoutine(next: SportRoutine) {
     setSaving(true);
     setError(null);
     try {
-      const message = await updateSportRoutine(profile.id, deriveRoutine(sessions));
+      const message = await updateSportRoutine(profile.id, next);
       if (message) setError(message);
     } finally {
       setSaving(false);
     }
+  }
+
+  async function persistSelf(sessions: SportSession[]) {
+    await persistRoutine(withSessions(routine, sessions));
   }
 
   async function persistPair(alexis: SportSession[], elodie: SportSession[]) {
@@ -65,8 +71,8 @@ export function SportRoutineCard({ profile }: { profile: Profile }) {
     setError(null);
     try {
       const message = await updateSportRoutines({
-        alexis: deriveRoutine(alexis),
-        elodie: deriveRoutine(elodie),
+        alexis: withSessions(parseSportRoutine(catalog.alexis.sportRoutine), alexis),
+        elodie: withSessions(parseSportRoutine(catalog.elodie.sportRoutine), elodie),
       });
       if (message) setError(message);
     } finally {
@@ -214,6 +220,24 @@ export function SportRoutineCard({ profile }: { profile: Profile }) {
             })}
           </div>
         )}
+
+        <CardioPlanner
+          key={`${profile.id}-cardio`}
+          profile={profile}
+          routine={routine}
+          saving={saving}
+          onApply={persistRoutine}
+        />
+
+        {profile.primaryGoal === "prise" ? (
+          <HypertrophyPlanner
+            key={`${profile.id}-hyp`}
+            profile={profile}
+            routine={routine}
+            saving={saving}
+            onApply={persistRoutine}
+          />
+        ) : null}
 
         {error && <p className="mt-3 text-[12px] text-coral">Enregistré en local · {error}</p>}
       </Card>

@@ -5,6 +5,7 @@ import { cookScale } from "@/lib/qty-scale";
 import {
   appliancesLine,
   cellSetting,
+  blockHowto,
   groupedCellIngredients,
   compactPasAPas,
   itemQuantityLine,
@@ -13,6 +14,8 @@ import {
   shortCoverDays,
   splitRecipeParts,
   visualPhrase,
+  packingLists,
+  assemblyHowto,
 } from "@/lib/s34-copy";
 import type { BatchStepRecipeBlock } from "@/lib/types";
 
@@ -170,6 +173,11 @@ function PdfTable({
                 </div>
               ))
             )}
+            {blockHowto(block) ? (
+              <div style={{ marginTop: 4, fontSize: 11, lineHeight: 1.35, color: "#6E6E73" }}>
+                {blockHowto(block)}
+              </div>
+            ) : null}
           </div>
           )}
           <span style={{ textAlign: "right", fontWeight: 650 }}>{cellSetting(block) || "—"}</span>
@@ -335,7 +343,6 @@ function MasterCook({ session, weekLabel }: { session: BatchSession; weekLabel: 
 function MasterFinish({ session }: { session: BatchSession }) {
   const tm = session.steps.find((step) => step.time === "3");
   const cuts = session.steps.find((step) => step.time === "4");
-  const assembly = session.steps.find((step) => step.time === "5");
 
   return (
     <>
@@ -365,18 +372,6 @@ function MasterFinish({ session }: { session: BatchSession }) {
         </div>
       ) : null}
 
-      {assembly?.recipes?.length ? (
-        <div style={{ marginTop: 14 }}>
-          <p style={h2}>5. Assemblage</p>
-          <PdfTable
-            headers={["Px", "Composition", "Montage"]}
-            rows={assembly.recipes}
-            headBg="#ECFDF5"
-            headColor="#0F766E"
-          />
-        </div>
-      ) : null}
-
       {session.storage.length > 0 && (
         <div style={{ marginTop: 14 }}>
           <p style={h2}>Conservation</p>
@@ -391,6 +386,99 @@ function MasterFinish({ session }: { session: BatchSession }) {
   );
 }
 
+function PdfPackBox({
+  name,
+  color,
+  bg,
+  lines,
+}: {
+  name: string;
+  color: string;
+  bg: string;
+  lines: { name: string; qty: string }[];
+}) {
+  return (
+    <div style={{ background: bg, borderRadius: 10, padding: "8px 10px", minWidth: 0 }}>
+      <p style={{ margin: 0, fontSize: 10, fontWeight: 700, letterSpacing: 0.4, textTransform: "uppercase", color }}>
+        Boîte {name}
+      </p>
+      {lines.length === 0 ? (
+        <p style={{ ...muted, marginTop: 4 }}>—</p>
+      ) : (
+        lines.map((line) => (
+          <div
+            key={`${name}-${line.name}`}
+            style={{ display: "flex", justifyContent: "space-between", gap: 8, marginTop: 3, fontSize: 11, lineHeight: 1.3 }}
+          >
+            <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{line.name}</span>
+            <span style={{ fontWeight: 700, color, flexShrink: 0 }}>{line.qty}</span>
+          </div>
+        ))
+      )}
+    </div>
+  );
+}
+
+function MasterBoxes({
+  rows,
+  continued,
+}: {
+  rows: BatchStepRecipeBlock[];
+  continued?: boolean;
+}) {
+  if (rows.length === 0) return null;
+  return (
+    <>
+      <p style={{ ...muted, fontWeight: 700, letterSpacing: 0.9, textTransform: "uppercase", color: "#0F766E" }}>
+        Montage
+      </p>
+      <h1 style={h1}>{continued ? "Boîtes · suite" : "Boîtes Alexis & Élodie"}</h1>
+      {!continued ? (
+        <p style={{ ...muted, marginTop: 6 }}>
+          1 boîte = 1 repas. Les grammes sont pour une boîte : en semaine, faire ×2 (4 repas). Sauce au pot, jamais dans la boîte.
+        </p>
+      ) : null}
+      {rows.map((block) => {
+        const pack = packingLists(block);
+        return (
+          <div key={block.recipeNo} style={{ marginTop: 12, padding: 10, background: "#FFFFFF", borderRadius: 12 }}>
+            <div style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
+              <PdfTag recipeNo={block.recipeNo} />
+              <div>
+                <p style={{ ...body, fontWeight: 700, margin: 0 }}>{block.recipeTitle}</p>
+                <p style={{ ...muted, fontSize: 11 }}>
+                  {shortCoverDays(block.coverLabel)} · {pack.boxLabel}
+                </p>
+              </div>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 8 }}>
+              <PdfPackBox name="Alexis" color="#E25538" bg="#FFE8E2" lines={pack.boxA} />
+              <PdfPackBox name="Élodie" color="#4F5FE0" bg="#E8EBFF" lines={pack.boxE} />
+            </div>
+            {pack.pot.length > 0 ? (
+              <div style={{ marginTop: 8, padding: "6px 8px", background: "#F3EBE0", borderRadius: 8 }}>
+                <p style={{ margin: 0, fontSize: 10, fontWeight: 700, letterSpacing: 0.4, textTransform: "uppercase", color: "#92400E" }}>
+                  Pot sauce · à part
+                </p>
+                {pack.pot.map((line) => (
+                  <div
+                    key={line.name}
+                    style={{ display: "flex", justifyContent: "space-between", gap: 8, marginTop: 3, fontSize: 11 }}
+                  >
+                    <span>{line.name}</span>
+                    <span style={{ color: "#6E6E73", fontWeight: 650 }}>{line.qty}</span>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+            <p style={{ ...muted, marginTop: 6, fontSize: 11 }}>{assemblyHowto(block)}</p>
+          </div>
+        );
+      })}
+    </>
+  );
+}
+
 export function BatchPdfDocument({
   session,
   weekLabel,
@@ -398,10 +486,20 @@ export function BatchPdfDocument({
   session: BatchSession;
   weekLabel: string;
 }) {
+  const boxRows = session.steps.find((step) => step.time === "5")?.recipes ?? [];
   const bodies: ReactNode[] = [
     <MasterCook key="cook" session={session} weekLabel={weekLabel} />,
     <MasterFinish key="finish" session={session} />,
   ];
+  for (let i = 0; i < boxRows.length; i += 2) {
+    bodies.push(
+      <MasterBoxes
+        key={`boxes-${i}`}
+        rows={boxRows.slice(i, i + 2)}
+        continued={i > 0}
+      />,
+    );
+  }
   for (const meal of session.recipes) bodies.push(...recipePages(meal));
   for (const meal of session.weekend) bodies.push(...recipePages(meal));
 

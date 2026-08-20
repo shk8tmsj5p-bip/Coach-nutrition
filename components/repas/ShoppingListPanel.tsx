@@ -10,6 +10,7 @@ import { storage } from "@/lib/storage";
 import {
   AISLE_ORDER,
   groupShoppingItems,
+  saveAisleOverride,
   shoppingItemsFromPlan,
   shoppingListPlainText,
   type AisleName,
@@ -24,7 +25,8 @@ export function ShoppingListPanel({
   weekStart: string;
   plan: PlannedMeal[];
 }) {
-  const derived = useMemo(() => shoppingItemsFromPlan(plan), [plan]);
+  const [aisleRev, setAisleRev] = useState(0);
+  const derived = useMemo(() => shoppingItemsFromPlan(plan), [plan, aisleRev]);
   const [custom, setCustom] = useState<ShoppingListItem[]>([]);
   const [checked, setChecked] = useState<string[]>([]);
   const [copied, setCopied] = useState(false);
@@ -53,6 +55,12 @@ export function ShoppingListPanel({
 
   function toggle(id: string) {
     persistChecked(checked.includes(id) ? checked.filter((item) => item !== id) : [...checked, id]);
+  }
+
+  function recategorize(item: ShoppingListItem, nextAisle: AisleName) {
+    if (nextAisle === item.aisle) return;
+    saveAisleOverride(item.name, nextAisle);
+    setAisleRev((n) => n + 1);
   }
 
   function addCustom() {
@@ -92,7 +100,7 @@ export function ShoppingListPanel({
       </button>
       <p className="mb-3 px-1 text-[12px] text-health-muted">
         {remaining} article{remaining > 1 ? "s" : ""} restant{remaining > 1 ? "s" : ""} · liste générée depuis
-        la semaine · texte Notes sans puces
+        la semaine. Dans Autre, choisis le rayon : il est retenu pour les prochaines listes.
       </p>
 
       <Card className="mb-3">
@@ -156,32 +164,54 @@ export function ShoppingListPanel({
               const tags = item.planTags?.length ? item.planTags.join(", ") : "";
               const full = [line, tags ? `[${tags}]` : ""].filter(Boolean).join(" · ");
               return (
-                <button
-                  key={item.id}
-                  type="button"
-                  onClick={() => toggle(item.id)}
-                  className="flex w-full items-center gap-2 rounded-lg px-1.5 py-1 text-left"
-                >
-                  <span
-                    className={cn(
-                      "flex h-4 w-4 shrink-0 items-center justify-center rounded-[5px] border",
-                      on ? "border-health-ink bg-health-ink text-white" : "border-health-muted/40 bg-white",
-                    )}
+                <div key={item.id} className="flex items-center gap-1 rounded-lg px-1.5 py-1">
+                  <button
+                    type="button"
+                    onClick={() => toggle(item.id)}
+                    className="flex min-w-0 flex-1 items-center gap-2 text-left"
                   >
-                    {on && <Check size={10} strokeWidth={3} />}
-                  </span>
-                  <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: tone.hex }} />
-                  <HoldTip label={full} className={cn("text-[13px] font-medium", on && "opacity-40")}>
-                    <span className={cn(on && "line-through")}>{line}</span>
-                  </HoldTip>
-                  {(item.planTags?.length ?? 0) > 0 && (
-                    <span className={cn("flex shrink-0 gap-0.5", on && "opacity-40")}>
-                      {item.planTags!.map((tag) => (
-                        <RecipeTag key={tag} recipeNo={tag} compact />
-                      ))}
+                    <span
+                      className={cn(
+                        "flex h-4 w-4 shrink-0 items-center justify-center rounded-[5px] border",
+                        on ? "border-health-ink bg-health-ink text-white" : "border-health-muted/40 bg-white",
+                      )}
+                    >
+                      {on && <Check size={10} strokeWidth={3} />}
                     </span>
+                    <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: tone.hex }} />
+                    <HoldTip label={full} className={cn("text-[13px] font-medium", on && "opacity-40")}>
+                      <span className={cn(on && "line-through")}>{line}</span>
+                    </HoldTip>
+                    {(item.planTags?.length ?? 0) > 0 && (
+                      <span className={cn("flex shrink-0 gap-0.5", on && "opacity-40")}>
+                        {item.planTags!.map((tag) => (
+                          <RecipeTag key={tag} recipeNo={tag} compact />
+                        ))}
+                      </span>
+                    )}
+                  </button>
+                  {item.aisle === "AUTRE" && !item.custom && (
+                    <select
+                      aria-label={`Rayon pour ${item.name}`}
+                      defaultValue=""
+                      onChange={(event) => {
+                        const next = event.target.value as AisleName;
+                        if (!next) return;
+                        recategorize(item, next);
+                      }}
+                      className="max-w-[7.2rem] shrink-0 rounded-md bg-health-bg px-1 py-1 text-[10px] font-semibold text-health-muted outline-none"
+                    >
+                      <option value="" disabled>
+                        Rayon
+                      </option>
+                      {AISLE_ORDER.filter((option) => option !== "AUTRE").map((option) => (
+                        <option key={option} value={option}>
+                          {option}
+                        </option>
+                      ))}
+                    </select>
                   )}
-                </button>
+                </div>
               );
             })}
           </Card>

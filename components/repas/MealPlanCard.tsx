@@ -10,8 +10,9 @@ import { stripCoachNote } from "@/lib/coach-ingredients";
 import { groupMealIngredients } from "@/lib/ingredient-groups";
 import { aisleStyle } from "@/lib/plan-colors";
 import { aisleFor, isUnlistedShoppingIng } from "@/lib/shopping-from-plan";
-import { formatIngredientLine, scaleVisualQuantity } from "@/lib/visual-quantity";
+import { formatIngredientLine, scaleVisualQuantity, formatVisualAndWeight } from "@/lib/visual-quantity";
 import { gramsFor, ingredientsForView, isEmptyMeal } from "@/lib/weekly-plan";
+import { portionsDiffer } from "@/lib/meal-coach";
 import { cookQtyCaption, cookScale, type QtyMode } from "@/lib/qty-scale";
 import type { PlannedMeal, RecipeDeclination, RecipeIngredient, ViewMode } from "@/lib/types";
 import { cn, mealTypeLabel } from "@/lib/utils";
@@ -70,9 +71,9 @@ export function MealPlanCard({
           {planTag ? <RecipeTag recipeNo={planTag} className="mr-1.5 align-middle" /> : null}
           {empty ? "Aucun repas" : meal.baseName}
         </p>
-        <p className="mt-1 text-[12px] text-health-muted">
-          {empty ? "Génère un repas pour remplir ce créneau." : meal.sharedBase}
-        </p>
+        {empty ? (
+          <p className="mt-1 text-[12px] text-health-muted">Génère un repas pour remplir ce créneau.</p>
+        ) : null}
       </button>
 
       {!empty && (
@@ -235,6 +236,12 @@ function ingredientQtyText(
     const gramsA = Math.round(item.gramsAlexis * scale);
     const gramsE = Math.round(item.gramsElodie * scale);
     if (gramsA > 0 && gramsE > 0) {
+      if (portionsDiffer(gramsA, gramsE)) {
+        const maxG = Math.max(item.gramsAlexis, item.gramsElodie, 1);
+        const visualA = scaleVisualQuantity(item.visualQuantity, scale * (item.gramsAlexis / maxG));
+        const visualE = scaleVisualQuantity(item.visualQuantity, scale * (item.gramsElodie / maxG));
+        return `${item.name} : Alexis ${formatVisualAndWeight(gramsA, visualA)} · Élodie ${formatVisualAndWeight(gramsE, visualE)}`;
+      }
       const grams = gramsA + gramsE;
       const visualTotal = scaleVisualQuantity(
         item.visualQuantity,
@@ -324,7 +331,7 @@ function ProfileMacros({
       </p>
       <p className="mt-0.5 text-[12px] leading-snug">{decl.protein}</p>
       <p className="mt-1 text-[11px] tabular-nums text-health-muted">
-        {decl.calories} kcal · {decl.proteinG}g P
+        {decl.calories} kcal · {decl.proteinG}g P · {decl.carbsG}g G
       </p>
     </div>
   );

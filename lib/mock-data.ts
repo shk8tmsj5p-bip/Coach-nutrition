@@ -1,4 +1,5 @@
 import { defaultRoutineFor } from "./sport-routine";
+import { defaultMealTemplates } from "./meal-templates";
 import type {
   BatchStep,
   CoachInsight,
@@ -41,6 +42,7 @@ export const profiles: Record<"alexis" | "elodie", Profile> = {
     primaryGoal: "perte",
     weeklyRateKg: -0.5,
     sportRoutine: defaultRoutineFor("alexis"),
+    mealTemplates: defaultMealTemplates("alexis"),
     targets: { calories: 2300, protein: 160, carbs: 240, fat: 70 },
     bmr: 1824,
     tdee: 2827,
@@ -68,6 +70,7 @@ export const profiles: Record<"alexis" | "elodie", Profile> = {
     primaryGoal: "perte",
     weeklyRateKg: -0.5,
     sportRoutine: defaultRoutineFor("elodie"),
+    mealTemplates: defaultMealTemplates("elodie"),
     targets: { calories: 1750, protein: 120, carbs: 170, fat: 55 },
     bmr: 1432,
     tdee: 2219,
@@ -163,6 +166,7 @@ export const todayMovement: Record<ProfileId, DailyMovement> = {
     restingEnergyKcal: 1824,
     workoutMinutes: 52,
     distanceKm: 6.4,
+    cyclingDistanceKm: 28.4,
     weightKg: 82.1,
     fatMassPct: 21.3,
     bmi: 24.0,
@@ -176,6 +180,7 @@ export const todayMovement: Record<ProfileId, DailyMovement> = {
     restingEnergyKcal: 1432,
     workoutMinutes: 32,
     distanceKm: 8.1,
+    cyclingDistanceKm: 0,
     weightKg: 67.6,
     fatMassPct: 27.2,
     bmi: 23.4,

@@ -1,4 +1,5 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { sanitizeRestingKcal } from "@/lib/health-energy";
 import { createAdminSupabaseClient } from "@/lib/supabase/admin";
 import { todayISO } from "@/lib/dates";
 import {
@@ -77,9 +78,19 @@ async function findDailyRow(
   return { row: data?.[0] ?? null, error: undefined };
 }
 
+async function loadEnergyAnchors(supabase: SupabaseClient<Database>, profileId: ProfileId) {
+  const { data } = await supabase.from("profils").select("bmr, tdee").eq("id", profileId).limit(1);
+  const row = data?.[0];
+  return {
+    bmr: Number(row?.bmr) || 1600,
+    tdee: Number(row?.tdee) || 2200,
+  };
+}
+
 async function upsertDailyMovement(
   supabase: SupabaseClient<Database>,
   payload: ParsedHealthPayload,
+  anchors: { bmr: number; tdee: number },
 ) {
   if (!hasActivityMetrics(payload)) {
     return { updated: false as const };
@@ -98,11 +109,14 @@ async function upsertDailyMovement(
     previous.active_energy_kcal ?? previous.active_kcal,
     existing.row?.calories_burned ?? 0,
   );
-  const restingEnergyKcal = keepNumber(
+  const restingRaw = keepNumber(
     payload.restingEnergyKcal,
-    previous.resting_energy_kcal,
+    previous.resting_energy_kcal_raw ?? previous.resting_energy_kcal,
   );
-  const distanceKm = keepNumber(payload.distanceKm, previous.distance_km);
+  const restingSanitized = sanitizeRestingKcal(restingRaw, anchors);
+  const restingEnergyKcal = restingSanitized.value;
+  const distanceKm = keepNumber(payload.distanceKm, previous.walking_distance_km ?? previous.distance_km);
+  const cyclingDistanceKm = keepNumber(payload.cyclingDistanceKm, previous.cycling_distance_km);
 
   const nextPayload: Json = {
     ...previous,
@@ -110,7 +124,11 @@ async function upsertDailyMovement(
     workout_minutes: workoutMinutes,
     active_energy_kcal: activeEnergyKcal,
     active_kcal: activeEnergyKcal,
+    resting_energy_kcal_raw: restingRaw,
     resting_energy_kcal: restingEnergyKcal,
+    resting_energy_corrected: restingSanitized.corrected,
+    walking_distance_km: distanceKm,
+    cycling_distance_km: cyclingDistanceKm,
     distance_km: distanceKm,
   };
 
@@ -136,6 +154,7 @@ async function upsertDailyMovement(
       activeEnergyKcal,
       restingEnergyKcal,
       distanceKm,
+      cyclingDistanceKm,
     };
   }
 
@@ -158,6 +177,7 @@ async function upsertDailyMovement(
     activeEnergyKcal,
     restingEnergyKcal,
     distanceKm,
+    cyclingDistanceKm,
   };
 }
 
@@ -326,7 +346,8 @@ export async function ingestHealthPayload(
   supabase: SupabaseClient<Database>,
   payload: ParsedHealthPayload,
 ) {
-  const daily = await upsertDailyMovement(supabase, payload);
+  const anchors = await loadEnergyAnchors(supabase, payload.profileId);
+  const daily = await upsertDailyMovement(supabase, payload, anchors);
   if (daily.error) return { ok: false as const, error: daily.error };
 
   const workouts = await insertWorkouts(supabase, payload.profileId, payload.workouts);
@@ -355,6 +376,7 @@ export async function ingestHealthPayload(
     active_energy_kcal: daily.activeEnergyKcal,
     resting_energy_kcal: daily.restingEnergyKcal,
     distance_km: daily.distanceKm,
+    cycling_distance_km: daily.cyclingDistanceKm,
     workout_kcal: dedicated.kcal,
     net_passive_kcal: netPassiveKcal,
     weight_kg: pesees.weightKg,
@@ -375,6 +397,7 @@ function emptyMovement(profileId: ProfileId, date: string): DailyMovement {
     restingEnergyKcal: 0,
     workoutMinutes: 0,
     distanceKm: 0,
+    cyclingDistanceKm: 0,
     source: "apple-health",
   };
 }
@@ -391,7 +414,8 @@ function mapDailyRow(row: LogSanteRow): DailyMovement {
     activeEnergyKcal: active,
     restingEnergyKcal: num(payload.resting_energy_kcal) ?? 0,
     workoutMinutes: num(payload.workout_minutes) ?? row.duration_min ?? 0,
-    distanceKm: num(payload.distance_km) ?? 0,
+    distanceKm: num(payload.walking_distance_km) ?? num(payload.distance_km) ?? 0,
+    cyclingDistanceKm: num(payload.cycling_distance_km) ?? 0,
     source: "apple-health",
   };
 }
@@ -508,7 +532,7 @@ export async function loadHealthHistory(profileId: ProfileId): Promise<DailyMove
 
 export function movementSeries(
   days: DailyMovement[],
-  key: "steps" | "distanceKm" | "workoutMinutes" | "activeEnergyKcal" | "restingEnergyKcal",
+  key: "steps" | "distanceKm" | "cyclingDistanceKm" | "workoutMinutes" | "activeEnergyKcal" | "restingEnergyKcal",
 ) {
   return days.map((day) => ({ date: day.date, value: Number(day[key] ?? 0) }));
 }

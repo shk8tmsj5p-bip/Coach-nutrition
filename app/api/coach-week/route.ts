@@ -4,7 +4,7 @@ import { parseGeminiJson } from "@/lib/gemini/meals";
 import { friendlyGeminiError } from "@/lib/gemini/models";
 import type { Pesee, Profile, SundayJournalFields } from "@/lib/types";
 
-export const maxDuration = 60;
+export const maxDuration = 90;
 
 type Body = {
   profile: Profile;

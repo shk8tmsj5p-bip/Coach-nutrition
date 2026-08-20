@@ -127,7 +127,12 @@ export function EditGoalsSheet({
         </div>
 
         <p className="mt-4 text-[12px] leading-relaxed text-health-muted">
-          La routine sport (séances, D+, effort) se gère sur la carte « Ma routine sport ».
+          En bas, « Ma routine sport » : coche tes jours (course ou vélo, durée, D+), le coach propose le type de
+          sortie pour {goal === "prise" ? "la prise de masse" : goal === "maintien" ? "le maintien" : "la perte de poids"} et
+          pour progresser.
+          {goal === "prise"
+            ? " Tu peux aussi dire quelles zones muscler : il propose les exercices, et te prévient si le volume est trop juste."
+            : ""}
         </p>
 
         {error && <p className="mt-3 text-[13px] text-coral">{error}</p>}

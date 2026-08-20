@@ -21,11 +21,14 @@ export type KitchenPrefs = {
   tofuWeekdayFresh: boolean;
   mockMeatsWeekendOnly: boolean;
   weatherAdaptive: boolean;
+  homemadeSauces: boolean;
   batchLabel: string;
   preferredHerbs: string[];
   preferredSpices: string[];
   extraAversions: string[];
   extraTastes: string[];
+  /** Critères libres du foyer (tags), lus par Gem Chef. */
+  extraRules: string[];
   appliances: Record<KitchenApplianceId, boolean>;
 };
 
@@ -56,11 +59,13 @@ export const DEFAULT_KITCHEN_PREFS: KitchenPrefs = {
   tofuWeekdayFresh: true,
   mockMeatsWeekendOnly: true,
   weatherAdaptive: true,
+  homemadeSauces: true,
   batchLabel: "Session express · sauces en pots",
   preferredHerbs: ["menthe", "basilic", "persil plat", "ciboulette"],
   preferredSpices: ["cumin", "paprika fumé", "gingembre frais", "5-épices", "moutarde", "raifort"],
   extraAversions: [],
   extraTastes: ["sauces maison complexes", "herbes fraîches", "umami"],
+  extraRules: ["Toujours une herbe fraîche", "Sauces 100% maison"],
   appliances: { ...ALL_APPLIANCES_ON },
 };
 
@@ -72,6 +77,14 @@ function asPace(value: unknown): RecipePace {
 
 function asHeat(value: unknown): HeatStyle {
   return value === "doux" || value === "neutre" ? value : "complexe";
+}
+
+function asStringList(value: unknown, fallback: string[]): string[] {
+  if (!Array.isArray(value)) return fallback;
+  return value
+    .filter((item): item is string => typeof item === "string")
+    .map((item) => item.trim())
+    .filter(Boolean);
 }
 
 function asAppliances(value: unknown): Record<KitchenApplianceId, boolean> {
@@ -95,18 +108,15 @@ export function parseKitchenPrefs(raw: unknown): KitchenPrefs {
     tofuWeekdayFresh: rec.tofuWeekdayFresh !== false,
     mockMeatsWeekendOnly: rec.mockMeatsWeekendOnly !== false,
     weatherAdaptive: rec.weatherAdaptive !== false,
-    preferredHerbs: Array.isArray(rec.preferredHerbs)
-      ? rec.preferredHerbs.filter((item): item is string => typeof item === "string")
-      : DEFAULT_KITCHEN_PREFS.preferredHerbs,
-    preferredSpices: Array.isArray(rec.preferredSpices)
-      ? rec.preferredSpices.filter((item): item is string => typeof item === "string")
-      : DEFAULT_KITCHEN_PREFS.preferredSpices,
-    extraAversions: Array.isArray(rec.extraAversions)
-      ? rec.extraAversions.filter((item): item is string => typeof item === "string")
-      : [],
-    extraTastes: Array.isArray(rec.extraTastes)
-      ? rec.extraTastes.filter((item): item is string => typeof item === "string")
-      : DEFAULT_KITCHEN_PREFS.extraTastes,
+    homemadeSauces: rec.homemadeSauces !== false,
+    preferredHerbs: asStringList(rec.preferredHerbs, DEFAULT_KITCHEN_PREFS.preferredHerbs),
+    preferredSpices: asStringList(rec.preferredSpices, DEFAULT_KITCHEN_PREFS.preferredSpices),
+    extraAversions: asStringList(rec.extraAversions, []),
+    extraTastes: asStringList(rec.extraTastes, DEFAULT_KITCHEN_PREFS.extraTastes),
+    extraRules: asStringList(
+      rec.extraRules,
+      asStringList(rec.extraTastes, DEFAULT_KITCHEN_PREFS.extraRules),
+    ),
     appliances: asAppliances(rec.appliances),
   };
 }
@@ -132,7 +142,11 @@ export function householdTastes(prefs: KitchenPrefs, profiles: Pick<Profile, "na
   const perProfile = profiles
     .map((profile) => `${profile.name} : ${profile.preferences.join(", ")}`)
     .join(" · ");
-  const extra = prefs.extraTastes.length ? ` Foyer : ${prefs.extraTastes.join(", ")}.` : "";
+  const extra = prefs.extraRules.length
+    ? ` Critères foyer : ${prefs.extraRules.join(" · ")}.`
+    : prefs.extraTastes.length
+      ? ` Foyer : ${prefs.extraTastes.join(", ")}.`
+      : "";
   return `${perProfile}.${extra}`;
 }
 
@@ -166,18 +180,25 @@ export function formatKitchenPrefsForPrompt(
   const dinner = prefs.dinnersLowCal
     ? "Tous les dîners : low calorie systématiques (huile ≤ 8 g)."
     : "Dîners : pas de contrainte low cal.";
+  const sauces = prefs.homemadeSauces
+    ? "Sauces 100% maison : chaque composant dosé (jamais un seul pot du commerce)."
+    : "";
   const gear = enabledAppliances(prefs);
   const gearLine =
     gear.length === KITCHEN_APPLIANCES.length
       ? "MATÉRIEL : Thermomix, Airfryer, Cookeo, cuiseur à riz, KitchenAid — tous dispo."
       : `MATÉRIEL AUTORISÉ : ${gear.join(", ") || "plaque / four uniquement"}. Ne pas utiliser les appareils absents.`;
   const weather = prefs.weatherAdaptive ? "Météo : canicule → bowls / salades / crudités." : "";
+  const rules = prefs.extraRules.length
+    ? `CRITÈRES LIBRES À RESPECTER : ${prefs.extraRules.join(" · ")}.`
+    : "";
 
   return `PRÉFÉRENCES FOYER (onglet Paramètres — source de vérité) :
 ${pace}
 ${heat}
 ${gearLine}
 Goûts : ${householdTastes(prefs, profiles)}
-${dinner} ${tofu} ${mock} ${weather}
+${dinner} ${tofu} ${mock} ${sauces} ${weather}
+${rules}
 Aversions à OMETTRE (ne jamais écrire « sans X ») : ${aversions.join(", ") || "aucune"}.`;
 }

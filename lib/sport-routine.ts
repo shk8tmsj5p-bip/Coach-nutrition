@@ -1,5 +1,9 @@
 import type { Json } from "@/lib/supabase/database.types";
+import { parseHypertrophy } from "@/lib/hypertrophy";
+import { parseCardio } from "@/lib/cardio";
 import type {
+  CardioPrefs,
+  HypertrophyPrefs,
   ProfileId,
   SportActivity,
   SportEffort,
@@ -75,6 +79,8 @@ export function effortAllowed(activity: SportActivity, effort: SportEffort) {
 export function deriveRoutine(
   sessions: SportSession[],
   targetMinutesPerWeek?: number,
+  hypertrophy?: HypertrophyPrefs,
+  cardio?: CardioPrefs,
 ): SportRoutine {
   const planned = sessions.reduce((sum, session) => sum + session.durationMin, 0);
   return {
@@ -83,7 +89,18 @@ export function deriveRoutine(
     ridesPerWeek: sessions.filter((session) => session.activity === "velo").length,
     strengthDays: sessions.filter((session) => session.activity === "muscu").length,
     targetMinutesPerWeek: targetMinutesPerWeek ?? planned,
+    hypertrophy,
+    cardio,
   };
+}
+
+export function withSessions(routine: SportRoutine, sessions: SportSession[]): SportRoutine {
+  return deriveRoutine(
+    sessions,
+    routine.targetMinutesPerWeek || undefined,
+    routine.hypertrophy,
+    routine.cardio,
+  );
 }
 
 export function parseSportRoutine(value: unknown): SportRoutine {
@@ -105,7 +122,12 @@ export function parseSportRoutine(value: unknown): SportRoutine {
     parsedSessions.length > 0
       ? parsedSessions
       : synthesizeSessions({ runsPerWeek, ridesPerWeek, strengthDays, targetMinutesPerWeek });
-  return deriveRoutine(sessions, targetMinutesPerWeek || undefined);
+  return deriveRoutine(
+    sessions,
+    targetMinutesPerWeek || undefined,
+    parseHypertrophy(rec.hypertrophy),
+    parseCardio(rec.cardio),
+  );
 }
 
 function parseSession(value: unknown, index: number): SportSession | null {
@@ -216,12 +238,35 @@ function clampCount(value: unknown, fallback: number, max = 14) {
 }
 
 export function sportRoutineToJson(routine: SportRoutine): Json {
-  const derived = deriveRoutine(routine.sessions, routine.targetMinutesPerWeek);
+  const derived = deriveRoutine(
+    routine.sessions,
+    routine.targetMinutesPerWeek,
+    routine.hypertrophy,
+    routine.cardio,
+  );
   return {
     runsPerWeek: derived.runsPerWeek,
     ridesPerWeek: derived.ridesPerWeek,
     strengthDays: derived.strengthDays,
     targetMinutesPerWeek: derived.targetMinutesPerWeek,
+    hypertrophy: derived.hypertrophy
+      ? {
+          focus: derived.hypertrophy.focus,
+          minutesPerSession: derived.hypertrophy.minutesPerSession,
+          weekdays: derived.hypertrophy.weekdays,
+        }
+      : null,
+    cardio: derived.cardio
+      ? {
+          slots: derived.cardio.slots.map((slot) => ({
+            id: slot.id,
+            weekday: slot.weekday,
+            activity: slot.activity,
+            durationMin: slot.durationMin,
+            elevationM: slot.elevationM,
+          })),
+        }
+      : null,
     sessions: derived.sessions.map((session) => ({
       id: session.id,
       activity: session.activity,
@@ -272,11 +317,21 @@ export function formatExercises(exercises: SportExercise[]) {
   return named.map(formatExerciseLine).join(" · ");
 }
 
+export function formatSecondsAsClock(sec: number) {
+  const value = Math.max(0, Math.round(sec));
+  if (value <= 60) return `${value}s`;
+  const minutes = Math.floor(value / 60);
+  const rest = value % 60;
+  if (rest === 0) return `${minutes} min`;
+  return `${minutes} min ${rest}s`;
+}
+
 export function formatExerciseLine(exercise: SportExercise) {
   if (exercise.target === "temps") {
-    const hold = `${exercise.sets} × ${exercise.workSec}s`;
+    const work = formatSecondsAsClock(exercise.workSec);
+    const hold = exercise.sets <= 1 ? work : `${exercise.sets} × ${work}`;
     return exercise.restSec > 0
-      ? `${exercise.name} ${hold} / ${exercise.restSec}s repos`
+      ? `${exercise.name} ${hold} / ${formatSecondsAsClock(exercise.restSec)} repos`
       : `${exercise.name} ${hold}`;
   }
   return `${exercise.name} ${exercise.sets}×${exercise.reps}`;

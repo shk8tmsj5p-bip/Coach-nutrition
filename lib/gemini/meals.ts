@@ -13,6 +13,7 @@ import { expandPreparedSauces, isPreparedSauceName } from "@/lib/homemade-sauces
 import { stripThemeSticker, themeConstraintLine } from "@/lib/theme-kits";
 import { culinaryRole, describeIngredientUse } from "@/lib/swap-coherence";
 import { visualForIngredient } from "@/lib/visual-quantity";
+import { declinationFromIngredients } from "@/lib/recipe-macros";
 import { motifsIn } from "@/lib/recipe-diversity";
 import { generateGeminiJson, type GeminiCallResult } from "@/lib/gemini/models";
 
@@ -82,10 +83,20 @@ LOIS CUISINE
 ════════════════════════════════
 - Riz : cuiseur à riz. Cookeo = lentilles, quinoa, vapeur.
 - Galette / naan / pain / wrap : poêle ou four. JAMAIS de cuisson à l'eau.
-- Dîners low cal savoureux si les prefs l'exigent (huile ≤ 8 g).
+- Dîners low cal savoureux si les prefs l'exigent (huile ≤ 8 g pour la perte ; la prise garde la protéine).
 - Tofu Lun–Ven : presser, mariner cru, frais — jamais cuit pendant le batch (sauf dessert).
 - Simili-carnés : week-end, sauf prefs contraires.
 - tips_and_cautions : UNIQUEMENT logistique batch (ex. « Conservez la sauce à part dans un pot hermétique »). Jamais d'aversions, jamais « sans X ».
+
+════════════════════════════════
+PORTIONS COACH (PAS UNE MOYENNE FOYER)
+════════════════════════════════
+Le bloc COACH NUTRITION plus bas donne les kcal / P / G / L midi et soir de CHAQUE profil.
+MÊME plat, grammes différents : grams_alexis + grams_elodie sur féculents, huile, légumes, légumineuses.
+INTERDIT deux recettes. INTERDIT des assiettes identiques si les cibles divergent.
+Perte = volume légumes + umami (soja, agrume, moutarde, herbes). Prise = densité (riz, tofu/protéine, tahini).
+Protéine plancher : ne jamais alléger tofu / poulet / poisson pour « faire light ».
+Pas de dessert dans la recette (templates Paramètres). Pas de discours diététique dans les étapes.
 
 ════════════════════════════════
 THÈME
@@ -112,11 +123,12 @@ export const MEAL_JSON_SHAPE = `{
     { "name": "Courgette", "weight_g": 200, "visual_unit": "1 pièce", "prep": "spaghettis KitchenAid" },
     { "name": "Carotte", "weight_g": 160, "visual_unit": "2 pièces", "prep": "râpé fin KitchenAid" },
     { "name": "Chou rouge", "weight_g": 80, "visual_unit": "1/4 chou", "prep": "râpé fin" },
-    { "name": "Edamame décortiqués", "weight_g": 75, "visual_unit": "1 poignée" },
+    { "name": "Edamame décortiqués", "grams_alexis": 90, "grams_elodie": 70, "visual_unit": "1 poignée" },
     { "name": "Menthe fraîche", "weight_g": 15, "visual_unit": "1/2 botte", "prep": "ciselée" },
     { "name": "Sauce soja", "weight_g": 18, "visual_unit": "1 cs" },
     { "name": "Citron vert", "weight_g": 30, "visual_unit": "1/2 pièce", "prep": "jus" },
-    { "name": "Huile de sésame", "weight_g": 8, "visual_unit": "1/2 cs" },
+    { "name": "Huile de sésame", "grams_alexis": 10, "grams_elodie": 6, "visual_unit": "1/2 cs" },
+    { "name": "Riz cuit", "grams_alexis": 180, "grams_elodie": 100, "visual_unit": "1 bol" },
     { "name": "Gingembre frais", "weight_g": 8, "visual_unit": "1 cm" },
     { "name": "Sirop d'agave", "weight_g": 5, "visual_unit": "1 cc" }
   ],
@@ -287,7 +299,7 @@ function parseOneShared(item: unknown, index: number): RecipeIngredient[] {
         name: item,
         role: "shared" as const,
         gramsAlexis: 80,
-        gramsElodie: 70,
+        gramsElodie: 80,
       },
     ];
   }
@@ -298,16 +310,19 @@ function parseOneShared(item: unknown, index: number): RecipeIngredient[] {
     return parseShared(nested);
   }
   const weight = readGrams(rec, ["weight_g", "grams"], 0);
-  const gramsAlexis = readGrams(rec, ["grams_alexis"], weight || 80);
-  const gramsElodie = readGrams(rec, ["grams_elodie"], weight || 70);
+  const gramsAlexis = readGrams(rec, ["grams_alexis"], 0);
+  const gramsElodie = readGrams(rec, ["grams_elodie"], 0);
+  const shared = weight || 80;
+  const a = gramsAlexis || shared;
+  const e = gramsElodie || (gramsAlexis ? gramsAlexis : shared);
   return [
     {
       id: slug(name, index),
       name,
       role: "shared" as const,
-      gramsAlexis,
-      gramsElodie,
-      visualQuantity: visualForIngredient(name, Math.max(gramsAlexis, gramsElodie), readVisualQuantity(rec)),
+      gramsAlexis: a,
+      gramsElodie: e,
+      visualQuantity: visualForIngredient(name, Math.max(a, e), readVisualQuantity(rec)),
       notes: mergeIngredientNotes(rec),
     },
   ];
@@ -349,19 +364,7 @@ function macrosFromIngredients(
   ingredients: RecipeIngredient[],
   profile: "alexis" | "elodie",
 ): RecipeDeclination {
-  const rows = ingredients.filter((item) => item.role === "shared" || item.role === profile);
-  const grams = rows.reduce(
-    (sum, item) => sum + (profile === "alexis" ? item.gramsAlexis : item.gramsElodie),
-    0,
-  );
-  const proteinRow = rows.find((item) => item.role === profile);
-  return {
-    protein: proteinRow?.name ?? (profile === "alexis" ? "Protéine vegan" : "Protéine"),
-    calories: Math.round(grams * 1.15) || 400,
-    proteinG: Math.round(grams * 0.08) || 20,
-    carbsG: Math.round(grams * 0.12) || 40,
-    fatG: Math.round(grams * 0.03) || 12,
-  };
+  return declinationFromIngredients(ingredients, profile);
 }
 
 function inferAppliances(steps: string[], ingredients: RecipeIngredient[]): Appliance[] {
@@ -385,8 +388,21 @@ function inferAppliances(steps: string[], ingredients: RecipeIngredient[]): Appl
 }
 
 export function parseGeminiJson(raw: string): unknown {
-  const trimmed = raw.trim().replace(/^```(?:json)?/i, "").replace(/```$/, "").trim();
-  return JSON.parse(trimmed);
+  const trimmed = raw.trim().replace(/^```(?:json)?/i, "").replace(/```[\s\n]*$/, "").trim();
+  try {
+    return JSON.parse(trimmed);
+  } catch (first) {
+    const start = trimmed.indexOf("{");
+    const end = trimmed.lastIndexOf("}");
+    if (start >= 0 && end > start) {
+      try {
+        return JSON.parse(trimmed.slice(start, end + 1));
+      } catch {
+        /* fall through */
+      }
+    }
+    throw first;
+  }
 }
 
 export function geminiToPlannedMeal(json: GeminiMealJson, slot: PlannedMeal, theme: string): PlannedMeal {
@@ -413,7 +429,12 @@ export function geminiToPlannedMeal(json: GeminiMealJson, slot: PlannedMeal, the
     alexis: macrosFromIngredients(ingredients, "alexis"),
     elodie: macrosFromIngredients(ingredients, "elodie"),
   };
-  return expandPreparedSauces(planned);
+  const expanded = expandPreparedSauces(planned);
+  return {
+    ...expanded,
+    alexis: macrosFromIngredients(expanded.ingredients, "alexis"),
+    elodie: macrosFromIngredients(expanded.ingredients, "elodie"),
+  };
 }
 
 export function extractRecipes(parsed: unknown): GeminiMealJson[] {
@@ -439,11 +460,12 @@ export function weekdaysPrompt(
 ) {
   const batches = WEEKDAY_BATCHES.map(
     (pair, index) =>
-      `${index + 1}. recipes[${index}] = ${pair.label} — ${pair.mealType}${pair.lowCalorie ? " · DÎNER LOW CAL obligatoire (~350–450 kcal, huile ≤ 8g, féculent allégé)" : " · déjeuner kcal normales (~650–750)"}`,
+      `${index + 1}. recipes[${index}] = ${pair.label} — ${pair.mealType}${pair.lowCalorie ? " · DÎNER LOW CAL (cibles soir COACH NUTRITION, huile serrée, féculent allégé, protéine gardée)" : " · déjeuner (cibles midi COACH NUTRITION par profil, pas une moyenne foyer)"}`,
   ).join("\n");
   return culinaryPrompt(
     `Génère EXACTEMENT 5 recettes BATCH Lundi–Vendredi, niveau S34 (détaillées, sauces maison, herbes, épices, légumes en nombre de pièces).
 Règle portions : JSON = 1 repas / personne. L'utilisateur cuisinera ×2 (4 assiettes foyer).
+grams_alexis / grams_elodie obligatoires sur féculents, huile, légumes, légumineuses (voir COACH NUTRITION).
 Batch ×2 : jours ALTERNÉS (Lun+Mer, Mar+Jeu). Vendredi déj+dîner = même base, dîner plaqué plus léger.
 Tofu : presser, mariner, servir frais.
 visual_unit OBLIGATOIRE sur chaque légume / herbe / agrume.
@@ -451,7 +473,7 @@ Houmous = sous-recette pois chiches + tahini + citron + ail + cumin (jamais un p
 ${themeConstraintLine(theme, 5)}
 ORDRE JSON STRICT — ne permute JAMAIS les index :
 ${batches}
-recipes[2] et recipes[3] = SOIRS uniquement, vraiment low cal (plus de légumes, moins d'huile/féculent).
+recipes[2] et recipes[3] = SOIRS uniquement, vraiment low cal selon les cibles soir de CHAQUE profil (plus de légumes, moins d'huile/féculent, protéine intacte).
 recipes[4] = même base Ven midi + soir ; le soir sera dressé plus léger.
 Les 5 titres doivent être nettement distincts (féculent + sauce + légume star différents).
 Tofu Lun–Ven : hors Airfryer, mariné cru au frais, dressé à l'assemblage.
@@ -479,14 +501,15 @@ export function weekendPrompt(
   return culinaryPrompt(
     `Génère EXACTEMENT 4 repas FRAIS week-end, niveau S34.
 Règle : 1 recette = 1 seul repas / personne (pas de double batch).
+Portions : grams_alexis / grams_elodie selon COACH NUTRITION (pas une moyenne foyer).
 Week-end : tofu poêlé / four / airfryer OK. Simili-carnés OK.
 Houmous = sous-recette pois chiches + tahini + citron + ail + cumin (jamais un pot).
 ${themeConstraintLine(theme, 4)}
 ORDRE JSON STRICT — les 4 dans le thème, sans exception :
-1. recipes[0] = Samedi DÉJEUNER (kcal normales)
-2. recipes[1] = Samedi DÎNER LOW CAL (~350–450 kcal, huile ≤ 8g)
-3. recipes[2] = Dimanche DÉJEUNER (kcal normales)
-4. recipes[3] = Dimanche DÎNER LOW CAL (~350–450 kcal, huile ≤ 8g)
+1. recipes[0] = Samedi DÉJEUNER (cibles midi COACH NUTRITION)
+2. recipes[1] = Samedi DÎNER LOW CAL (cibles soir, huile serrée, féculent allégé, protéine gardée)
+3. recipes[2] = Dimanche DÉJEUNER (cibles midi COACH NUTRITION)
+4. recipes[3] = Dimanche DÎNER LOW CAL (cibles soir, huile serrée, féculent allégé, protéine gardée)
 Chaque titre NOMME la sauce. step_groups : n'inclure un robot QUE s'il apporte quelque chose ; omettre un bloc vide.
 Airfryer seulement si vraie cuisson. Thermomix seulement pour mixer / émulsionner.
 
@@ -511,9 +534,10 @@ export function singlePrompt(
     return culinaryPrompt(
       `Génère 1 recette BATCH pour : ${pair.label}, niveau S34 (détaillée, sauces maison).
 Règle : JSON = 1 repas / personne. L'utilisateur cuisinera ×2 (4 assiettes foyer).
+grams_alexis / grams_elodie selon COACH NUTRITION.
 Les 2 portions sont sur des jours ALTERNÉS, jamais consécutifs.
 Tofu : presser, mariner, servir frais (cuisson seulement si dessert).
-Type : ${pair.mealType}${pair.lowCalorie ? ", DÎNER LOW CAL (~350–450 kcal, huile ≤ 8g, féculent allégé)" : " (déjeuner, kcal normales)"}.
+Type : ${pair.mealType}${pair.lowCalorie ? ", DÎNER LOW CAL (cibles soir, huile serrée, féculent allégé, protéine gardée)" : " (déjeuner, cibles midi par profil)"}.
 Houmous = sous-recette pois chiches + tahini + citron + ail + cumin (jamais un pot).
 ${themeLine}
 Chaque titre NOMME la sauce. step_groups : robot seulement si valeur ajoutée ; omettre un bloc vide.
@@ -528,7 +552,8 @@ JSON : un objet ${MEAL_JSON_SHAPE} ou { "recipes": [objet] }.`,
   return culinaryPrompt(
     `Génère 1 repas frais (${slot.day} ${slot.mealType}), niveau S34.
 Règle week-end : 1 recette = 1 seul repas / personne. Tofu cuit et simili-carnés autorisés.
-${slot.lowCalorie || slot.mealType === "diner" ? "Dîner low calorie." : ""}
+Portions grams_alexis / grams_elodie selon COACH NUTRITION.
+${slot.lowCalorie || slot.mealType === "diner" ? "Dîner low calorie (cibles soir, huile serrée, féculent allégé, protéine gardée)." : "Déjeuner : cibles midi par profil."}
 Houmous = sous-recette pois chiches + tahini + citron + ail + cumin.
 ${themeLine}
 Sous-recettes + weight_g + visual_unit + réglages appareils : obligatoires.

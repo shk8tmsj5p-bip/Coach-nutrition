@@ -28,12 +28,13 @@ function discovery() {
       path: HEALTH_WEBHOOK_PATH,
       method: "GET ou POST",
       query:
-        "?profile_id=alexis&steps=0&distance_km=0&active_energy_kcal=0&resting_energy_kcal=0&weight_kg=0&fat_mass_pct=0&bmi=0",
+        "?profile_id=alexis&steps=0&distance_km=0&cycling_distance_km=0&active_energy_kcal=0&resting_energy_kcal=0&weight_kg=0&fat_mass_pct=0&bmi=0",
       body: {
         steps: 0,
         active_energy_kcal: 0,
         resting_energy_kcal: 0,
         distance_km: 0,
+        cycling_distance_km: 0,
         weight_kg: 0,
         fat_mass_pct: 0,
         bmi: 0,
@@ -55,7 +56,7 @@ async function ingest(request: Request, body: unknown) {
     return NextResponse.json(
       {
         error:
-          "Payload vide — envoie steps, active_energy_kcal, resting_energy_kcal, distance_km, weight_kg, fat_mass_pct, bmi ou workouts",
+          "Payload vide — envoie steps, active_energy_kcal, resting_energy_kcal, distance_km, cycling_distance_km, weight_kg, fat_mass_pct, bmi ou workouts",
       },
       { status: 400, headers: corsHeaders },
     );

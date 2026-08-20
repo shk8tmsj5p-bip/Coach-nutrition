@@ -21,6 +21,7 @@ export type ParsedHealthPayload = {
   activeEnergyKcal?: number;
   restingEnergyKcal?: number;
   distanceKm?: number;
+  cyclingDistanceKm?: number;
   weightKg?: number;
   fatMassPct?: number;
   bmi?: number;
@@ -178,6 +179,12 @@ export function parseHealthPayload(
     "energie_repos",
   ]);
   const distanceRaw = pickNumber(record, ["distance_km", "distance", "walking_running_distance"]);
+  const cyclingRaw = pickNumber(record, [
+    "cycling_distance_km",
+    "velo_km",
+    "bike_distance_km",
+    "cycling_distance",
+  ]);
   const weightKg = pickNumber(record, ["weight_kg", "poids", "weight"]);
   const fatRaw = pickNumber(record, ["fat_mass_pct", "fat_pct", "masse_grasse", "body_fat"]);
   const bmi = pickNumber(record, ["bmi", "imc"]);
@@ -192,6 +199,7 @@ export function parseHealthPayload(
     restingEnergyKcal:
       restingEnergyKcal == null ? undefined : Math.max(0, Math.round(restingEnergyKcal)),
     distanceKm: distanceRaw == null ? undefined : normalizeDistanceKm(distanceRaw),
+    cyclingDistanceKm: cyclingRaw == null ? undefined : normalizeDistanceKm(cyclingRaw),
     weightKg: weightKg == null ? undefined : roundTo(weightKg, 2),
     fatMassPct: fatRaw == null ? undefined : normalizeFatPct(fatRaw),
     bmi: bmi == null ? undefined : roundTo(bmi, 1),
@@ -205,7 +213,8 @@ export function hasActivityMetrics(payload: ParsedHealthPayload) {
     payload.workoutsProvided ||
     payload.activeEnergyKcal != null ||
     payload.restingEnergyKcal != null ||
-    payload.distanceKm != null
+    payload.distanceKm != null ||
+    payload.cyclingDistanceKm != null
   );
 }
 

@@ -99,18 +99,6 @@ export function buildTodaySeedMeals(today: string): RepasInsert[] {
     meal(
       "alexis",
       today,
-      "petit-dejeuner",
-      "07:40",
-      "Overnight oats soja, myrtilles, graines de chia",
-      420,
-      24,
-      52,
-      14,
-      ["Flocons d'avoine 60g", "Lait soja 200ml", "Chia 10g", "Myrtilles 80g"],
-    ),
-    meal(
-      "alexis",
-      today,
       "dejeuner",
       "12:35",
       "Bowl riz, tofu mariné, edamame, sauce satay douce",
@@ -133,18 +121,6 @@ export function buildTodaySeedMeals(today: string): RepasInsert[] {
       16,
       ["Lentilles", "Concombre", "Feta végétale", "Citron"],
       { low_calorie: true, proteine: "Feta végétale", notes: "Dîner low calorie · tofu mariné" },
-    ),
-    meal(
-      "elodie",
-      today,
-      "petit-dejeuner",
-      "07:55",
-      "Skyr, granola maison, framboises",
-      380,
-      32,
-      38,
-      10,
-      ["Skyr 200g", "Granola 30g", "Framboises 80g"],
     ),
     meal(
       "elodie",
@@ -173,6 +149,10 @@ export function buildTodaySeedMeals(today: string): RepasInsert[] {
       { low_calorie: true, proteine: "Feta + thon", notes: "Dîner low calorie" },
     ),
   ];
+}
+
+export function seedMealFor(profileId: ProfileId, date: string, type: MealType) {
+  return buildTodaySeedMeals(date).find((row) => row.profile_id === profileId && row.type === type);
 }
 
 export function buildYesterdaySeedMeals(yesterday: string): RepasInsert[] {

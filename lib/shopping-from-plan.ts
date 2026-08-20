@@ -2,6 +2,7 @@ import type { PlannedMeal, ShoppingListItem } from "@/lib/types";
 import { planTagByMealId } from "@/lib/meal-tags";
 import { formatIngredientLine, parseVisualQuantity, visualForIngredient } from "@/lib/visual-quantity";
 import { isEmptyMeal } from "@/lib/weekly-plan";
+import { storage } from "@/lib/storage";
 
 export const AISLE_ORDER = [
   "FRUITS & LÉGUMES",
@@ -91,10 +92,6 @@ const AISLE_RULES: { aisle: AisleName; keys: string[] }[] = [
       "vinaigrette",
       "marinade",
       "huile",
-      "citron",
-      "lime",
-      "ail",
-      "gingembre",
       "paprika",
       "cumin",
       "curcuma",
@@ -106,16 +103,13 @@ const AISLE_RULES: { aisle: AisleName; keys: string[] }[] = [
       "cacahouete",
       "arachide",
       "herbes",
-      "basilic",
-      "menthe",
-      "persil",
-      "aneth",
-      "ciboulette",
       "thym",
       "romarin",
       "origan",
       "laurier",
       "sesame",
+      "nori",
+      "algue",
       "soja",
       "raifort",
       "pesto",
@@ -133,6 +127,16 @@ const AISLE_RULES: { aisle: AisleName; keys: string[] }[] = [
   {
     aisle: "FRUITS & LÉGUMES",
     keys: [
+      "citron vert",
+      "citron",
+      "lime",
+      "ail",
+      "gingembre",
+      "basilic",
+      "menthe",
+      "persil",
+      "aneth",
+      "ciboulette",
       "courgette",
       "poivron",
       "concombre",
@@ -146,6 +150,9 @@ const AISLE_RULES: { aisle: AisleName; keys: string[] }[] = [
       "roquette",
       "epinard",
       "champignon",
+      "shiitake",
+      "shitake",
+      "enoki",
       "pak choi",
       "avocat",
       "patate",
@@ -205,8 +212,21 @@ const AISLE_RULES: { aisle: AisleName; keys: string[] }[] = [
   },
 ];
 
+const AISLE_OVERRIDE_KEY = "shop-aisle-overrides";
+
+export function loadAisleOverrides(): Record<string, AisleName> {
+  return storage.getJSON<Record<string, AisleName>>(AISLE_OVERRIDE_KEY, {});
+}
+
+export function saveAisleOverride(name: string, aisle: AisleName) {
+  const next = { ...loadAisleOverrides(), [fold(name)]: aisle };
+  storage.setJSON(AISLE_OVERRIDE_KEY, next);
+}
+
 export function aisleFor(name: string): AisleName {
   const key = fold(name);
+  const learned = loadAisleOverrides()[key];
+  if (learned) return learned;
   for (const rule of AISLE_RULES) {
     if (rule.keys.some((token) => key.includes(fold(token)))) return rule.aisle;
   }
@@ -263,6 +283,8 @@ const SHOP_CANON: Array<{ keys: string[]; name: string }> = [
   { keys: ["aubergine"], name: "Aubergine" },
   { keys: ["betterave"], name: "Betterave" },
   { keys: ["brocoli"], name: "Brocoli" },
+  { keys: ["shiitake", "shitake"], name: "Shiitake" },
+  { keys: ["nori"], name: "Nori" },
   { keys: ["champignon"], name: "Champignons" },
   { keys: ["avocat"], name: "Avocat" },
   { keys: ["roquette"], name: "Roquette" },
@@ -423,6 +445,31 @@ export function shoppingDisplayName(raw: string) {
   );
 }
 
+/** Produits frais souvent collés au nom (sauce tahini-citron, poulet yassa citron-oignon). */
+const IMPLIED_PRODUCE: Array<{ keys: string[]; name: string; grams: number; visual: string }> = [
+  { keys: ["citron vert"], name: "Citron vert", grams: 70, visual: "1 pièce" },
+  { keys: ["citron"], name: "Citron", grams: 90, visual: "1 pièce" },
+  { keys: ["ail"], name: "Ail", grams: 6, visual: "1 gousse" },
+  { keys: ["gingembre"], name: "Gingembre", grams: 10, visual: "1 cm" },
+  { keys: ["oignon"], name: "Oignon", grams: 80, visual: "1 pièce" },
+  { keys: ["menthe"], name: "Menthe", grams: 15, visual: "1/2 botte" },
+  { keys: ["persil"], name: "Persil", grams: 15, visual: "1/2 botte" },
+  { keys: ["basilic"], name: "Basilic", grams: 15, visual: "1/2 botte" },
+];
+
+export function impliedProduceFromName(raw: string, primary: string) {
+  const key = fold(raw);
+  const primaryFold = fold(primary);
+  const out: Array<{ name: string; grams: number; visual: string }> = [];
+  for (const row of IMPLIED_PRODUCE) {
+    if (fold(row.name) === primaryFold) continue;
+    if (primaryFold.includes(fold(row.name))) continue;
+    if (!row.keys.some((token) => tokenIndex(key, fold(token)) >= 0)) continue;
+    out.push({ name: row.name, grams: row.grams, visual: row.visual });
+  }
+  return out;
+}
+
 function visualUnitKey(unit: string) {
   const first = fold(unit)
     .split(/[·,]/)[0]
@@ -460,48 +507,83 @@ function shoppingVisualOf(ing: { visualQuantity?: string; notes?: string }) {
   return hit?.[0];
 }
 
+type ShopMerge = {
+  name: string;
+  aisle: AisleName;
+  gramsAlexis: number;
+  gramsElodie: number;
+  tags: string[];
+  visualByUnit: Map<string, { amount: number; unit: string }>;
+};
+
+function upsertShopItem(
+  merged: Map<string, ShopMerge>,
+  row: {
+    name: string;
+    gramsAlexis: number;
+    gramsElodie: number;
+    tag?: string;
+    visual?: string;
+  },
+) {
+  const id = fold(row.name);
+  const current = merged.get(id) ?? {
+    name: row.name,
+    aisle: aisleFor(row.name),
+    gramsAlexis: 0,
+    gramsElodie: 0,
+    tags: [] as string[],
+    visualByUnit: new Map(),
+  };
+  current.gramsAlexis += row.gramsAlexis;
+  current.gramsElodie += row.gramsElodie;
+  if (row.tag && !current.tags.includes(row.tag)) current.tags.push(row.tag);
+  const parsed = parseVisualQuantity(row.visual);
+  if (parsed?.unit) {
+    const unitKey = visualUnitKey(parsed.unit);
+    const prev = current.visualByUnit.get(unitKey);
+    current.visualByUnit.set(unitKey, {
+      amount: (prev?.amount ?? 0) + parsed.amount,
+      unit: parsed.unit.replace(/s$/i, ""),
+    });
+  }
+  merged.set(id, current);
+}
+
 export function shoppingItemsFromPlan(plan: PlannedMeal[]): ShoppingListItem[] {
   const tagsByMeal = planTagByMealId(plan);
-  const merged = new Map<
-    string,
-    {
-      name: string;
-      aisle: AisleName;
-      gramsAlexis: number;
-      gramsElodie: number;
-      tags: string[];
-      visualByUnit: Map<string, { amount: number; unit: string }>;
-    }
-  >();
+  const merged = new Map<string, ShopMerge>();
 
   for (const meal of plan) {
     if (isEmptyMeal(meal)) continue;
     const tag = tagsByMeal.get(meal.id);
+    const dedicated = new Set(
+      meal.ingredients
+        .filter((ing) => !isUnlistedShoppingIng(ing.name))
+        .map((ing) => fold(shoppingDisplayName(ing.name))),
+    );
     for (const ing of meal.ingredients) {
       if (isUnlistedShoppingIng(ing.name)) continue;
       const name = shoppingDisplayName(ing.name);
-      const id = fold(name);
-      const current = merged.get(id) ?? {
+      upsertShopItem(merged, {
         name,
-        aisle: aisleFor(name),
-        gramsAlexis: 0,
-        gramsElodie: 0,
-        tags: [] as string[],
-        visualByUnit: new Map(),
-      };
-      current.gramsAlexis += ing.gramsAlexis;
-      current.gramsElodie += ing.gramsElodie;
-      if (tag && !current.tags.includes(tag)) current.tags.push(tag);
-      const parsed = parseVisualQuantity(shoppingVisualOf(ing));
-      if (parsed?.unit) {
-        const unitKey = visualUnitKey(parsed.unit);
-        const prev = current.visualByUnit.get(unitKey);
-        current.visualByUnit.set(unitKey, {
-          amount: (prev?.amount ?? 0) + parsed.amount,
-          unit: parsed.unit.replace(/s$/i, ""),
+        gramsAlexis: ing.gramsAlexis,
+        gramsElodie: ing.gramsElodie,
+        tag,
+        visual: shoppingVisualOf(ing),
+      });
+      for (const extra of impliedProduceFromName(ing.name, name)) {
+        if (dedicated.has(fold(extra.name))) continue;
+        const shareA = ing.gramsAlexis > 0 ? Math.max(1, Math.round(ing.gramsAlexis * 0.2)) : extra.grams;
+        const shareE = ing.gramsElodie > 0 ? Math.max(1, Math.round(ing.gramsElodie * 0.2)) : extra.grams;
+        upsertShopItem(merged, {
+          name: extra.name,
+          gramsAlexis: ing.role === "elodie" ? 0 : shareA,
+          gramsElodie: ing.role === "alexis" ? 0 : shareE,
+          tag,
+          visual: extra.visual,
         });
       }
-      merged.set(id, current);
     }
   }
 

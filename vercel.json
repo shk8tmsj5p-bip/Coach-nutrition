@@ -1,0 +1,12 @@
+{
+  "functions": {
+    "app/api/generate-meals/route.ts": { "maxDuration": 300 },
+    "app/api/coach-analysis/route.ts": { "maxDuration": 90 },
+    "app/api/coach-week/route.ts": { "maxDuration": 90 },
+    "app/api/coach-cardio/route.ts": { "maxDuration": 90 },
+    "app/api/coach-hypertrophy/route.ts": { "maxDuration": 90 },
+    "app/api/log-photo/route.ts": { "maxDuration": 90 },
+    "app/api/log-text/route.ts": { "maxDuration": 60 },
+    "app/api/ocr-renpho/route.ts": { "maxDuration": 90 }
+  }
+}

@@ -1,5 +1,6 @@
 import type { ProfilRow, RepasRow } from "@/lib/supabase/database.types";
 import { parseAppliedAdjustments } from "@/lib/coach-adjustments";
+import { parseMealTemplates } from "@/lib/meal-templates";
 import { parseSportRoutine } from "@/lib/sport-routine";
 import type { MealEntry, Profile } from "@/lib/types";
 
@@ -20,6 +21,7 @@ export function mapProfil(row: ProfilRow): Profile {
       row.primary_goal === "maintien" || row.primary_goal === "prise" ? row.primary_goal : "perte",
     weeklyRateKg: Number(row.weekly_rate_kg ?? -0.5),
     sportRoutine: parseSportRoutine(row.sport_routine),
+    mealTemplates: parseMealTemplates(row.meal_templates, row.id),
     targets: {
       calories: row.target_calories,
       protein: row.target_protein_g,

@@ -78,6 +78,77 @@ body {
   --accent-dark: rgb(var(--c-violet-dark));
 }
 
+@keyframes gemini-cat-run {
+  0% {
+    transform: translateX(-18px);
+  }
+  100% {
+    transform: translateX(92px);
+  }
+}
+
+@keyframes gemini-cat-leg {
+  0%,
+  100% {
+    transform: rotate(-28deg);
+  }
+  50% {
+    transform: rotate(26deg);
+  }
+}
+
+@keyframes gemini-cat-tail {
+  0%,
+  100% {
+    transform: rotate(12deg);
+  }
+  50% {
+    transform: rotate(-18deg);
+  }
+}
+
+@keyframes gemini-cat-ground {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-24px);
+  }
+}
+
+.gemini-cat-run {
+  animation: gemini-cat-run 1.15s ease-in-out infinite alternate;
+}
+
+.gemini-cat-leg {
+  transform-box: fill-box;
+  transform-origin: 50% 0%;
+  animation: gemini-cat-leg 0.28s ease-in-out infinite;
+}
+
+.gemini-cat-leg-b {
+  animation-delay: -0.14s;
+}
+
+.gemini-cat-tail {
+  transform-box: fill-box;
+  transform-origin: 100% 50%;
+  animation: gemini-cat-tail 0.42s ease-in-out infinite;
+}
+
+.gemini-cat-ground {
+  animation: gemini-cat-ground 0.45s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gemini-cat-run,
+  .gemini-cat-leg,
+  .gemini-cat-tail,
+  .gemini-cat-ground {
+    animation: none;
+  }
+}
+
 html.dark .bg-white {
   background-color: rgb(var(--c-card));
 }

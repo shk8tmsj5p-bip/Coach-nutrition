@@ -1,3 +1,4 @@
+import { isDessertItemLine, isEmptyDessertMarker } from "@/lib/meal-templates";
 import type { Macros, MealType, ProfileId } from "@/lib/types";
 
 export type MacroKind = "carbs" | "protein" | "fat";
@@ -247,7 +248,11 @@ function rewriteItems(items: string[], adds: CoachIngredientAdd[]): DisplayMealI
 
   for (const add of adds) {
     const named = parsed.findIndex(
-      (item, index) => !assigned.has(index) && namesOverlap(item.name, add.name),
+      (item, index) =>
+        !assigned.has(index) &&
+        !isDessertItemLine(item.raw) &&
+        !isEmptyDessertMarker(item.raw) &&
+        namesOverlap(item.name, add.name),
     );
     if (named >= 0) {
       assigned.set(named, add);
@@ -257,7 +262,10 @@ function rewriteItems(items: string[], adds: CoachIngredientAdd[]): DisplayMealI
       .map((item, index) => ({ item, index }))
       .filter(
         ({ item, index }) =>
-          !assigned.has(index) && matchFood(`${item.name} ${item.raw}`)?.kind === add.kind,
+          !assigned.has(index) &&
+          !isDessertItemLine(item.raw) &&
+          !isEmptyDessertMarker(item.raw) &&
+          matchFood(`${item.name} ${item.raw}`)?.kind === add.kind,
       )
       .sort((a, b) => (b.item.grams ?? 0) - (a.item.grams ?? 0));
     if (kindHits[0]) assigned.set(kindHits[0].index, add);
@@ -301,7 +309,9 @@ export function translateMealAdjustments(opts: {
   }
 
   const targets = allocateMacroTargets(opts.presentTypes);
-  const parsed = (opts.items ?? []).map(parseMealItem);
+  const parsed = (opts.items ?? [])
+    .filter((line) => !isDessertItemLine(line) && !isEmptyDessertMarker(line))
+    .map(parseMealItem);
   const adds: CoachIngredientAdd[] = [];
 
   (["carbs", "protein", "fat"] as MacroKind[]).forEach((kind) => {

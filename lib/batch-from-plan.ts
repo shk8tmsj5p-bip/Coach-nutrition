@@ -12,6 +12,7 @@ import { planTagByMealId } from "@/lib/meal-tags";
 import { formatIngredientLine, scaleVisualQuantity, visualForIngredient } from "@/lib/visual-quantity";
 import { groupShoppingItems, isUnlistedShoppingIng, shoppingItemsFromPlan } from "@/lib/shopping-from-plan";
 import { cookScale, type QtyMode } from "@/lib/qty-scale";
+import { portionsDiffer } from "@/lib/meal-coach";
 
 export type AppliancePlan = {
   appliance: Appliance;
@@ -45,13 +46,38 @@ function unique(lines: string[]) {
   });
 }
 
-function lower(name: string) {
-  return name.toLowerCase();
+function fold(text: string) {
+  return text
+    .toLowerCase()
+    .replace(/œ/g, "oe")
+    .replace(/æ/g, "ae")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+}
+
+function tokenHit(hay: string, needle: string) {
+  const h = fold(hay);
+  const n = fold(needle);
+  if (!n) return false;
+  let from = 0;
+  while (from <= h.length) {
+    const idx = h.indexOf(n, from);
+    if (idx < 0) return false;
+    const beforeOk = idx === 0 || /[^a-z0-9]/.test(h.charAt(idx - 1));
+    const after = idx + n.length;
+    const next = h.charAt(after);
+    const afterOk =
+      !next ||
+      /[^a-z0-9]/.test(next) ||
+      (next === "s" && (!h.charAt(after + 1) || /[^a-z0-9]/.test(h.charAt(after + 1))));
+    if (beforeOk && afterOk) return true;
+    from = idx + 1;
+  }
+  return false;
 }
 
 function matches(name: string, keys: string[]) {
-  const n = lower(name);
-  return keys.some((key) => n.includes(key));
+  return keys.some((key) => tokenHit(name, key));
 }
 
 export function isRedundantTofuLine(line: string) {
@@ -63,8 +89,30 @@ function lineFor(
   scale: number,
   planTag?: string,
 ): BatchStepIngredient {
-  const grams = (ing.gramsAlexis + ing.gramsElodie) * scale;
+  const gramsA = Math.round(ing.gramsAlexis * scale);
+  const gramsE = Math.round(ing.gramsElodie * scale);
   const who = ing.role === "alexis" ? "Alexis" : ing.role === "elodie" ? "Élodie" : undefined;
+  if (ing.role === "shared" && portionsDiffer(gramsA, gramsE)) {
+    const maxG = Math.max(ing.gramsAlexis, ing.gramsElodie, 1);
+    const visualA = scaleVisualQuantity(
+      visualForIngredient(ing.name, ing.gramsAlexis, ing.visualQuantity),
+      scale * (ing.gramsAlexis / maxG),
+    );
+    const visualE = scaleVisualQuantity(
+      visualForIngredient(ing.name, ing.gramsElodie, ing.visualQuantity),
+      scale * (ing.gramsElodie / maxG),
+    );
+    return {
+      name: ing.name,
+      quantity: `${ing.name} : Alexis ${visualA ? `${visualA} (${gramsA}g)` : `${gramsA}g`} · Élodie ${visualE ? `${visualE} (${gramsE}g)` : `${gramsE}g`}`,
+      visual: visualA || visualE,
+      planTag,
+      gramsAlexis: gramsA,
+      gramsElodie: gramsE,
+      sauce: isPotSauceIng(ing),
+    };
+  }
+  const grams = (ing.gramsAlexis + ing.gramsElodie) * scale;
   const visual = scaleVisualQuantity(
     visualForIngredient(ing.name, Math.max(ing.gramsAlexis, ing.gramsElodie), ing.visualQuantity),
     scale,
@@ -80,6 +128,9 @@ function lineFor(
     visual,
     planTag,
     who,
+    gramsAlexis: gramsA,
+    gramsElodie: gramsE,
+    sauce: isPotSauceIng(ing),
   };
 }
 
@@ -97,6 +148,7 @@ function blockFor(
     ingredients: ings.map((ing) => lineFor(ing, scale, meal.recipeNo)),
     action,
     setting,
+    servingsPerPerson: meal.servingsPerPerson,
   };
 }
 
@@ -129,16 +181,31 @@ function isAssemblySentence(line: string) {
 }
 
 function isCookWaterSentence(line: string) {
+  if (/même base|sans riz|pas de riz|remplacé par/i.test(line)) return false;
   return (
-    /cuire |cuisson|égoutt|eau bouillante|eau frémissante|cookeo|cuiseur|mode riz|vapeur|\blentille|\bquinoa|\bnouille|\bsemoule|\borzo|\bpâtes|\bpates|\briz\b|haricot vert|pomme de terre/i.test(
+    /cuire |cuisson|égoutt|blanchir|eau bouillante|eau frémissante|cookeo|cuiseur|mode riz|vapeur|\blentille|\bquinoa|\bnouille|\bsemoule|\borzo|\bpâtes|\bpates|\briz\b|haricot vert|pomme de terre/i.test(
       line,
     ) && !/boîte|boite|assembler|dresser|sauce au pot|au fond/i.test(line)
   );
 }
 
-function classifySentence(sentence: string): SectionKey | null {
+function classifySentence(sentence: string, meal: PlannedMeal): SectionKey | null {
   if (isRealTmWork(sentence) || /thermomix|gazpacho|houmous maison/i.test(sentence)) return "tm";
-  if (/\d+\s*°c|airfryer/i.test(sentence) && !/hors panier|presser|mariner/i.test(sentence)) {
+  if (
+    weekdayTofuIsFresh(meal) &&
+    /tofu/i.test(sentence) &&
+    /presser|mariner|frais|réserver|frigo/i.test(sentence) &&
+    !/\d+\s*°c|airfryer/i.test(sentence)
+  ) {
+    return "assembly";
+  }
+  if (
+    /marinade|mariner|badigeon|imbib/i.test(sentence) &&
+    meal.ingredients.some((ing) => isAirfryProtein(ing, meal) && mentionedIn(ing, sentence))
+  ) {
+    return "airfryer";
+  }
+  if (/\d+\s*°c|airfryer/i.test(sentence) && !/hors panier|presser/i.test(sentence)) {
     return "airfryer";
   }
   if (isCookWaterSentence(sentence)) return "water";
@@ -162,7 +229,7 @@ function groupedSteps(meal: PlannedMeal): Record<SectionKey, string[]> {
         if (!isTofuCookSentence(sentence)) out.assembly.push(sentence);
         continue;
       }
-      const routed = classifySentence(sentence);
+      const routed = classifySentence(sentence, meal);
       if (routed) {
         out[routed].push(sentence);
         continue;
@@ -213,6 +280,77 @@ function isSauceIng(ing: RecipeIngredient) {
     "raifort",
     "beurre de sésame",
     "beurre de sesame",
+  ]);
+}
+
+function isSolidBoxFood(ing: RecipeIngredient) {
+  if (isStarchIng(ing) || isHerbIng(ing) || isBakeryIng(ing)) return true;
+  return matches(ing.name, [
+    "tofu",
+    "edamame",
+    "poulet",
+    "dinde",
+    "truite",
+    "saumon",
+    "crevette",
+    "cabillaud",
+    "thon",
+    "boeuf",
+    "steak",
+    "œuf",
+    "oeuf",
+    "haricot",
+    "pois chiche",
+    "courgette",
+    "carotte",
+    "concombre",
+    "daikon",
+    "radis",
+    "chou",
+    "tomate",
+    "poivron",
+    "épinard",
+    "epinard",
+    "brocoli",
+    "aubergine",
+    "champignon",
+    "salade",
+    "roquette",
+    "gingembre",
+    "ail",
+    "graines de sésame",
+    "graines de sesame",
+    "nori",
+    "avocat",
+  ]);
+}
+
+/** Pot sauce = condiments named as such. Never proteins / veg (notes « mariné soja » / « à l'eau » ne comptent pas). */
+function isPotSauceIng(ing: RecipeIngredient) {
+  if (isSolidBoxFood(ing)) return false;
+  const name = ing.name;
+  if (/^sauce\b/i.test(name) || /vinaigrette|marinade/i.test(name)) return true;
+  return matches(name, [
+    "tahini",
+    "tahin",
+    "houmous",
+    "pesto",
+    "pistou",
+    "satay",
+    "nuoc",
+    "raifort",
+    "beurre de sésame",
+    "beurre de sesame",
+    "huile",
+    "moutarde",
+    "vinaigre",
+    "sauce soja",
+    "agave",
+    "sirop",
+    "cumin",
+    "paprika",
+    "citron",
+    "lime",
   ]);
 }
 
@@ -294,7 +432,8 @@ function defaultWaterMinutes(name: string) {
   if (/lentille|quinoa/i.test(name)) return "12 min";
   if (/semoule/i.test(name)) return "5 min";
   if (/nouille|pâte|pate|orzo|penne|soba|vermicelle/i.test(name)) return "8 min";
-  if (/œuf|oeuf/i.test(name)) return "7 min";
+  if (tokenHit(name, "oeuf") || tokenHit(name, "œuf")) return "7 min";
+  if (/épinard|epinard/i.test(name)) return "1 min";
   if (/poireau/i.test(name)) return "12 min";
   return "10 min";
 }
@@ -312,26 +451,34 @@ function firstNameToken(name: string) {
 }
 
 function timeNearName(ing: RecipeIngredient, blob: string) {
-  const first = firstNameToken(ing.name);
+  const first = fold(firstNameToken(ing.name));
   if (first.length < 4) return null;
+  const hay = fold(blob);
   const escaped = first.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const near =
-    blob.match(new RegExp(`(.{0,48}${escaped}.{0,80}?\\d+\\s*min)`, "i")) ??
-    blob.match(new RegExp(`(\\d+\\s*min.{0,48}${escaped})`, "i"));
+    hay.match(new RegExp(`(.{0,48}${escaped}.{0,80}?\\d+\\s*min)`, "i")) ??
+    hay.match(new RegExp(`(\\d+\\s*min.{0,48}${escaped})`, "i"));
   if (!near) return null;
   const time = near[1].match(/(\d+\s*min)/i)?.[1];
   if (!time) return null;
   return { time: time.replace(/\s+/g, " "), window: near[1] };
 }
 
+function hasOwnWaterCook(ing: RecipeIngredient, meal: PlannedMeal) {
+  return groupedSteps(meal).water.some((line) => {
+    if (!mentionedIn(ing, line)) return false;
+    if (/même base|sans riz|pas de riz|remplacé par/i.test(line)) return false;
+    return /blanchir|eau bouillante|vapeur|égoutt|cuire |cuiseur|cookeo|\d+\s*min/i.test(line);
+  });
+}
+
 function waterCookIngs(meal: PlannedMeal) {
-  const waterText = groupedSteps(meal).water.join(" ");
   return meal.ingredients.filter((ing) => {
     if (isHerbIng(ing) || isSauceIng(ing) || isPantryOrBinder(ing) || isTmBowlIng(ing) || isBakeryIng(ing)) return false;
     if (isFreshTofuIng(ing, meal)) return false;
-    if (isWaterCookIng(ing)) return true;
     if (isAirfryProtein(ing, meal) || isPreparedOrCold(ing)) return false;
-    return Boolean(waterText) && mentionedIn(ing, waterText) && isCookWaterSentence(waterText);
+    if (isWaterCookIng(ing)) return true;
+    return hasOwnWaterCook(ing, meal);
   });
 }
 
@@ -385,6 +532,11 @@ function isPreparedOrCold(ing: RecipeIngredient) {
 function isAirfryProtein(ing: RecipeIngredient, meal?: PlannedMeal) {
   if (isPreparedOrCold(ing) || isSauceIng(ing)) return false;
   if (meal && isFreshTofuIng(ing, meal)) return false;
+  if (/pois chiche/i.test(ing.name)) {
+    const blob = meal ? `${meal.steps.join(" ")} ${meal.baseName}` : "";
+    if (/houmous|hummus/i.test(blob)) return false;
+    return /airfryer|\d+\s*°c/i.test(blob) && mentionedIn(ing, blob);
+  }
   return matches(ing.name, [
     "poulet",
     "dinde",
@@ -394,7 +546,7 @@ function isAirfryProtein(ing: RecipeIngredient, meal?: PlannedMeal) {
     "falafel",
     "cabillaud",
     "tofu ferme",
-    "pois chiche",
+    "simili",
   ]);
 }
 
@@ -438,7 +590,7 @@ function mealUsesSection(meal: PlannedMeal, key: SectionKey) {
     const cook = useful.filter(
       (line) =>
         /\d+\s*°c|airfryer/i.test(line) &&
-        !(/tofu/i.test(line) && /hors panier|presser|mariner|frais|réserver/i.test(line)),
+        !(/tofu/i.test(line) && /hors panier|presser|frais|réserver/i.test(line) && !/\d+\s*°c|airfryer/i.test(line)),
     );
     return cook.length > 0 && meal.ingredients.some((ing) => isAirfryProtein(ing, meal));
   }
@@ -587,10 +739,6 @@ const VEG_ORDER = [
   "aneth",
 ];
 
-function fold(text: string) {
-  return text.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-}
-
 export function vegFamily(name: string) {
   const n = fold(name);
   return VEG_ORDER.find((fam) => n.includes(fold(fam))) ?? n.split(/[\s,(]/)[0] ?? n;
@@ -685,11 +833,13 @@ function classifyIng(ing: RecipeIngredient, meal: PlannedMeal): SectionKey {
 }
 
 function ingsFor(meal: PlannedMeal, key: SectionKey) {
+  if (key === "airfryer") {
+    return meal.ingredients.filter((ing) => isAirfryProtein(ing, meal));
+  }
   const classified = meal.ingredients.filter((ing) => classifyIng(ing, meal) === key);
   const action = groupedSteps(meal)[key].join(" ");
   const extra = meal.ingredients.filter((ing) => {
     if (classified.some((item) => item.id === ing.id)) return false;
-    if (key === "airfryer" && isFreshTofuIng(ing, meal)) return false;
     if (key === "water" && (isHerbIng(ing) || isBakeryIng(ing))) return false;
     if (key === "cuts" && !isCutVeg(ing, meal)) return false;
     return mentionedIn(ing, action);
@@ -697,18 +847,118 @@ function ingsFor(meal: PlannedMeal, key: SectionKey) {
   return [...classified, ...extra];
 }
 
+function marinadeHowTo(meal: PlannedMeal) {
+  const proteins = meal.ingredients.filter((ing) => isAirfryProtein(ing, meal));
+  if (proteins.length === 0) return "";
+  return groupedSteps(meal)
+    .airfryer.filter((line) => {
+      if (!/marinade|mariner|badigeon|imbib/i.test(line)) return false;
+      return proteins.some((ing) => mentionedIn(ing, line));
+    })
+    .join(" ");
+}
+
 function actionFor(meal: PlannedMeal, key: SectionKey, fallback: string) {
   const lines = groupedSteps(meal)[key].filter((line) => {
     if (/^(rien|n\/a|aucune|pas de cuisson|omit)/i.test(line.trim())) return false;
-    if (key === "airfryer" && weekdayTofuIsFresh(meal) && /tofu/i.test(line)) return false;
+    if (key === "airfryer" && weekdayTofuIsFresh(meal) && /tofu/i.test(line) && !/\d+\s*°c|airfryer/i.test(line)) {
+      return false;
+    }
     if (key === "assembly") {
       if (weekdayTofuIsFresh(meal) && /tofu/i.test(line) && /presser|mariner/i.test(line)) return false;
       return isAssemblySentence(line) && !isCutSentence(line) && !isCookWaterSentence(line);
     }
     return true;
   });
+  if (key === "airfryer") {
+    const marinade = marinadeHowTo(meal);
+    const cook = lines.filter((line) => !/marinade|mariner|badigeon|imbib/i.test(line));
+    const parts = [marinade, ...cook].filter(Boolean);
+    if (parts.length > 0) return unique(parts).join(" ");
+    return fallback;
+  }
   if (lines.length > 0) return lines.join(" ");
   return fallback;
+}
+
+function waterMethodKey(ing: RecipeIngredient) {
+  if (/\briz\b/i.test(ing.name) && !/lentille|quinoa|pâte|pate|nouille/i.test(ing.name)) return "rice";
+  if (/lentille|quinoa/i.test(ing.name)) return "cookeo";
+  return "eau";
+}
+
+function waterSettingLabel(method: string, ings: RecipeIngredient[], meal: PlannedMeal) {
+  if (method === "rice") return cookTimeOf(ings[0], meal) || "Cuiseur à riz";
+  if (method === "cookeo") {
+    return unique(ings.map((ing) => cookTimeOf(ing, meal))).join(" · ");
+  }
+  return ings
+    .map((ing) => `${firstNameToken(ing.name)} ${cookTimeOf(ing, meal).replace(/^Eau · /i, "")}`)
+    .join(" · ");
+}
+
+function stripPlatingTalk(text: string) {
+  return text
+    .replace(/\s*\([^)]*(déjeuner|dîner|diner)[^)]*\)/gi, "")
+    .replace(/\b(pour le |au |en |du |le |la )?(petits?[- ]déjeuners?|déjeuners?|dîners?|diners?)\b/gi, "")
+    .replace(/\b(version )?low[\s-]?cal(?:orie)?s?\b/gi, "")
+    .replace(/\b(Lun|Mar|Mer|Jeu|Ven|Sam|Dim)(\s*\+\s*(Lun|Mar|Mer|Jeu|Ven))?\b/gi, "")
+    .replace(/\s*[,;:]\s*[,;:]/g, ",")
+    .replace(/\s{2,}/g, " ")
+    .replace(/\s+([.,])/g, "$1")
+    .replace(/^[,;.\s]+|[,;.\s]+$/g, "")
+    .trim();
+}
+
+function sentenceFitsWaterGroup(
+  sentence: string,
+  method: string,
+  ings: RecipeIngredient[],
+  others: RecipeIngredient[],
+) {
+  if (/même base|sans riz|pas de riz|remplacé par/i.test(sentence)) return false;
+  const own = ings.some((ing) => mentionedIn(ing, sentence));
+  const other = others.some((ing) => mentionedIn(ing, sentence));
+  if (other && own) return false;
+  if (other && !own) return false;
+  if (own) return true;
+  if (method === "rice") return /cuiseur à riz/i.test(sentence);
+  if (method === "cookeo") return /cookeo/i.test(sentence);
+  return false;
+}
+
+function waterHowTo(meal: PlannedMeal, ings: RecipeIngredient[], method: string) {
+  const others = waterCookIngs(meal).filter((ing) => !ings.some((item) => item.id === ing.id));
+  const raw = groupedSteps(meal)
+    .water.filter((line) => sentenceFitsWaterGroup(line, method, ings, others))
+    .map(stripPlatingTalk)
+    .filter(Boolean);
+  return unique(raw).join(" ");
+}
+
+function waterCookBlocks(meal: NumberedRecipe, qtyMode: QtyMode): BatchStepRecipeBlock[] {
+  const items = waterCookIngs(meal);
+  if (items.length === 0) return [];
+  const scale = cookScale(meal, qtyMode);
+  const groups = new Map<string, RecipeIngredient[]>();
+  const claimed = new Set<string>();
+  for (const ing of items) {
+    const key = waterMethodKey(ing);
+    const list = groups.get(key) ?? [];
+    const herbs = herbsCookedWith(ing, meal, claimed);
+    list.push(ing, ...herbs);
+    groups.set(key, list);
+  }
+  return [...groups.entries()].map(([method, ings]) => {
+    const uniqueIngs = ings.filter((ing, index) => ings.findIndex((item) => item.id === ing.id) === index);
+    return blockFor(
+      meal,
+      uniqueIngs,
+      waterHowTo(meal, uniqueIngs, method),
+      waterSettingLabel(method, uniqueIngs, meal),
+      scale,
+    );
+  });
 }
 
 const SECTIONS: Array<{
@@ -732,7 +982,7 @@ const SECTIONS: Array<{
   {
     key: "water",
     title: "2. Cuissons Eau / Plaques (Féculents)",
-    detail: "Une durée par ingrédient. Riz : cuiseur. Lentilles / quinoa : Cookeo. Légumes à l'eau : temps propre à chacun.",
+    detail: "Une ligne par recette et par mode (cuiseur / Cookeo / eau). Si plusieurs ingrédients cuisent ensemble, ils sont regroupés avec les temps et les gestes.",
     appliance: "Cookeo",
     fallbackSetting: "Cuiseur à riz / Cookeo",
     fallbackAction: (meal) =>
@@ -759,8 +1009,8 @@ const SECTIONS: Array<{
   },
   {
     key: "assembly",
-    title: "5. Assemblage",
-    detail: "Tous les ingrédients du plat (Commun / Alexis / Élodie). Ordre dans les boîtes. Sauce au pot.",
+    title: "5. Boîtes Alexis & Élodie",
+    detail: "Grammes = 1 boîte = 1 repas. Semaine : faire ×2 pour 4 repas. Sauce au pot, jamais dans la boîte.",
     appliance: "Plaque",
     fallbackSetting: "",
     fallbackAction: () => "Répartir dans les boîtes. Sauce au pot.",
@@ -794,13 +1044,7 @@ export function buildBatchSession(plan: PlannedMeal[], qtyMode: QtyMode = "batch
         (line) => !/^(rien|n\/a|aucune|pas de cuisson|omit)/i.test(line.trim()),
       );
       if (section.key === "water") {
-        const items = waterCookIngs(meal);
-        if (items.length === 0) return [];
-        const scale = cookScale(meal, qtyMode);
-        const claimed = new Set<string>();
-        return items.map((ing) =>
-          blockFor(meal, [ing, ...herbsCookedWith(ing, meal, claimed)], "", cookTimeOf(ing, meal), scale),
-        );
+        return waterCookBlocks(meal, qtyMode);
       }
       if (section.key === "cuts") {
         const vegs = meal.ingredients.filter((ing) => isCutVeg(ing, meal));
@@ -813,18 +1057,17 @@ export function buildBatchSession(plan: PlannedMeal[], qtyMode: QtyMode = "batch
       );
       if (section.key === "assembly") {
         if (ings.length === 0 && montageLines.length === 0) return [];
-        const scale = cookScale(meal, qtyMode);
         return [
           blockFor(
             meal,
             ings,
             actionFor(meal, section.key, section.fallbackAction(meal)),
             undefined,
-            scale,
+            1,
           ),
         ];
       }
-      if (ings.length === 0 && lines.length === 0) return [];
+      if (ings.length === 0) return [];
       if (
         section.key === "tm" &&
         !isWorthTmMix(
@@ -863,7 +1106,7 @@ export function buildBatchSession(plan: PlannedMeal[], qtyMode: QtyMode = "batch
         appliance: section.appliance,
         setting: unique(ordered.map((block) => block.setting ?? "").filter(Boolean)).slice(0, 3).join(" · "),
         recipes: ordered,
-        rowMode: section.key === "cuts" || section.key === "water" ? "per-item" : undefined,
+        rowMode: section.key === "cuts" ? "per-item" : undefined,
       },
     ];
   });
@@ -893,7 +1136,7 @@ export function buildBatchSession(plan: PlannedMeal[], qtyMode: QtyMode = "batch
   ]);
 
   const storage = unique([
-    "Boîtes 3 à 4 jours au frigo, dîners low cal séparés.",
+    "Boîtes : grammes = 1 repas. Semaine = faire ×2 (2 boîtes / pers.). Sauce au pot, versée au moment.",
     "Vinaigrettes et sauces en pots, versées au moment.",
     weekend.length > 0 ? "Week-end : cuisiner le jour J, 1 repas / pers." : "",
   ]);

@@ -6,6 +6,7 @@ import { useProfile } from "@/context/ProfileContext";
 import { useTheme } from "@/context/ThemeContext";
 import { Card, SectionTitle } from "@/components/ui/Card";
 import { ChipSelector } from "@/components/parametres/ChipSelector";
+import { MealTemplatesEditor } from "@/components/parametres/MealTemplatesEditor";
 import { StatusBadge, type ConnectionTone } from "@/components/parametres/StatusBadge";
 import { TagInput } from "@/components/parametres/TagInput";
 import { ToggleRow } from "@/components/parametres/ToggleRow";
@@ -22,6 +23,7 @@ import {
 import { hydrateKitchenPrefsFromSupabase, persistKitchenPrefs } from "@/lib/supabase/parametres";
 import { storage } from "@/lib/storage";
 import { HEALTH_WEBHOOK_PATH } from "@/lib/health-webhook";
+import type { SlotTemplate } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 const PACE_OPTIONS: { id: RecipePace; label: string }[] = [
@@ -97,11 +99,17 @@ function webhookTone(
 }
 
 export default function ParametresScreen() {
-  const { catalog, updateAversions } = useProfile();
+  const { catalog, updateAversions, updateMealTemplates } = useProfile();
   const { scheme, setScheme } = useTheme();
   const [prefs, setPrefs] = useState<KitchenPrefs>(() => loadKitchenPrefs());
   const [alexisAversions, setAlexisAversions] = useState(catalog.alexis.aversions);
   const [elodieAversions, setElodieAversions] = useState(catalog.elodie.aversions);
+  const [alexisTemplates, setAlexisTemplates] = useState<SlotTemplate[]>(
+    () => catalog.alexis.mealTemplates,
+  );
+  const [elodieTemplates, setElodieTemplates] = useState<SlotTemplate[]>(
+    () => catalog.elodie.mealTemplates,
+  );
   const [draftKeys, setDraftKeys] = useState<StoredKeys>(emptyKeys);
   const [savedKeys, setSavedKeys] = useState<StoredKeys>(emptyKeys);
   const [connections, setConnections] = useState<ConnectionsStatus | null>(null);
@@ -145,10 +153,17 @@ export default function ParametresScreen() {
       setSavedKeys(nextKeys);
       setDraftKeys(emptyKeys);
 
-      const prefError = await persistKitchenPrefs(prefs);
+      const prefError = await persistKitchenPrefs({
+        ...prefs,
+        extraTastes: prefs.extraRules,
+      });
       const alexisError = await updateAversions("alexis", alexisAversions);
       const elodieError = await updateAversions("elodie", elodieAversions);
-      const remote = [prefError, alexisError, elodieError].filter(Boolean);
+      const templatesError = await updateMealTemplates({
+        alexis: alexisTemplates,
+        elodie: elodieTemplates,
+      });
+      const remote = [prefError, alexisError, elodieError, templatesError].filter(Boolean);
       showToast(
         remote.length
           ? "Préférences enregistrées en local (Supabase incomplet)"
@@ -186,26 +201,74 @@ export default function ParametresScreen() {
     <div>
       <h1 className="text-[22px] font-bold tracking-tight">Paramètres</h1>
       <p className="mt-0.5 text-[12px] text-health-muted">
-        Cuisine foyer, connexions API, apparence
+        Cuisine foyer, petit-déj, collations & desserts, connexions
       </p>
 
-      <SectionTitle className="mb-1.5 mt-3">Préférences cuisine & foyer</SectionTitle>
+      <SectionTitle className="mb-1.5 mt-3">Règles à respecter</SectionTitle>
       <Card compact>
         <p className="text-[13px] font-semibold">Type de recettes</p>
         <div className="mt-1.5">
           <ChipSelector value={prefs.recipePace} options={PACE_OPTIONS} onChange={(recipePace) => patchPrefs({ recipePace })} />
         </div>
         <p className="mt-1.5 text-[11px] leading-snug text-health-muted">
-          Express = recettes ultra-détaillées, assemblage et préparation ultra-rapides
+          Un seul choix. Express = assemblage ultra-rapide, toujours gourmand.
         </p>
 
-        <p className="mt-3 text-[13px] font-semibold">Niveau d&apos;épices & saveurs</p>
+        <p className="mt-3 text-[13px] font-semibold">Saveurs</p>
         <div className="mt-1.5">
           <ChipSelector
             stacked
             value={prefs.heatStyle}
             options={HEAT_OPTIONS}
             onChange={(heatStyle) => patchPrefs({ heatStyle })}
+          />
+        </div>
+
+        <p className="mt-3 text-[13px] font-semibold">Lois du foyer</p>
+        <div className="mt-0.5">
+          <ToggleRow
+            label="Tofu cru uniquement en semaine"
+            hint="Lun–Ven : pressé, mariné, servi frais. Cuit OK desserts et week-end."
+            checked={prefs.tofuWeekdayFresh}
+            onChange={(tofuWeekdayFresh) => patchPrefs({ tofuWeekdayFresh })}
+          />
+          <ToggleRow
+            label="Pas de simili-carné en semaine"
+            hint="Steaks / saucisses végétales : week-end uniquement."
+            checked={prefs.mockMeatsWeekendOnly}
+            onChange={(mockMeatsWeekendOnly) => patchPrefs({ mockMeatsWeekendOnly })}
+          />
+          <ToggleRow
+            label="Dîners Low Calorie systématiques"
+            hint="Tous les soirs : variante allégée."
+            checked={prefs.dinnersLowCal}
+            onChange={(dinnersLowCal) => patchPrefs({ dinnersLowCal })}
+          />
+          <ToggleRow
+            label="Adapter à la météo"
+            hint="Canicule → bowls, salades, crudités."
+            checked={prefs.weatherAdaptive}
+            onChange={(weatherAdaptive) => patchPrefs({ weatherAdaptive })}
+          />
+          <ToggleRow
+            label="Sauces 100% maison"
+            hint="Chaque composant dosé — jamais un seul pot du commerce."
+            checked={prefs.homemadeSauces}
+            onChange={(homemadeSauces) => patchPrefs({ homemadeSauces })}
+          />
+        </div>
+
+        <p className="mt-3 text-[13px] font-semibold">+ Critère libre</p>
+        <p className="mt-0.5 text-[11px] text-health-muted">
+          Gem Chef les lit à chaque génération (ex. toujours une herbe fraîche).
+        </p>
+        <div className="mt-1.5">
+          <TagInput
+            tags={prefs.extraRules}
+            onChange={(extraRules) => patchPrefs({ extraRules, extraTastes: extraRules })}
+            placeholder="Ajouter un critère"
+            accent="ink"
+            addLabel="+"
           />
         </div>
       </Card>
@@ -258,31 +321,33 @@ export default function ParametresScreen() {
             />
           ))}
         </div>
-        <p className="mt-2 text-[13px] font-semibold">Règles tofu & simili-carnés</p>
-        <div className="mt-0.5">
-          <ToggleRow
-            label="Tofu cru uniquement en semaine"
-            hint="Lun–Ven : pressé, mariné, servi frais. Cuit OK desserts et week-end."
-            checked={prefs.tofuWeekdayFresh}
-            onChange={(tofuWeekdayFresh) => patchPrefs({ tofuWeekdayFresh })}
-          />
-          <ToggleRow
-            label="Pas de simili-carné en semaine"
-            hint="Steaks / saucisses végétales : week-end uniquement."
-            checked={prefs.mockMeatsWeekendOnly}
-            onChange={(mockMeatsWeekendOnly) => patchPrefs({ mockMeatsWeekendOnly })}
-          />
-        </div>
-        <p className="mt-2 text-[13px] font-semibold">Préférences dîner</p>
-        <div className="mt-0.5">
-          <ToggleRow
-            label="Dîners Low Calorie systématiques"
-            hint="Tous les soirs : variante allégée."
-            checked={prefs.dinnersLowCal}
-            onChange={(dinnersLowCal) => patchPrefs({ dinnersLowCal })}
-          />
-        </div>
       </Card>
+
+      <SectionTitle className="mb-1.5 mt-3">Petit-déj, collations & desserts</SectionTitle>
+      <p className="mb-1.5 px-0.5 text-[11px] leading-snug text-health-muted">
+        Modèles stables par jour — pas d’IA. Les desserts s’ajoutent au déjeuner / dîner. Enregistrer met à jour
+        Aujourd’hui.
+      </p>
+      <MealTemplatesEditor
+        profileId="alexis"
+        name="Alexis"
+        accent="coral"
+        templates={alexisTemplates}
+        onChange={(next) => {
+          setAlexisTemplates(next);
+          void updateMealTemplates({ alexis: next });
+        }}
+      />
+      <MealTemplatesEditor
+        profileId="elodie"
+        name="Élodie"
+        accent="violet"
+        templates={elodieTemplates}
+        onChange={(next) => {
+          setElodieTemplates(next);
+          void updateMealTemplates({ elodie: next });
+        }}
+      />
 
       <SectionTitle className="mb-1.5 mt-3">Connexions & clés API</SectionTitle>
       <Card compact>

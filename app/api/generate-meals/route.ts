@@ -14,13 +14,14 @@ import {
 } from "@/lib/gemini/meals";
 import type { PlannedMeal } from "@/lib/types";
 import type { HouseholdCoachBias } from "@/lib/coach-apply";
+import { parseMealCoach, scalePlanToGoals, type MealCoachHousehold } from "@/lib/meal-coach";
 import { diversityProblems } from "@/lib/recipe-diversity";
 import { themeMismatchProblems } from "@/lib/theme-kits";
 import { suggestionsFitRecipe } from "@/lib/swap-coherence";
 import { emptyWeekPlan, annotatePlan, pairForSlot, WEEKDAY_BATCHES, WEEKEND_INDEXES } from "@/lib/weekly-plan";
 import { friendlyGeminiError } from "@/lib/gemini/models";
 
-export const maxDuration = 120;
+export const maxDuration = 300;
 
 type Body = {
   mode: GenerateMealsMode;
@@ -34,6 +35,7 @@ type Body = {
   coachBias?: HouseholdCoachBias;
   pastMeals?: string[];
   kitchenContext?: string;
+  nutritionCoach?: MealCoachHousehold;
 };
 
 function applyRecipes(
@@ -135,8 +137,9 @@ export async function POST(request: Request) {
           { status: 502 },
         );
       }
+      const coach = parseMealCoach(body.nutritionCoach);
       return NextResponse.json({
-        plan: applyRecipes(plan, recipes, theme, "single", body.slotId),
+        plan: scalePlanToGoals(applyRecipes(plan, recipes, theme, "single", body.slotId), coach),
         mock: false,
         warning,
       });
@@ -159,16 +162,36 @@ export async function POST(request: Request) {
             );
 
     try {
+      const started = Date.now();
       const first = await callGeminiPro(prompt);
       let used = first;
-      let recipes = extractRecipes(parseGeminiJson(first.text));
+      let recipes: ReturnType<typeof extractRecipes> = [];
+      try {
+        recipes = extractRecipes(parseGeminiJson(first.text));
+      } catch (error) {
+        console.warn("[MEAL GEN] JSON incomplet, second essai…", error instanceof Error ? error.message : error);
+      }
+      if (recipes.length === 0) {
+        const again = await callGeminiPro(
+          `${prompt}
+
+CORRECTION : ta réponse précédente n'était pas du JSON utilisable. Renvoie UNIQUEMENT le JSON demandé, complet.`,
+        );
+        try {
+          recipes = extractRecipes(parseGeminiJson(again.text));
+          used = again;
+        } catch (error) {
+          console.warn("[MEAL GEN] second JSON encore invalide", error);
+        }
+      }
       if (recipes.length === 0) throw new Error("JSON sans recette");
       const titles = recipes.map((item) => String(item.title ?? ""));
       let problems = [
         ...diversityProblems(titles, pastMeals),
         ...themeMismatchProblems(titles, theme),
       ];
-      if (problems.length > 0 && (body.mode === "weekdays" || body.mode === "weekend")) {
+      const elapsed = Date.now() - started;
+      if (problems.length > 0 && (body.mode === "weekdays" || body.mode === "weekend") && elapsed < 50_000) {
         console.warn("[MEAL GEN] retry — thème/diversité:", problems.slice(0, 5).join(" | "));
         const retry = await callGeminiPro(
           `${prompt}
@@ -177,24 +200,32 @@ CORRECTION OBLIGATOIRE — ta proposition violait le thème et/ou la diversité 
 ${problems.slice(0, 10).join("\n")}
 Réécris TOUTES les recettes. Titres 100 % du thème « ${theme || "libre"} », familles différentes, aucun plat d'une autre cuisine.`,
         );
-        const retryRecipes = extractRecipes(parseGeminiJson(retry.text));
-        const retryTitles = retryRecipes.map((item) => String(item.title ?? ""));
-        const retryProblems = [
-          ...diversityProblems(retryTitles, pastMeals),
-          ...themeMismatchProblems(retryTitles, theme),
-        ];
-        if (
-          retryRecipes.length >= recipes.length &&
-          retryProblems.length <= problems.length
-        ) {
-          recipes = retryRecipes;
-          problems = retryProblems;
-          used = retry;
+        try {
+          const retryRecipes = extractRecipes(parseGeminiJson(retry.text));
+          const retryTitles = retryRecipes.map((item) => String(item.title ?? ""));
+          const retryProblems = [
+            ...diversityProblems(retryTitles, pastMeals),
+            ...themeMismatchProblems(retryTitles, theme),
+          ];
+          if (
+            retryRecipes.length >= recipes.length &&
+            retryProblems.length <= problems.length
+          ) {
+            recipes = retryRecipes;
+            problems = retryProblems;
+            used = retry;
+          }
+        } catch (error) {
+          console.warn("[MEAL GEN] retry JSON raté — on garde le premier lot", error);
         }
       }
-      if (theme.trim() && themeMismatchProblems(recipes.map((item) => String(item.title ?? "")), theme).length > 0) {
-        throw new Error("Thème non respecté par Gemini");
-      }
+      const themeIssues = theme.trim()
+        ? themeMismatchProblems(recipes.map((item) => String(item.title ?? "")), theme)
+        : [];
+      const themeWarning =
+        themeIssues.length > 0
+          ? "Thème un peu approximatif — tu peux régénérer un plat."
+          : undefined;
       console.log(
         "[MEAL GEN] using",
         used.tier,
@@ -202,11 +233,12 @@ Réécris TOUTES les recettes. Titres 100 % du thème « ${theme || "libre"} »,
         body.mode,
         recipes.map((item) => item.title).join(" · "),
       );
+      const coach = parseMealCoach(body.nutritionCoach);
       return NextResponse.json({
-        plan: applyRecipes(plan, recipes, theme, body.mode, body.slotId),
+        plan: scalePlanToGoals(applyRecipes(plan, recipes, theme, body.mode, body.slotId), coach),
         mock: false,
         model: used.model,
-        warning: used.warning,
+        warning: [used.warning, themeWarning].filter(Boolean).join(" ") || undefined,
       });
     } catch (error) {
       const raw = error instanceof Error ? error.message : "Gemini indisponible";

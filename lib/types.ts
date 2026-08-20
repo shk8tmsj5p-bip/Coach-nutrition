@@ -59,12 +59,49 @@ export interface SportSession {
   weekdays: Weekday[];
 }
 
+export type MuscleGroup = "pecs" | "dos" | "jambes" | "epaules" | "bras" | "fessiers" | "abdos";
+
+export type HypertrophyPrefs = {
+  focus: MuscleGroup[];
+  minutesPerSession: number;
+  weekdays: Weekday[];
+};
+
+export type CardioActivity = "course" | "velo";
+
+export type CardioSlot = {
+  id: string;
+  weekday: Weekday;
+  activity: CardioActivity;
+  durationMin: number;
+  elevationM: number;
+};
+
+export type CardioPrefs = {
+  slots: CardioSlot[];
+};
+
 export interface SportRoutine {
   runsPerWeek: number;
   ridesPerWeek: number;
   strengthDays: number;
   targetMinutesPerWeek: number;
   sessions: SportSession[];
+  hypertrophy?: HypertrophyPrefs;
+  cardio?: CardioPrefs;
+}
+
+export type SlotTemplateKind = "petit-dejeuner" | "collation" | "dessert-midi" | "dessert-soir";
+
+export interface SlotTemplate {
+  id: string;
+  slot: SlotTemplateKind;
+  name: string;
+  items: string[];
+  macros: Macros;
+  /** 1 = lundi … 7 = dimanche */
+  weekdays: Weekday[];
+  time?: string;
 }
 
 export interface Profile {
@@ -82,6 +119,7 @@ export interface Profile {
   primaryGoal: PrimaryGoal;
   weeklyRateKg: number;
   sportRoutine: SportRoutine;
+  mealTemplates: SlotTemplate[];
   targets: Macros;
   bmr: number;
   tdee: number;
@@ -107,6 +145,8 @@ export interface DetectedIngredient {
   grams: number;
   calories: number;
   protein: number;
+  carbs?: number;
+  fat?: number;
 }
 
 export interface Pesee {
@@ -162,6 +202,8 @@ export interface DailyMovement {
   restingEnergyKcal: number;
   workoutMinutes: number;
   distanceKm: number;
+  /** Distance vélo Apple Santé (séparée de la marche / course). */
+  cyclingDistanceKm: number;
   weightKg?: number | null;
   fatMassPct?: number | null;
   bmi?: number | null;
@@ -244,6 +286,9 @@ export interface BatchStepIngredient {
   visual?: string;
   planTag?: string;
   who?: string;
+  gramsAlexis?: number;
+  gramsElodie?: number;
+  sauce?: boolean;
 }
 
 export interface BatchStepRecipeBlock {
@@ -253,6 +298,7 @@ export interface BatchStepRecipeBlock {
   ingredients: BatchStepIngredient[];
   action: string;
   setting?: string;
+  servingsPerPerson?: 1 | 2;
 }
 
 export interface BatchStep {

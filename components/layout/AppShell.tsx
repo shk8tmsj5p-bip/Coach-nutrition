@@ -2,6 +2,7 @@
 
 import { ProfileToggle } from "@/components/layout/ProfileToggle";
 import { BottomNav } from "@/components/layout/BottomNav";
+import { GeminiWaitHost } from "@/components/ui/GeminiWait";
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   return (
@@ -9,6 +10,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <ProfileToggle />
       <main className="px-4 pb-nav pt-2">{children}</main>
       <BottomNav />
+      <GeminiWaitHost />
     </div>
   );
 }

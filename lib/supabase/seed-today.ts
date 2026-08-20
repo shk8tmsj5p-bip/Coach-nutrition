@@ -5,6 +5,7 @@ import {
   buildYesterdaySeedMeals,
   SEED_PROFILS,
 } from "@/lib/supabase/seed-data";
+import { applyTodaySlotTemplates } from "@/lib/supabase/today-data";
 import type { Database } from "@/lib/supabase/database.types";
 
 export type SeedResult = {
@@ -34,7 +35,8 @@ export async function ensureDemoMeals(
     return { ok: false, seeded: false, error: existing.error.message };
   }
   if ((existing.count ?? 0) > 0) {
-    return { ok: true, seeded: false };
+    const applied = await applyTodaySlotTemplates(supabase, today);
+    return { ok: true, seeded: applied };
   }
 
   const yesterdayCount = await supabase
@@ -52,5 +54,6 @@ export async function ensureDemoMeals(
     return { ok: false, seeded: false, error: inserted.error.message };
   }
 
+  const applied = await applyTodaySlotTemplates(supabase, today);
   return { ok: true, seeded: true };
 }

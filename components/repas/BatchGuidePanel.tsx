@@ -7,7 +7,7 @@ import { SectionTitle } from "@/components/ui/Card";
 import { buildBatchSession, vegFamilyLabel } from "@/lib/batch-from-plan";
 import { exportElementToPdf } from "@/lib/export-batch-pdf";
 import { formatWeekRange } from "@/lib/dates";
-import { groupedCellIngredients, cellSetting, shortCoverDays, itemQuantityLine } from "@/lib/s34-copy";
+import { groupedCellIngredients, cellSetting, blockHowto, shortCoverDays, itemQuantityLine, packingLists, assemblyHowto } from "@/lib/s34-copy";
 import type { QtyMode } from "@/lib/qty-scale";
 import type { BatchStep, BatchStepRecipeBlock, PlannedMeal } from "@/lib/types";
 import { cn, mealTypeLabel } from "@/lib/utils";
@@ -39,18 +39,116 @@ function IngredientCell({ recipeNo, ings }: { recipeNo: string; ings: BatchStepR
   );
 }
 
+function AssemblyCard({
+  block,
+  onOpen,
+}: {
+  block: BatchStepRecipeBlock;
+  onOpen?: () => void;
+}) {
+  const pack = packingLists(block);
+  return (
+    <div className="rounded-xl bg-health-bg p-2.5">
+      <button
+        type="button"
+        onClick={onOpen}
+        className="flex w-full items-start gap-2 text-left"
+      >
+        <RecipeTag recipeNo={block.recipeNo} />
+        <span className="min-w-0">
+          <span className="block text-[13px] font-semibold leading-snug text-health-ink">
+            {block.recipeTitle}
+          </span>
+          <span className="text-[11px] text-health-muted">
+            {shortCoverDays(block.coverLabel)} · {pack.boxLabel}
+          </span>
+        </span>
+      </button>
+      <div className="mt-2 grid grid-cols-2 gap-1.5">
+        <PackBox name="Alexis" accent="coral" lines={pack.boxA} />
+        <PackBox name="Élodie" accent="violet" lines={pack.boxE} />
+      </div>
+      {pack.pot.length > 0 ? (
+        <div className="mt-1.5 rounded-lg bg-health-card px-2.5 py-2">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-health-muted">
+            Pot sauce · à part
+          </p>
+          <div className="mt-1 space-y-0.5">
+            {pack.pot.map((line) => (
+              <p key={line.name} className="flex justify-between gap-2 text-[12px] leading-snug">
+                <span className="min-w-0 truncate font-medium text-health-ink">{line.name}</span>
+                <span className="shrink-0 tabular-nums text-health-muted">{line.qty}</span>
+              </p>
+            ))}
+          </div>
+        </div>
+      ) : null}
+      <p className="mt-1.5 text-[11px] leading-snug text-health-muted">{assemblyHowto(block)}</p>
+    </div>
+  );
+}
+
+function PackBox({
+  name,
+  accent,
+  lines,
+}: {
+  name: string;
+  accent: "coral" | "violet";
+  lines: { name: string; qty: string }[];
+}) {
+  return (
+    <div
+      className={cn(
+        "rounded-lg px-2 py-2",
+        accent === "coral" ? "bg-coral-soft" : "bg-violet-soft",
+      )}
+    >
+      <p
+        className={cn(
+          "text-[10px] font-semibold uppercase tracking-[0.1em]",
+          accent === "coral" ? "text-coral-dark" : "text-violet-dark",
+        )}
+      >
+        Boîte {name}
+      </p>
+      <div className="mt-1 space-y-0.5">
+        {lines.length === 0 ? (
+          <p className="text-[11px] text-health-muted">—</p>
+        ) : (
+          lines.map((line) => (
+            <p key={`${name}-${line.name}`} className="flex justify-between gap-1 text-[11px] leading-snug">
+              <span className="min-w-0 truncate font-medium text-health-ink">{line.name}</span>
+              <span
+                className={cn(
+                  "shrink-0 tabular-nums font-semibold",
+                  accent === "coral" ? "text-coral-dark" : "text-violet-dark",
+                )}
+              >
+                {line.qty}
+              </span>
+            </p>
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
 function CookbookTable({
   headers,
   rows,
   tone,
   perItem,
   groupByFamily,
+  onOpenRecipe,
 }: {
   headers: [string, string, string];
   rows: BatchStepRecipeBlock[];
   tone: "coral" | "sky" | "violet" | "cream";
   perItem?: boolean;
   groupByFamily?: boolean;
+  onOpenRecipe?: (recipeNo: string) => void;
 }) {
   const head =
     tone === "coral"
@@ -85,7 +183,10 @@ function CookbookTable({
                 index % 2 === 1 ? "bg-health-card/80" : "bg-transparent",
               )}
             >
-              <RecipeTag recipeNo={block.recipeNo} />
+              <RecipeTag
+                recipeNo={block.recipeNo}
+                onClick={onOpenRecipe ? () => onOpenRecipe(block.recipeNo) : undefined}
+              />
               {perItem ? (
                 <p className="min-w-0 text-[12px] leading-snug text-health-ink">
                   {block.ingredients.length > 0
@@ -93,7 +194,12 @@ function CookbookTable({
                     : "—"}
                 </p>
               ) : (
-                <IngredientCell recipeNo={block.recipeNo} ings={block.ingredients} />
+                <div className="min-w-0">
+                  <IngredientCell recipeNo={block.recipeNo} ings={block.ingredients} />
+                  {blockHowto(block) ? (
+                    <p className="mt-1 text-[11px] leading-snug text-health-muted">{blockHowto(block)}</p>
+                  ) : null}
+                </div>
               )}
               <p className="text-right text-[11px] font-semibold leading-snug text-health-ink">
                 {cellSetting(block) || "—"}
@@ -118,7 +224,6 @@ function sectionHeaders(step: BatchStep): [string, string, string] {
   if (step.time === "1" || /airfryer/i.test(step.title)) return ["Px", "Protéines", "Réglage"];
   if (step.time === "2" || /eau|féculent/i.test(step.title)) return ["Px", "Ingrédient", "Cuisson"];
   if (step.time === "4" || /découpe/i.test(step.title)) return ["Px", "Légume", "Découpe"];
-  if (step.time === "5" || /assemblage/i.test(step.title)) return ["Px", "Composition", "Montage"];
   return ["Px", "Légumes", "Geste"];
 }
 
@@ -133,10 +238,12 @@ export function BatchGuidePanel({
   weekStart,
   plan,
   qtyMode = "batch",
+  onOpenRecipe,
 }: {
   weekStart: string;
   plan: PlannedMeal[];
   qtyMode?: QtyMode;
+  onOpenRecipe?: (recipeNo: string) => void;
 }) {
   const session = useMemo(() => buildBatchSession(plan, qtyMode), [plan, qtyMode]);
   const weekLabel = formatWeekRange(weekStart);
@@ -187,13 +294,18 @@ export function BatchGuidePanel({
             </p>
             <div className="space-y-1">
               {session.recipes.map((meal) => (
-                <div key={meal.batchId} className="flex items-start gap-2">
+                <button
+                  key={meal.batchId}
+                  type="button"
+                  onClick={() => onOpenRecipe?.(meal.recipeNo)}
+                  className="flex w-full items-start gap-2 rounded-xl px-0.5 py-1 text-left active:bg-health-bg"
+                >
                   <RecipeTag recipeNo={meal.recipeNo} />
                   <p className="min-w-0 text-[13px] leading-snug text-health-ink">
                     <span className="font-medium">{meal.baseName}</span>
                     <span className="text-health-muted"> · {shortCoverDays(meal.coverLabel)}</span>
                   </p>
-                </div>
+                </button>
               ))}
             </div>
           </div>
@@ -215,13 +327,29 @@ export function BatchGuidePanel({
                 {step.title.replace(/^\d+\.\s*/, "")}
               </p>
             </div>
-            <CookbookTable
-              headers={sectionHeaders(step)}
-              rows={rows}
-              tone={tone}
-              perItem={step.rowMode === "per-item"}
-              groupByFamily={step.time === "4"}
-            />
+            {(step.time === "5" || /boîte/i.test(step.title)) && step.detail ? (
+              <p className="mt-1 text-[11px] leading-snug text-health-muted">{step.detail}</p>
+            ) : null}
+            {step.time === "5" || /boîte|assemblage/i.test(step.title) ? (
+              <div className="mt-2 space-y-2">
+                {rows.map((block) => (
+                  <AssemblyCard
+                    key={`${block.recipeNo}-${block.recipeTitle}`}
+                    block={block}
+                    onOpen={onOpenRecipe ? () => onOpenRecipe(block.recipeNo) : undefined}
+                  />
+                ))}
+              </div>
+            ) : (
+              <CookbookTable
+                headers={sectionHeaders(step)}
+                rows={rows}
+                tone={tone}
+                perItem={step.rowMode === "per-item"}
+                groupByFamily={step.time === "4"}
+                onOpenRecipe={onOpenRecipe}
+              />
+            )}
           </div>
         );
       })}
@@ -231,13 +359,18 @@ export function BatchGuidePanel({
           <p className="text-[13px] font-semibold tracking-tight text-health-ink">Week-end · frais</p>
           <div className="mt-1.5 space-y-1">
             {(weekendStep.recipes ?? []).map((block) => (
-              <div key={block.recipeNo} className="flex items-start gap-2">
+              <button
+                key={block.recipeNo}
+                type="button"
+                onClick={() => onOpenRecipe?.(block.recipeNo)}
+                className="flex w-full items-start gap-2 rounded-xl py-0.5 text-left"
+              >
                 <RecipeTag recipeNo={block.recipeNo} />
                 <p className="text-[13px] leading-snug">
                   {block.recipeTitle}
                   <span className="text-health-muted"> · {block.coverLabel}</span>
                 </p>
-              </div>
+              </button>
             ))}
           </div>
         </div>
@@ -248,12 +381,17 @@ export function BatchGuidePanel({
           <SectionTitle>Week-end frais</SectionTitle>
           <div className="rounded-card border border-teal-500/30 bg-health-card p-3 shadow-card">
             {session.weekend.map((meal) => (
-              <p key={meal.id} className="flex items-start gap-2 text-[13px] leading-snug">
+              <button
+                key={meal.id}
+                type="button"
+                onClick={() => onOpenRecipe?.(meal.recipeNo)}
+                className="flex w-full items-start gap-2 rounded-xl py-0.5 text-left text-[13px] leading-snug"
+              >
                 <RecipeTag recipeNo={meal.recipeNo} />
                 <span>
                   {meal.day} {mealTypeLabel(meal.mealType)} · {meal.baseName}
                 </span>
-              </p>
+              </button>
             ))}
           </div>
         </>

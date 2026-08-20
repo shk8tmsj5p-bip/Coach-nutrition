@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { callGeminiFlashVision, extractRenphoFromText } from "@/lib/gemini/renpho";
 import { friendlyGeminiError } from "@/lib/gemini/models";
 
-export const maxDuration = 60;
+export const maxDuration = 90;
 
 export async function POST(request: Request) {
   const form = await request.formData();

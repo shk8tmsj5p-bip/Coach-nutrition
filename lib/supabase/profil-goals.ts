@@ -1,16 +1,23 @@
-import type { Macros, Profile, ProfileId, SportRoutine } from "@/lib/types";
+import type { Macros, Profile, ProfileId, SlotTemplate, SportRoutine } from "@/lib/types";
 import type { GoalPatch } from "@/lib/goals";
 import type { AppliedAdjustments, HouseholdAppliedAdjustments } from "@/lib/coach-adjustments";
 import { parseAppliedAdjustments } from "@/lib/coach-adjustments";
 import type { Json } from "@/lib/supabase/database.types";
 import { createBrowserSupabaseClient } from "@/lib/supabase/client";
 import { parseSportRoutine, sportRoutineToJson } from "@/lib/sport-routine";
+import {
+  mealTemplatesToJson,
+  parseMealTemplates,
+  saveHouseholdMealTemplatesLocal,
+} from "@/lib/meal-templates";
+import { applyTodaySlotTemplates } from "@/lib/supabase/today-data";
 import { storage } from "@/lib/storage";
 
 const STORAGE_KEY = "profil-goals";
 const TARGETS_KEY = "profil-targets";
 const ADJUSTMENTS_KEY = "applied-adjustments";
 const AVERSIONS_KEY = "profil-aversions";
+const TEMPLATES_KEY = "meal-templates";
 
 function localGoals() {
   return storage.getJSON<Partial<Record<ProfileId, Partial<GoalPatch>>>>(STORAGE_KEY, {});
@@ -44,21 +51,34 @@ function localAversions() {
   return storage.getJSON<Partial<Record<ProfileId, string[]>>>(AVERSIONS_KEY, {});
 }
 
+function localTemplates() {
+  return storage.getJSON<Partial<Record<ProfileId, SlotTemplate[]>>>(TEMPLATES_KEY, {});
+}
+
 export function overlayLocalGoals(catalog: Record<ProfileId, Profile>): Record<ProfileId, Profile> {
   const saved = localGoals();
   const targets = localTargets();
   const adjustments = localAdjustments();
   const aversions = localAversions();
+  const templates = localTemplates();
   return {
     alexis: {
       ...mergeGoalPatch(catalog.alexis, { ...saved.alexis, targets: targets.alexis }),
       aversions: aversions.alexis ?? catalog.alexis.aversions,
+      mealTemplates: parseMealTemplates(
+        templates.alexis ?? catalog.alexis.mealTemplates,
+        "alexis",
+      ),
       appliedAdjustments:
         parseAppliedAdjustments(adjustments.alexis) ?? catalog.alexis.appliedAdjustments ?? null,
     },
     elodie: {
       ...mergeGoalPatch(catalog.elodie, { ...saved.elodie, targets: targets.elodie }),
       aversions: aversions.elodie ?? catalog.elodie.aversions,
+      mealTemplates: parseMealTemplates(
+        templates.elodie ?? catalog.elodie.mealTemplates,
+        "elodie",
+      ),
       appliedAdjustments:
         parseAppliedAdjustments(adjustments.elodie) ?? catalog.elodie.appliedAdjustments ?? null,
     },
@@ -177,4 +197,26 @@ export async function saveAppliedAdjustments(
     .eq("id", profileId);
 
   return error?.message ?? null;
+}
+
+export async function saveMealTemplates(
+  templates: Partial<Record<ProfileId, SlotTemplate[]>>,
+): Promise<string | null> {
+  saveHouseholdMealTemplatesLocal(templates);
+
+  const supabase = createBrowserSupabaseClient();
+  if (!supabase) return null;
+
+  let firstError: string | null = null;
+  for (const id of ["alexis", "elodie"] as const) {
+    const list = templates[id];
+    if (list === undefined) continue;
+    const { error } = await supabase
+      .from("profils")
+      .update({ meal_templates: mealTemplatesToJson(list) })
+      .eq("id", id);
+    if (error && !firstError) firstError = error.message;
+  }
+  await applyTodaySlotTemplates(supabase, undefined, { replacePlan: true });
+  return firstError;
 }

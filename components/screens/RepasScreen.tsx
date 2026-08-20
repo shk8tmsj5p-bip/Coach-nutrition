@@ -31,6 +31,8 @@ import { planTagByMealId, taggedUniqueMeals } from "@/lib/meal-tags";
 import { QtyScaleToggle } from "@/components/repas/QtyScaleToggle";
 import { cn } from "@/lib/utils";
 import { loadKitchenPrefs, formatKitchenPrefsForPrompt } from "@/lib/kitchen-prefs";
+import { buildMealCoachFromProfiles, formatMealCoachForPrompt } from "@/lib/meal-coach";
+import { goalLabel } from "@/lib/goals";
 import type { QtyMode } from "@/lib/qty-scale";
 
 type Tab = "plan" | "courses" | "batch";
@@ -52,7 +54,13 @@ export default function RepasScreen() {
   const [openTag, setOpenTag] = useState<string | null>(null);
 
   function kitchenContext() {
-    return formatKitchenPrefsForPrompt(loadKitchenPrefs(), [catalog.alexis, catalog.elodie]);
+    const prefs = formatKitchenPrefsForPrompt(loadKitchenPrefs(), [catalog.alexis, catalog.elodie]);
+    const coach = formatMealCoachForPrompt(buildMealCoachFromProfiles(catalog.alexis, catalog.elodie));
+    return [prefs, coach].filter(Boolean).join("\n\n");
+  }
+
+  function nutritionCoach() {
+    return buildMealCoachFromProfiles(catalog.alexis, catalog.elodie);
   }
 
   function coachProfiles() {
@@ -135,6 +143,7 @@ export default function RepasScreen() {
         coachBias: loadHouseholdCoachBias(),
         pastMeals,
         kitchenContext: kitchenContext(),
+        nutritionCoach: nutritionCoach(),
       });
       if (result.plan) {
         await persist(result.plan);
@@ -229,6 +238,7 @@ export default function RepasScreen() {
             onThemeChange={setTheme}
             busy={busy}
             canClear={plan.some((meal) => !isEmptyMeal(meal))}
+            coachHint={`Portions selon Suivi : Alexis ${goalLabel(catalog.alexis.primaryGoal)} · Élodie ${goalLabel(catalog.elodie.primaryGoal)}. Même plat, grammes différents.`}
             onGenerateWeekdays={() => void generate("weekdays")}
             onGenerateWeekend={() => void generate("weekend")}
             onGenerateSingle={() => setPickSlot(true)}
@@ -254,9 +264,17 @@ export default function RepasScreen() {
 
       {tab === "batch" && (
         <div className="mt-2">
-          <MenuSummary plan={plan} />
+          <MenuSummary
+            plan={plan}
+            onSelect={(_meal, tag) => setOpenTag(tag)}
+          />
           <QtyScaleToggle mode={batchQty} onChange={setBatchQty} />
-          <BatchGuidePanel weekStart={weekStart} plan={plan} qtyMode={batchQty} />
+          <BatchGuidePanel
+            weekStart={weekStart}
+            plan={plan}
+            qtyMode={batchQty}
+            onOpenRecipe={(tag) => setOpenTag(tag)}
+          />
         </div>
       )}
 
@@ -303,7 +321,8 @@ export default function RepasScreen() {
                 ingredientName: ingredient?.name,
                 replacement,
                 pastMeals: await collectPastMeals(swapMeal.id),
-              kitchenContext: kitchenContext(),
+                kitchenContext: kitchenContext(),
+                nutritionCoach: nutritionCoach(),
               });
               if (result.plan) {
                 await persist(result.plan);

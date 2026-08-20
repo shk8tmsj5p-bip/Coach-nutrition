@@ -23,6 +23,7 @@ import type { GoalPatch } from "@/lib/goals";
 import { SportRoutineCard } from "@/components/sport/SportRoutineCard";
 import { WeightJourneyChart } from "@/components/suivi/WeightJourneyChart";
 import { buildCoachWeekPayload, persistCoachWeekPayload, type CoachWeekPayload } from "@/lib/coach-payload";
+import { withGeminiWait } from "@/lib/gemini/wait";
 import {
   latestPesee,
   parseJournalNotes,
@@ -33,6 +34,7 @@ import {
   type TrendRange,
 } from "@/lib/pesees";
 import { HealthMetricTile } from "@/components/today/HealthMetricTile";
+import { sanitizeRestingKcal } from "@/lib/health-energy";
 import { loadHealthHistory, movementSeries } from "@/lib/supabase/health-logs";
 import { loadJournalHistory, loadPesees, savePesee } from "@/lib/supabase/pesees";
 import type { DailyMovement, Pesee, Profile, ProfileId, SundayJournalFields } from "@/lib/types";
@@ -117,7 +119,9 @@ export default function SuiviScreen() {
       const form = new FormData();
       form.append("image", file);
       form.append("profileId", fallback);
-      const response = await fetch("/api/ocr-renpho", { method: "POST", body: form });
+      const response = await withGeminiWait("Gemini lit le capture Renpho…", () =>
+        fetch("/api/ocr-renpho", { method: "POST", body: form }),
+      );
       const payload = (await response.json()) as {
         extracted?: RenphoOcrResult;
         mock?: boolean;
@@ -328,6 +332,11 @@ function ProfileSuivi({
       sliceTrendRange(withMovingAverages(movementSeries(healthDays, "distanceKm")), healthRange),
     [healthDays, healthRange],
   );
+  const cyclingSeries = useMemo(
+    () =>
+      sliceTrendRange(withMovingAverages(movementSeries(healthDays, "cyclingDistanceKm")), healthRange),
+    [healthDays, healthRange],
+  );
   const minutesSeries = useMemo(
     () =>
       sliceTrendRange(withMovingAverages(movementSeries(healthDays, "workoutMinutes")), healthRange),
@@ -342,12 +351,20 @@ function ProfileSuivi({
     [healthDays, healthRange],
   );
   const restingSeries = useMemo(
-    () =>
-      sliceTrendRange(
-        withMovingAverages(movementSeries(healthDays, "restingEnergyKcal")),
+    () => {
+      const days = healthDays.map((day) => ({
+        ...day,
+        restingEnergyKcal: sanitizeRestingKcal(day.restingEnergyKcal, {
+          bmr: profile.bmr,
+          tdee: profile.tdee,
+        }).value,
+      }));
+      return sliceTrendRange(
+        withMovingAverages(movementSeries(days, "restingEnergyKcal")),
         healthRange,
-      ),
-    [healthDays, healthRange],
+      );
+    },
+    [healthDays, healthRange, profile.bmr, profile.tdee],
   );
 
   return (
@@ -476,7 +493,8 @@ function ProfileSuivi({
         {lastHealth ? (
           <div className="mb-3 grid grid-cols-2 gap-2">
             <HealthMetricTile label="Pas" value={formatSteps(lastHealth.steps)} />
-            <HealthMetricTile label="Distance" value={formatKm(lastHealth.distanceKm)} />
+            <HealthMetricTile label="Marche" value={formatKm(lastHealth.distanceKm)} />
+            <HealthMetricTile label="Vélo" value={formatKm(lastHealth.cyclingDistanceKm)} />
             <HealthMetricTile
               label="Minutes d'exercice"
               value={formatMin(lastHealth.workoutMinutes)}
@@ -487,7 +505,12 @@ function ProfileSuivi({
             />
             <HealthMetricTile
               label="Énergie au repos"
-              value={formatKcal(lastHealth.restingEnergyKcal)}
+              value={formatKcal(
+                sanitizeRestingKcal(lastHealth.restingEnergyKcal, {
+                  bmr: profile.bmr,
+                  tdee: profile.tdee,
+                }).value,
+              )}
             />
           </div>
         ) : (
@@ -498,8 +521,10 @@ function ProfileSuivi({
         <RangeToggle value={healthRange} onChange={setHealthRange} />
         <p className="mb-1 mt-3 text-[12px] font-medium">Pas</p>
         <TrendChart data={stepsSeries} color={color} unit="pas" range={healthRange} />
-        <p className="mb-1 mt-4 text-[12px] font-medium">Distance</p>
+        <p className="mb-1 mt-4 text-[12px] font-medium">Marche</p>
         <TrendChart data={distanceSeries} color={color} unit="km" range={healthRange} />
+        <p className="mb-1 mt-4 text-[12px] font-medium">Vélo</p>
+        <TrendChart data={cyclingSeries} color={color} unit="km" range={healthRange} />
         <p className="mb-1 mt-4 text-[12px] font-medium">Minutes d&apos;exercice</p>
         <TrendChart data={minutesSeries} color={color} unit="min" range={healthRange} />
         <p className="mb-1 mt-4 text-[12px] font-medium">Énergie active</p>

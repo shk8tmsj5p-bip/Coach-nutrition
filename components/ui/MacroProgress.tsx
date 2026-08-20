@@ -123,7 +123,7 @@ export function MacrosGrid({
   goal: PrimaryGoal;
 }) {
   return (
-    <div className="mt-4 grid gap-3">
+    <div className="mt-3 grid gap-3">
       <MacroBar
         label="Glucides"
         current={current.carbs}
