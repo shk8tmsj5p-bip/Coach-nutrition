@@ -375,28 +375,30 @@ function ProfileSuivi({
           Éditer mes objectifs
         </button>
       </div>
-      <Card>
+      <Card compact>
         <div className="flex items-center justify-between">
           <p className="text-[13px] font-semibold">Poids</p>
           <p className="text-[12px] text-health-muted">
             {goalLabel(profile.primaryGoal)} · {formatWeeklyRate(profile.weeklyRateKg)}
           </p>
         </div>
-        <WeightJourneyChart
-          start={profile.startWeightKg}
-          current={current}
-          target={profile.targetWeightKg}
-          goal={profile.primaryGoal}
-          color={color}
-          date={last?.date}
-          gradientId={profile.id}
-        />
+        <div className="mt-1.5">
+          <WeightJourneyChart
+            start={profile.startWeightKg}
+            current={current}
+            target={profile.targetWeightKg}
+            goal={profile.primaryGoal}
+            color={color}
+            date={last?.date}
+            gradientId={profile.id}
+          />
+        </div>
         {ma7 != null && ma14 != null && (
-          <div className="mt-3 grid grid-cols-2 gap-2 text-[12px]">
-            <div className="rounded-xl bg-health-bg p-2.5">
+          <div className="mt-2 grid grid-cols-2 gap-2 text-[12px]">
+            <div className="rounded-xl bg-health-bg px-2.5 py-2">
               Moy. 7 j <span className="font-semibold tabular-nums">{formatKg(ma7)}</span>
             </div>
-            <div className="rounded-xl bg-health-bg p-2.5">
+            <div className="rounded-xl bg-health-bg px-2.5 py-2">
               Moy. 14 j <span className="font-semibold tabular-nums">{formatKg(ma14)}</span>
             </div>
           </div>

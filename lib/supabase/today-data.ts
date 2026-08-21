@@ -3,7 +3,7 @@ import { isoWeekday, mondayOf, todayISO, yesterdayISO } from "@/lib/dates";
 import { mapProfil, mapRepas } from "@/lib/mappers";
 import type { SwapProposal } from "@/lib/swap-proposals";
 import type { Database } from "@/lib/supabase/database.types";
-import type { MealEntry, MealType, Profile, ProfileId, SlotTemplate } from "@/lib/types";
+import type { MealEntry, MealType, Profile, ProfileId, SlotTemplate, SlotTemplateKind } from "@/lib/types";
 import {
   emptySlotTemplate,
   loadHouseholdMealTemplates,
@@ -134,49 +134,56 @@ export async function restorePlannedMeals(
     .in("type", types);
   if (removed.error) return { error: removed.error.message };
 
-  const templateTypes = types.filter((type) => type === "petit-dejeuner" || type === "collation");
-  const rows = templateTypes
-    .map((type) => rowForPlannedSlot(profileId, today, type))
-    .filter((row): row is NonNullable<typeof row> => Boolean(row));
-  if (rows.length > 0) {
-    const inserted = await supabase.from("repas").insert(rows);
-    if (inserted.error) return { error: inserted.error.message };
-  }
-
   const weekTypes = types.filter((type): type is "dejeuner" | "diner" => type === "dejeuner" || type === "diner");
   if (weekTypes.length > 0) {
     await applyWeekPlatsToToday(supabase, today, { profileIds: [profileId], types: weekTypes, force: true });
   }
-  await applyTodaySlotTemplates(supabase, today);
+
+  const slots: TemplateSlot[] = [];
+  if (types.includes("petit-dejeuner")) slots.push("petit-dejeuner");
+  if (types.includes("collation")) slots.push("collation");
+  if (types.includes("dejeuner")) slots.push("dessert-midi");
+  if (types.includes("diner")) slots.push("dessert-soir");
+  if (slots.length > 0) {
+    await applyTodaySlotTemplates(supabase, today, {
+      replacePlan: true,
+      force: true,
+      profileIds: [profileId],
+      slots,
+    });
+  }
   return {};
 }
 
-export function plannedMealEntry(profileId: ProfileId, type: MealType): MealEntry | null {
-  const fromTemplate = plannedSlotEntry(profileId, type);
-  if (fromTemplate) return fromTemplate;
-  return null;
+export function plannedMealEntry(
+  profileId: ProfileId,
+  type: MealType,
+  date = todayISO(),
+  templates?: SlotTemplate[],
+): MealEntry | null {
+  return plannedSlotEntry(profileId, type, date, templates);
 }
 
-function rowForPlannedSlot(profileId: ProfileId, date: string, type: MealType) {
-  const fromTemplate = plannedSlotEntry(profileId, type, date);
-  return fromTemplate
-    ? {
-        profile_id: profileId,
-        date,
-        type,
-        heure: fromTemplate.time || null,
-        nom: fromTemplate.name,
-        items: fromTemplate.items ?? [],
-        calories: fromTemplate.macros.calories,
-        proteines_g: fromTemplate.macros.protein,
-        glucides_g: fromTemplate.macros.carbs,
-        lipides_g: fromTemplate.macros.fat,
-        source: "plan" as const,
-        is_planned: true,
-        is_skipped: false,
-      }
-    : null;
+function plannedRowFromTemplate(profileId: ProfileId, date: string, template: SlotTemplate) {
+  const entry = mealFromTemplate(profileId, template);
+  return {
+    profile_id: profileId,
+    date,
+    type: entry.type,
+    heure: entry.time || null,
+    nom: entry.name,
+    items: entry.items ?? [],
+    calories: entry.macros.calories,
+    proteines_g: entry.macros.protein,
+    glucides_g: entry.macros.carbs,
+    lipides_g: entry.macros.fat,
+    source: "plan" as const,
+    is_planned: true,
+    is_skipped: false,
+  };
 }
+
+type TemplateSlot = SlotTemplateKind;
 
 function isLoggedSource(source: MealEntry["source"] | string | null | undefined) {
   return source === "text" || source === "photo" || source === "barcode" || source === "log";
@@ -294,7 +301,12 @@ async function householdTemplatesFromDb(
 export async function applyTodaySlotTemplates(
   supabase: SupabaseClient<Database>,
   date = todayISO(),
-  opts: { replacePlan?: boolean } = {},
+  opts: {
+    replacePlan?: boolean;
+    force?: boolean;
+    profileIds?: ProfileId[];
+    slots?: TemplateSlot[];
+  } = {},
 ): Promise<boolean> {
   const weekday = isoWeekday(date);
   const household = await householdTemplatesFromDb(supabase);
@@ -307,21 +319,26 @@ export async function applyTodaySlotTemplates(
   const byKey = new Map(
     (existing.data ?? []).map((row) => [`${row.profile_id}:${row.type}`, row] as const),
   );
+  const profileIds = opts.profileIds ?? (["alexis", "elodie"] as const);
+  const wantSlot = (slot: TemplateSlot) => !opts.slots || opts.slots.includes(slot);
   let changed = false;
-  for (const id of ["alexis", "elodie"] as const) {
+  for (const id of profileIds) {
     for (const slot of ["petit-dejeuner", "collation"] as const) {
+      if (!wantSlot(slot)) continue;
       const template = templateForSlot(household[id], slot, weekday);
       if (!template) continue;
-      const payload = rowForPlannedSlot(id, date, slot);
-      if (!payload) continue;
+      const payload = plannedRowFromTemplate(id, date, template);
       const current = byKey.get(`${id}:${slot}`);
       if (!current) {
         const inserted = await supabase.from("repas").insert(payload);
         if (!inserted.error) changed = true;
         continue;
       }
-      if (current.is_skipped || isLoggedSource(current.source)) continue;
+      if (current.is_skipped || isLoggedSource(current.source)) {
+        if (!opts.force) continue;
+      }
       const replace =
+        Boolean(opts.force) ||
         Boolean(opts.replacePlan) ||
         (current.source === "plan" && isLegacySeedBreakfast(current.nom ?? ""));
       if (!replace) continue;
@@ -337,16 +354,18 @@ export async function applyTodaySlotTemplates(
           heure: payload.heure,
           source: "plan",
           is_planned: true,
+          is_skipped: false,
         })
         .eq("id", current.id);
       if (!updated.error) changed = true;
     }
     for (const slot of ["dessert-midi", "dessert-soir"] as const) {
+      if (!wantSlot(slot)) continue;
       const template = templateForSlot(household[id], slot, weekday);
       const mealType = mealTypeForTemplate(slot);
       const current = byKey.get(`${id}:${mealType}`);
       if (!template || !template.items.length) {
-        if (!current || current.is_skipped || isLoggedSource(current.source) || !opts.replacePlan) continue;
+        if (!current || ((current.is_skipped || isLoggedSource(current.source)) && !opts.force) || !opts.replacePlan) continue;
         const stripped = mergeDessertIntoMeal(dessertMealFromRow(current, id, mealType), emptyDessert(slot), {
           replace: true,
         });
@@ -383,9 +402,9 @@ export async function applyTodaySlotTemplates(
         if (!inserted.error) changed = true;
         continue;
       }
-      if (current.is_skipped) continue;
+      if (current.is_skipped && !opts.force) continue;
       const merged = mergeDessertIntoMeal(dessertMealFromRow(current, id, mealType), template, {
-        replace: Boolean(opts.replacePlan),
+        replace: Boolean(opts.replacePlan) || Boolean(opts.force),
       });
       const updated = await supabase
         .from("repas")
@@ -395,6 +414,7 @@ export async function applyTodaySlotTemplates(
           proteines_g: merged.macros.protein,
           glucides_g: merged.macros.carbs,
           lipides_g: merged.macros.fat,
+          is_skipped: opts.force ? false : current.is_skipped,
         })
         .eq("id", current.id);
       if (!updated.error) changed = true;

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type ReactNode, type Ref } from "react";
-import { Check, Copy, Moon, RefreshCw, Sun } from "lucide-react";
+import { Check, Copy, Moon, Sun } from "lucide-react";
 import { useProfile } from "@/context/ProfileContext";
 import { useTheme } from "@/context/ThemeContext";
 import { Card, SectionTitle } from "@/components/ui/Card";
@@ -81,11 +81,13 @@ function stravaTone(
   clientOk: boolean,
   tokenEnv: boolean,
   tokenLocal: boolean,
+  healthOk: boolean,
 ): { tone: ConnectionTone; label: string } {
-  if (clientOk && (tokenEnv || tokenLocal)) return { tone: "ok", label: "Connecté" };
-  if (clientOk) return { tone: "warn", label: "À reconnecter" };
+  if (clientOk && (tokenEnv || tokenLocal)) return { tone: "ok", label: "API connectée" };
+  if (healthOk) return { tone: "ok", label: "Via Apple Santé" };
+  if (clientOk) return { tone: "warn", label: "API à reconnecter" };
   if (tokenLocal) return { tone: "warn", label: "Clé locale" };
-  return { tone: "off", label: "À configurer" };
+  return { tone: "warn", label: "Via Apple Santé" };
 }
 
 function webhookTone(
@@ -191,6 +193,7 @@ export default function ParametresScreen() {
     Boolean(connections?.strava),
     Boolean(connections?.stravaToken),
     Boolean(savedKeys.strava),
+    Boolean(connections?.healthWebhook) || Boolean(connections?.supabase),
   );
   const health = webhookTone(
     Boolean(connections?.healthWebhook),
@@ -379,31 +382,25 @@ export default function ParametresScreen() {
       <Card compact className="mt-1.5">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <p className="text-[13px] font-semibold">Strava API</p>
-            <p className="mt-0.5 text-[11px] text-health-muted">
-              Séances sport uniquement — pas les pas du jour.
+            <p className="text-[13px] font-semibold">Strava</p>
+            <p className="mt-0.5 text-[11px] leading-snug text-health-muted">
+              L’API Strava est payante depuis 2026. On récupère tes sorties sans abonnement via Apple
+              Santé (l’app Strava y écrit déjà tes séances).
             </p>
           </div>
           <StatusBadge tone={strava.tone} label={strava.label} />
         </div>
+        <ol className="mt-2 list-decimal space-y-1 pl-4 text-[12px] leading-snug text-health-muted">
+          <li>iPhone · Strava · Réglages → Applications, appareils et partenaires → Apple Santé → activer Entraînements.</li>
+          <li>Le Raccourci Santé ci-dessous envoie ces séances dans Aujourd’hui (badge Strava si la source le dit).</li>
+        </ol>
         <MaskedKeyField
           inputRef={stravaInputRef}
-          label="Refresh token Strava"
+          label="Refresh token API (optionnel, abo Strava requis)"
           value={draftKeys.strava}
           hasSaved={Boolean(savedKeys.strava) || Boolean(connections?.stravaToken)}
           onChange={(stravaKey) => setDraftKeys((current) => ({ ...current, strava: stravaKey }))}
         />
-        <button
-          type="button"
-          onClick={() => {
-            stravaInputRef.current?.focus();
-            showToast("Colle un nouveau refresh token, puis enregistre");
-          }}
-          className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-xl bg-health-bg py-2 text-[12px] font-semibold"
-        >
-          <RefreshCw size={13} />
-          Reconnecter Strava
-        </button>
       </Card>
 
       <Card compact className="mt-1.5">
@@ -411,8 +408,9 @@ export default function ParametresScreen() {
           <div className="min-w-0">
             <p className="text-[13px] font-semibold">Apple Santé & Webhook</p>
             <p className="mt-0.5 text-[11px] leading-snug text-health-muted">
-              Collez cette URL dans votre Raccourci iOS pour envoyer automatiquement vos pas et
-              séances d&apos;entraînement.
+              Collez cette URL dans votre Raccourci iOS. Pas, énergie, et séances (Watch, Strava via
+              Santé). Dans le JSON, tu peux mettre <span className="font-mono">source: strava</span> sur
+              une séance.
             </p>
           </div>
           <StatusBadge tone={health.tone} label={health.label} />

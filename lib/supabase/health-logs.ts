@@ -228,7 +228,7 @@ async function insertWorkouts(
       profile_id: profileId,
       date: workout.date,
       kind: "activite",
-      source: "apple_health",
+      source: workout.source,
       activity_name: mapActivityLabel(workout.activity),
       activity_type: workout.activity,
       duration_min: workout.durationMin,

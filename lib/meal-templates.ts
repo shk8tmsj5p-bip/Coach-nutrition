@@ -376,12 +376,13 @@ export function plannedSlotEntry(
   profileId: ProfileId,
   type: MealType,
   date = todayISO(),
+  templates?: SlotTemplate[],
 ): MealEntry | null {
   if (type !== "petit-dejeuner" && type !== "collation") return null;
   const template = templateForSlot(
-    loadHouseholdMealTemplates()[profileId],
+    templates ?? loadHouseholdMealTemplates()[profileId],
     type,
     isoWeekday(date),
   );
-  return template ? mealFromTemplate(profileId, template) : null;
+  return template ? mealFromTemplate(profileId, template, `plan-${profileId}-${type}-${date}`) : null;
 }

@@ -678,20 +678,27 @@ export default function AujourdhuiScreen() {
   async function restoreMeals(profileId: ProfileId, types: MealType[]) {
     if (types.length === 0) return;
     const supabase = createBrowserSupabaseClient();
+    const date = todayISO();
     if (!supabase) {
       setMeals((prev) => {
         const keep = prev.filter(
           (meal) => meal.profileId !== profileId || !types.includes(meal.type),
         );
         const restored = types
-          .map((type) => plannedMealEntry(profileId, type))
+          .map((type) => plannedMealEntry(profileId, type, date, householdTemplates[profileId]))
           .filter((row): row is MealEntry => Boolean(row));
-        return fillMissingPlatsFromWeekPlan(
-          [...keep, ...restored],
-          weekPlan,
+        return fillMissingSlotsFromTemplates(
+          fillMissingPlatsFromWeekPlan(
+            [...keep, ...restored],
+            weekPlan,
+            [profileId],
+            date,
+            { force: types.some((type) => type === "dejeuner" || type === "diner") },
+          ),
           [profileId],
-          todayISO(),
-          { force: types.some((type) => type === "dejeuner" || type === "diner") },
+          date,
+          householdTemplates,
+          { createMissing: true },
         );
       });
       flash(types.length > 1 ? "Journée réinitialisée" : "Repas réinitialisé");
@@ -1319,6 +1326,7 @@ function ProfileToday({
                         <p className="mt-1 text-[12px] font-medium">Toucher pour ajouter</p>
                       </button>
                     )}
+                    <RestorePlannedBtn disabled={resetting} onClick={() => onResetMeal(slot)} />
                   </div>
                   <div className="flex shrink-0 flex-col items-end gap-2">
                     {canFavoriteMeal(weekDish) ? (
@@ -1417,6 +1425,7 @@ function ProfileToday({
               </button>
               <SkipToggle skipped={false} onClick={() => onSkipEmpty("collation")} />
             </div>
+            <RestorePlannedBtn disabled={resetting} onClick={() => onResetMeal("collation")} />
           </Card>
         )}
       </div>
@@ -1646,17 +1655,7 @@ function MealCard({
               </button>
             ) : null}
             {onReset && (
-              <button
-                type="button"
-                onClick={(event) => {
-                  event.stopPropagation();
-                  onReset();
-                }}
-                className="mt-2 inline-flex items-center gap-1 text-[11px] font-semibold text-health-muted"
-              >
-                <RotateCcw size={11} />
-                Réinit.
-              </button>
+              <RestorePlannedBtn onClick={onReset} />
             )}
           </div>
           <div className="flex shrink-0 flex-col items-end gap-2">
@@ -1766,6 +1765,29 @@ function LogTile({
     >
       <Icon size={20} />
       <span className="text-[11px] font-semibold">{label}</span>
+    </button>
+  );
+}
+
+function RestorePlannedBtn({
+  onClick,
+  disabled,
+}: {
+  onClick: () => void;
+  disabled?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={(event) => {
+        event.stopPropagation();
+        onClick();
+      }}
+      className="mt-2 inline-flex items-center gap-1 text-[11px] font-semibold text-health-muted disabled:opacity-40"
+    >
+      <RotateCcw size={11} />
+      Réinit.
     </button>
   );
 }

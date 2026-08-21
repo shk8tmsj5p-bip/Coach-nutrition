@@ -9,6 +9,7 @@ export type IncomingHealthWorkout = {
   durationMin: number;
   kcal: number;
   date: string;
+  source: "strava" | "apple_health";
 };
 
 export type ParsedHealthPayload = {
@@ -93,6 +94,21 @@ export function parseProfileId(value: unknown, fallback: ProfileId = "alexis"): 
   return fallback;
 }
 
+function parseWorkoutSource(item: Record<string, unknown>, activity: string): "strava" | "apple_health" {
+  const blob = [
+    asString(item.source),
+    asString(item.app),
+    asString(item.bundle),
+    asString(item.provider),
+    activity,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+  if (blob.includes("strava")) return "strava";
+  return "apple_health";
+}
+
 function readWorkouts(raw: unknown, fallbackDate: string): IncomingHealthWorkout[] {
   let list: unknown[] = [];
   if (Array.isArray(raw)) list = raw;
@@ -120,6 +136,7 @@ function readWorkouts(raw: unknown, fallbackDate: string): IncomingHealthWorkout
       durationMin: normalizeDurationMin(durationRaw ?? 0),
       kcal: Math.max(0, Math.round(kcal ?? 0)),
       date: parseISODate(item.date ?? item.start ?? item.startDate, fallbackDate),
+      source: parseWorkoutSource(item, activity),
     });
   }
   return workouts;
