@@ -81,6 +81,7 @@ export function MealTemplatesEditor({
         <MealTemplateSheet
           template={editing}
           accent={accent}
+          diet={profileId === "elodie" ? "omnivore" : "vegan"}
           isNew={!templates.some((item) => item.id === editing.id)}
           onClose={() => setEditing(null)}
           onSave={upsert}

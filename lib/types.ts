@@ -140,10 +140,14 @@ export interface MealEntry {
   notes?: string;
 }
 
+export type QtyUnit = "g" | "ml" | "tranche" | "carreau" | "piece" | "cs" | "cc";
+
 export interface DetectedIngredient {
   id: string;
   name: string;
   grams: number;
+  qty?: number;
+  unit?: QtyUnit;
   calories: number;
   protein: number;
   carbs?: number;

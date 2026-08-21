@@ -1,5 +1,6 @@
-import { isDessertItemLine, isEmptyDessertMarker } from "@/lib/meal-templates";
-import type { Macros, MealType, ProfileId } from "@/lib/types";
+import { formatIngredientLine, formatLogLine, parseLogLine } from "@/lib/food-log";
+import { appendPlatKeepingDessert, isDessertItemLine, isEmptyDessertMarker } from "@/lib/meal-templates";
+import type { Macros, MealEntry, MealType, ProfileId } from "@/lib/types";
 
 export type MacroKind = "carbs" | "protein" | "fat";
 
@@ -8,6 +9,8 @@ export type ParsedMealItem = {
   name: string;
   grams: number | null;
 };
+
+export type CoachAddChoice = "ideal" | "quick";
 
 export type CoachIngredientAdd = {
   kind: MacroKind;
@@ -287,6 +290,105 @@ function namesOverlap(a: string, b: string) {
   return left.includes(right) || right.includes(left);
 }
 
+function addMacros(left: Macros, right: Macros): Macros {
+  return {
+    calories: left.calories + right.calories,
+    protein: left.protein + right.protein,
+    carbs: left.carbs + right.carbs,
+    fat: left.fat + right.fat,
+  };
+}
+
+function macrosForGrams(name: string, grams: number): Macros {
+  const spec = formatIngredientLine(`${name} ${Math.abs(Math.round(grams))}g`);
+  const macros: Macros = {
+    calories: spec.calories,
+    protein: spec.protein,
+    carbs: spec.carbs,
+    fat: spec.fat,
+  };
+  if (grams >= 0) return macros;
+  return {
+    calories: -macros.calories,
+    protein: -macros.protein,
+    carbs: -macros.carbs,
+    fat: -macros.fat,
+  };
+}
+
+export function coachChoicePayload(
+  add: CoachIngredientAdd,
+  choice: CoachAddChoice,
+): { name: string; grams: number } | null {
+  if (choice === "quick") {
+    if (!add.quickName || !add.quickGrams) return null;
+    return { name: add.quickName, grams: add.quickGrams };
+  }
+  if (add.addGrams === 0) return null;
+  return { name: add.name, grams: add.addGrams };
+}
+
+function platIndexForName(items: string[], name: string) {
+  return items.findIndex((line) => {
+    if (isDessertItemLine(line) || isEmptyDessertMarker(line)) return false;
+    return namesOverlap(parseLogLine(line).name, name);
+  });
+}
+
+function rewritePlatGrams(line: string, nextGrams: number) {
+  const parsed = parseLogLine(line);
+  const unit = parsed.unit;
+  if (unit === "g" || unit === "ml") {
+    return formatLogLine(parsed.name, nextGrams, unit, nextGrams);
+  }
+  const ratio = parsed.grams > 0 ? nextGrams / parsed.grams : 1;
+  return formatLogLine(parsed.name, Math.max(0.5, parsed.qty * ratio), unit, nextGrams);
+}
+
+/** Persists the chosen Idéal / Rapide into the logged meal (plat only). */
+export function applyCoachAddsToMeal(
+  meal: MealEntry,
+  picks: Array<{ add: CoachIngredientAdd; choice: CoachAddChoice }>,
+): MealEntry {
+  let items = [...(meal.items ?? [])];
+  let macros = { ...meal.macros };
+  for (const pick of picks) {
+    const payload = coachChoicePayload(pick.add, pick.choice);
+    if (!payload) continue;
+    const grams = Math.round(payload.grams);
+    if (grams === 0) continue;
+    const delta = macrosForGrams(payload.name, grams);
+    const idx = platIndexForName(items, payload.name);
+    if (idx >= 0) {
+      const parsed = parseLogLine(items[idx]);
+      const nextGrams = Math.max(0, parsed.grams + grams);
+      if (nextGrams <= 0) items = items.filter((_, index) => index !== idx);
+      else {
+        const next = [...items];
+        next[idx] = rewritePlatGrams(items[idx], nextGrams);
+        items = next;
+      }
+    } else if (grams > 0) {
+      const spec = formatIngredientLine(`${payload.name} ${grams}g`);
+      items = appendPlatKeepingDessert(items, [spec.line]);
+    } else {
+      continue;
+    }
+    macros = addMacros(macros, delta);
+  }
+  return {
+    ...meal,
+    items,
+    macros: {
+      calories: Math.max(0, Math.round(macros.calories)),
+      protein: Math.max(0, Math.round(macros.protein)),
+      carbs: Math.max(0, Math.round(macros.carbs)),
+      fat: Math.max(0, Math.round(macros.fat)),
+    },
+    isSkipped: false,
+  };
+}
+
 function rewriteItems(items: string[], adds: CoachIngredientAdd[]): DisplayMealItem[] {
   const parsed = items.map(parseMealItem);
   const assigned = new Map<number, CoachIngredientAdd>();
@@ -354,6 +456,7 @@ export function translateMealAdjustments(opts: {
   presentTypes: MealType[];
   skipped?: boolean;
   quickOverrides?: Partial<Record<MacroKind, { name: string; grams: number }>>;
+  acceptedKinds?: MacroKind[];
 }): MealIngredientView {
   if (opts.skipped) {
     return {
@@ -370,6 +473,7 @@ export function translateMealAdjustments(opts: {
   const adds: CoachIngredientAdd[] = [];
 
   (["carbs", "protein", "fat"] as MacroKind[]).forEach((kind) => {
+    if (opts.acceptedKinds?.includes(kind)) return;
     if (targets[kind] !== opts.mealType) return;
     const macroG = Math.round(opts.deltas[kind]);
     if (Math.abs(macroG) < 3) return;

@@ -5,20 +5,83 @@ import { Minus, Plus, Trash2, X } from "lucide-react";
 import { TagInput } from "@/components/parametres/TagInput";
 import { ChipSelector } from "@/components/parametres/ChipSelector";
 import {
-  normalizeIngredientLines,
+  formatDetectedLine,
   parseIngredientQty,
-  qtyLabel,
+  parseLogLine,
   qtyStep,
   setLineQuantity,
 } from "@/lib/food-log";
+import { requestLogText } from "@/lib/gemini/client";
 import { WEEKDAYS, toggleWeekday } from "@/lib/sport-routine";
 import { SLOT_TEMPLATE_KINDS } from "@/lib/meal-templates";
-import type { Macros, SlotTemplate, SlotTemplateKind } from "@/lib/types";
+import type { DetectedIngredient, DietType, Macros, SlotTemplate, SlotTemplateKind } from "@/lib/types";
 import { cn } from "@/lib/utils";
+
+type DraftLine = {
+  line: string;
+  calories: number;
+  protein: number;
+  carbs: number;
+  fat: number;
+};
+
+function sumLines(items: DraftLine[]): Macros {
+  return items.reduce(
+    (acc, item) => ({
+      calories: acc.calories + item.calories,
+      protein: acc.protein + item.protein,
+      carbs: acc.carbs + item.carbs,
+      fat: acc.fat + item.fat,
+    }),
+    { calories: 0, protein: 0, carbs: 0, fat: 0 },
+  );
+}
+
+function linesFromTemplate(template: SlotTemplate): DraftLine[] {
+  const items = template.items.filter((line) => line.trim());
+  if (!items.length) return [];
+  const parsed = items.map((line) => parseLogLine(line));
+  const totalG = parsed.reduce((sum, item) => sum + item.grams, 0);
+  return parsed.map((item, index) => {
+    const share = totalG > 0 ? item.grams / totalG : 1 / parsed.length;
+    return {
+      line: items[index],
+      calories: Math.round(template.macros.calories * share),
+      protein: Math.round(template.macros.protein * share),
+      carbs: Math.round(template.macros.carbs * share),
+      fat: Math.round(template.macros.fat * share),
+    };
+  });
+}
+
+function fromDetected(item: DetectedIngredient): DraftLine {
+  return {
+    line: formatDetectedLine(item),
+    calories: item.calories,
+    protein: item.protein,
+    carbs: item.carbs ?? 0,
+    fat: item.fat ?? 0,
+  };
+}
+
+function scaleLine(item: DraftLine, qty: number): DraftLine {
+  const parsed = parseLogLine(item.line);
+  const nextLine = setLineQuantity(item.line, qty);
+  const next = parseLogLine(nextLine);
+  const ratio = parsed.grams > 0 ? next.grams / parsed.grams : 1;
+  return {
+    line: nextLine,
+    calories: Math.max(0, Math.round(item.calories * ratio)),
+    protein: Math.max(0, Math.round(item.protein * ratio)),
+    carbs: Math.max(0, Math.round(item.carbs * ratio)),
+    fat: Math.max(0, Math.round(item.fat * ratio)),
+  };
+}
 
 export function MealTemplateSheet({
   template,
   accent,
+  diet,
   isNew,
   onClose,
   onSave,
@@ -26,20 +89,40 @@ export function MealTemplateSheet({
 }: {
   template: SlotTemplate;
   accent: "coral" | "violet";
+  diet: DietType;
   isNew?: boolean;
   onClose: () => void;
   onSave: (next: SlotTemplate) => void;
   onDelete?: () => void;
 }) {
-  const [draft, setDraft] = useState<SlotTemplate>(() => {
-    const next = normalizeIngredientLines(template.items);
-    return { ...template, items: next.lines, macros: next.macros };
-  });
+  const [draft, setDraft] = useState<SlotTemplate>(template);
+  const [lines, setLines] = useState<DraftLine[]>(() => linesFromTemplate(template));
+  const [adding, setAdding] = useState(false);
   const canSave = useMemo(() => draft.name.trim().length > 0, [draft.name]);
 
-  function applyItems(items: string[]) {
-    const next = normalizeIngredientLines(items);
-    setDraft((current) => ({ ...current, items: next.lines, macros: next.macros }));
+  function commitLines(next: DraftLine[]) {
+    setLines(next);
+    setDraft((current) => ({
+      ...current,
+      items: next.map((item) => item.line),
+      macros: sumLines(next),
+    }));
+  }
+
+  async function addTexts(raws: string[]) {
+    const extra = raws.map((raw) => raw.trim()).filter(Boolean);
+    if (!extra.length || adding) return;
+    setAdding(true);
+    try {
+      const detected: DetectedIngredient[] = [];
+      for (const raw of extra) {
+        detected.push(...(await requestLogText(raw, diet)));
+      }
+      if (!detected.length) return;
+      commitLines([...lines, ...detected.map(fromDetected)]);
+    } finally {
+      setAdding(false);
+    }
   }
 
   function patchMacros(patch: Partial<Macros>) {
@@ -84,31 +167,33 @@ export function MealTemplateSheet({
 
         <p className="mb-1 mt-3 text-[12px] font-medium text-health-muted">Ingrédients</p>
         <div className="space-y-1.5">
-          {draft.items.map((line, index) => (
+          {lines.map((item, index) => (
             <IngredientQtyRow
-              key={`${line}-${index}`}
-              line={line}
+              key={`${item.line}-${index}`}
+              line={item.line}
               onQty={(qty) => {
-                const next = [...draft.items];
-                next[index] = setLineQuantity(line, qty);
-                applyItems(next);
+                const next = [...lines];
+                next[index] = scaleLine(item, qty);
+                commitLines(next);
               }}
-              onRemove={() => applyItems(draft.items.filter((_, i) => i !== index))}
+              onRemove={() => commitLines(lines.filter((_, i) => i !== index))}
             />
           ))}
         </div>
-        <div className="mt-1.5">
+        <div className={cn("mt-1.5", adding && "pointer-events-none opacity-50")}>
           <TagInput
             tags={[]}
-            onChange={(added) => applyItems([...draft.items, ...added])}
-            placeholder="1 tranche de pain bûcheron tartiné de…"
+            onChange={(added) => void addTexts(added)}
+            placeholder="Café au lait végétal d'avoine"
             accent={accent}
             addLabel="+"
             commitOnComma={false}
           />
         </div>
         <p className="mt-1 text-[11px] leading-snug text-health-muted">
-          Phrase ou un ingrédient. Puis − / + pour la quantité.
+          {adding
+            ? "Gemini estime les kcal d’après ta phrase…"
+            : "L’IA estime les kcal à l’ajout. − / + change la quantité, le poids et les kcal suivent."}
         </p>
 
         <p className="mb-1.5 mt-3 text-[12px] font-medium text-health-muted">Macros</p>
@@ -167,10 +252,14 @@ export function MealTemplateSheet({
 
         <button
           type="button"
-          disabled={!canSave}
+          disabled={!canSave || adding}
           onClick={() => {
-            const next = normalizeIngredientLines(draft.items);
-            onSave({ ...draft, name: draft.name.trim(), items: next.lines, macros: next.macros });
+            onSave({
+              ...draft,
+              name: draft.name.trim(),
+              items: lines.map((item) => item.line),
+              macros: draft.macros,
+            });
           }}
           className="mt-4 w-full rounded-card bg-health-ink py-3 text-[14px] font-semibold text-health-on-fill disabled:opacity-40"
         >
@@ -221,11 +310,13 @@ function IngredientQtyRow({
           const next = Number(event.target.value.replace(/[^\d]/g, ""));
           if (Number.isFinite(next) && next > 0) onQty(next);
         }}
-        className="w-[4.6rem] shrink-0 rounded-lg bg-health-card px-1 py-1 text-center text-[11px] font-semibold tabular-nums outline-none"
+        className="w-[3.4rem] shrink-0 rounded-lg bg-health-card px-1 py-1 text-center text-[11px] font-semibold tabular-nums outline-none"
       />
-      <span className="sr-only">{qtyLabel(parsed.qty, parsed.unit)}</span>
       <span className="w-10 shrink-0 text-[10px] font-semibold text-health-muted">
-        {parsed.unit === "tranche" ? "tr." : parsed.unit}
+        {parsed.unit === "tranche" ? "tr." : parsed.unit === "carreau" ? "car." : parsed.unit === "piece" ? "pce" : parsed.unit}
+      </span>
+      <span className="w-10 shrink-0 text-[10px] tabular-nums text-health-muted">
+        {parsed.unit === "g" || parsed.unit === "ml" ? "" : `${parsed.grams}g`}
       </span>
       <button
         type="button"

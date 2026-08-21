@@ -20,6 +20,7 @@ import { SwapProposalSheet } from "@/components/today/SwapProposalSheet";
 import { TodayPlannedCard } from "@/components/today/TodayPlannedCard";
 import { TodayDayCoach } from "@/components/today/TodayDayCoach";
 import { FavoriteHeart } from "@/components/today/FavoriteHeart";
+import { QtyEditRow } from "@/components/today/QtyEditRow";
 import { RejectMealButton } from "@/components/today/RejectMealButton";
 import { HealthMetricTile } from "@/components/today/HealthMetricTile";
 import { TodayEnergyCard } from "@/components/today/TodayEnergyCard";
@@ -45,9 +46,14 @@ import { createBrowserSupabaseClient } from "@/lib/supabase/client";
 import { profileIdsForView } from "@/lib/supabase/filters";
 import { fetchTodayActivity } from "@/lib/supabase/health-logs";
 import { ensureDemoMeals } from "@/lib/supabase/seed-today";
-import { macrosFromIngredients, parseFoodTextLocal, scaleDetected } from "@/lib/food-log";
+import {
+  macrosFromIngredients,
+  parseFoodTextLocal,
+  scaleDetectedQty,
+  formatDetectedLine,
+} from "@/lib/food-log";
 import { withGeminiWait } from "@/lib/gemini/wait";
-import { requestCoachQuickAdd } from "@/lib/gemini/client";
+import { requestCoachQuickAdd, requestLogText } from "@/lib/gemini/client";
 import {
   copyYesterdayMeals,
   fetchTodayMeals,
@@ -91,6 +97,7 @@ import { storage } from "@/lib/storage";
 import type {
   DailyMovement,
   DetectedIngredient,
+  DietType,
   Macros,
   MealEntry,
   MealType,
@@ -103,6 +110,7 @@ import { sanitizeRestingKcal } from "@/lib/health-energy";
 import { macroStatus, slotCalorieTarget, TONE_TEXT } from "@/lib/macro-status";
 import { cn, formatKcal, formatKm, formatMin, formatSteps, mealTypeLabel, passiveKcalFromMovement } from "@/lib/utils";
 import {
+  acceptNutritionAdds,
   dismissNutrition,
   quickAddKey,
   upsertNutritionQuickAdd,
@@ -111,9 +119,11 @@ import {
   type StoredCoachQuickAdd,
 } from "@/lib/coach-adjustments";
 import {
+  applyCoachAddsToMeal,
   collectDayBadges,
   needsPrepToAdd,
   translateMealAdjustments,
+  type CoachAddChoice,
   type MacroKind,
   type MealIngredientView,
 } from "@/lib/coach-ingredients";
@@ -625,6 +635,21 @@ export default function AujourdhuiScreen() {
     flash("Repas enregistré");
   }
 
+  async function persistMealFromCoach(next: MealEntry) {
+    const supabase = createBrowserSupabaseClient();
+    if (!supabase) {
+      setMeals((prev) => prev.map((meal) => (meal.id === next.id ? next : meal)));
+      return true;
+    }
+    const error = await updateMeal(supabase, next);
+    if (error) {
+      flash(error);
+      return false;
+    }
+    await reload();
+    return true;
+  }
+
   async function serveWeekPlat(profileId: ProfileId, type: "dejeuner" | "diner") {
     const supabase = createBrowserSupabaseClient();
     if (!supabase) {
@@ -724,6 +749,8 @@ export default function AujourdhuiScreen() {
           resetting={busy}
           workouts={workouts.filter((workout) => workout.profileId === profile.id)}
           movement={movement[profile.id]}
+          onPersistMeal={persistMealFromCoach}
+          onFlash={flash}
         />
       ))}
 
@@ -809,7 +836,7 @@ export default function AujourdhuiScreen() {
                 textInput.trim() ||
                 "Saisie texte / IA",
               macros,
-              items: ingredients.map((item) => `${item.name} ${item.grams}g`),
+              items: ingredients.map((item) => formatDetectedLine(item)),
             });
             closeLog();
             flash("Aliment ajouté");
@@ -834,7 +861,7 @@ export default function AujourdhuiScreen() {
               name:
                 ingredients.map((item) => item.name).join(" + ") || "Photo repas",
               macros,
-              items: ingredients.map((item) => `${item.name} ${item.grams}g`),
+              items: ingredients.map((item) => formatDetectedLine(item)),
             });
             storage.setJSON("last-photo-log", ingredients);
             closeLog();
@@ -908,6 +935,8 @@ function ProfileToday({
   resetting,
   workouts,
   movement,
+  onPersistMeal,
+  onFlash,
 }: {
   profile: Profile;
   meals: MealEntry[];
@@ -930,6 +959,8 @@ function ProfileToday({
   resetting: boolean;
   workouts: Workout[];
   movement: DailyMovement;
+  onPersistMeal: (meal: MealEntry) => Promise<boolean>;
+  onFlash: (message: string) => void;
 }) {
   const { updateAppliedAdjustments } = useProfile();
   const [confirmResetAll, setConfirmResetAll] = useState(false);
@@ -981,6 +1012,9 @@ function ProfileToday({
         if (add.mealId !== meal.id) continue;
         quickOverrides[add.kind] = { name: add.name, grams: add.grams };
       }
+      const acceptedKinds = (["carbs", "protein", "fat"] as MacroKind[]).filter((kind) =>
+        Boolean(nutritionAdj.acceptedAdds?.[quickAddKey(meal.id, kind)]),
+      );
       map.set(
         meal.id,
         translateMealAdjustments({
@@ -990,6 +1024,7 @@ function ProfileToday({
           profileId: profile.id,
           presentTypes,
           quickOverrides,
+          acceptedKinds,
         }),
       );
     }
@@ -1033,6 +1068,7 @@ function ProfileToday({
       return view.adds
         .filter((add) => add.addGrams > 0 && needsPrepToAdd(add.name))
         .filter((add) => !nutritionAdj.quickAdds?.[quickAddKey(meal.id, add.kind)])
+        .filter((add) => !nutritionAdj.acceptedAdds?.[quickAddKey(meal.id, add.kind)])
         .map((add) => ({
           mealId: meal.id,
           mealName: meal.name,
@@ -1162,6 +1198,27 @@ function ProfileToday({
     } catch {
       /* keep current rapide */
     }
+  }
+
+  async function validateCoachAdds(
+    meal: MealEntry,
+    picks: Array<{ kind: MacroKind; choice: CoachAddChoice }>,
+  ) {
+    const adj = profile.appliedAdjustments;
+    const view = mealCoachViews.get(meal.id);
+    if (!adj?.nutrition || !view || picks.length === 0) return;
+    const resolved = picks
+      .map((pick) => {
+        const add = view.adds.find((item) => item.kind === pick.kind);
+        return add ? { add, choice: pick.choice } : null;
+      })
+      .filter((item): item is { add: (typeof view.adds)[number]; choice: CoachAddChoice } => Boolean(item));
+    if (!resolved.length) return;
+    const next = applyCoachAddsToMeal(meal, resolved);
+    const ok = await onPersistMeal(next);
+    if (!ok) return;
+    await updateAppliedAdjustments(profile.id, acceptNutritionAdds(adj, meal.id, picks));
+    onFlash(picks.length > 1 ? "Ajouts Coach enregistrés" : "Ajout Coach enregistré");
   }
 
   return (
@@ -1297,6 +1354,9 @@ function ProfileToday({
               onAutreIdee={
                 nutritionAdj ? (kind) => void autreIdeeRapide(meal, kind) : undefined
               }
+              onValidateCoach={
+                nutritionAdj ? (picks) => void validateCoachAdds(meal, picks) : undefined
+              }
               onClick={() => onEditMeal(meal)}
               onToggleSkip={() => onToggleSkip(meal)}
               onReset={() => onResetMeal(meal.type)}
@@ -1330,6 +1390,9 @@ function ProfileToday({
             onDismissCoach={nutritionAdj ? () => void hideNutrition() : undefined}
             onAutreIdee={
               nutritionAdj ? (kind) => void autreIdeeRapide(collation, kind) : undefined
+            }
+            onValidateCoach={
+              nutritionAdj ? (picks) => void validateCoachAdds(collation, picks) : undefined
             }
             onClick={() => onEditMeal(collation)}
             onToggleSkip={() => onToggleSkip(collation)}
@@ -1489,6 +1552,7 @@ function MealCard({
   fromWeek,
   onDismissCoach,
   onAutreIdee,
+  onValidateCoach,
   onClick,
   onToggleSkip,
   onReset,
@@ -1505,6 +1569,7 @@ function MealCard({
   fromWeek?: boolean;
   onDismissCoach?: () => void;
   onAutreIdee?: (kind: MacroKind) => void;
+  onValidateCoach?: (picks: Array<{ kind: MacroKind; choice: CoachAddChoice }>) => void;
   onClick: () => void;
   onToggleSkip: () => void;
   onReset?: () => void;
@@ -1519,7 +1584,7 @@ function MealCard({
   const highlighted = Boolean(!skipped && adds.length > 0);
   const displayItems = skipped
     ? []
-    : (coachView?.items ?? (meal.items ?? []).map((text) => ({ text, boosted: false })));
+    : (meal.items ?? []).map((text) => ({ text, boosted: false }));
   const kcalStatus = skipped
     ? null
     : macroStatus(
@@ -1558,7 +1623,11 @@ function MealCard({
             {highlighted && (
               <div className="mt-2">
                 <CoachBadge onDismiss={onDismissCoach} />
-                <CoachMealAddTags adds={adds} onAutreIdee={onAutreIdee} />
+                <CoachMealAddTags
+                  adds={adds}
+                  onAutreIdee={onAutreIdee}
+                  onValidate={onValidateCoach}
+                />
               </div>
             )}
             {fromWeek ? (
@@ -1760,7 +1829,7 @@ function LogSheet({
   onSavePhoto: () => void;
 }) {
   const [newName, setNewName] = useState("");
-  const [newGrams, setNewGrams] = useState("10");
+  const [newGrams, setNewGrams] = useState("");
   const [textReview, setTextReview] = useState(false);
   const [photoReady, setPhotoReady] = useState(false);
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
@@ -1861,6 +1930,7 @@ function LogSheet({
 
         {mode === "text" && textReview && (
           <IngredientReview
+            diet={profileId === "elodie" ? "omnivore" : "vegan"}
             ingredients={ingredients}
             setIngredients={setIngredients}
             newName={newName}
@@ -1929,6 +1999,7 @@ function LogSheet({
               Autre photo
             </button>
             <IngredientReview
+              diet={profileId === "elodie" ? "omnivore" : "vegan"}
               ingredients={ingredients}
               setIngredients={setIngredients}
               newName={newName}
@@ -2046,6 +2117,7 @@ function BarcodeQuantityEditor({
 }
 
 function IngredientReview({
+  diet,
   ingredients,
   setIngredients,
   newName,
@@ -2054,6 +2126,7 @@ function IngredientReview({
   setNewGrams,
   onSave,
 }: {
+  diet: DietType;
   ingredients: DetectedIngredient[];
   setIngredients: Dispatch<SetStateAction<DetectedIngredient[]>>;
   newName: string;
@@ -2063,11 +2136,22 @@ function IngredientReview({
   onSave: () => void;
 }) {
   const totals = macrosFromIngredients(ingredients);
+  const [adding, setAdding] = useState(false);
 
-  function bumpGrams(id: string, delta: number) {
-    setIngredients((list) =>
-      list.map((item) => (item.id === id ? scaleDetected(item, item.grams + delta) : item)),
-    );
+  async function addManual() {
+    if (!newName.trim() || adding) return;
+    const raw = newGrams.trim() ? `${newName.trim()} ${newGrams}g` : newName.trim();
+    setAdding(true);
+    try {
+      const parsed = await requestLogText(raw, diet);
+      const extra = parsed.map((item, index) => ({ ...item, id: `n-${Date.now()}-${index}` }));
+      if (!extra.length) return;
+      setIngredients((list) => [...list, ...extra]);
+      setNewName("");
+      setNewGrams("");
+    } finally {
+      setAdding(false);
+    }
   }
 
   return (
@@ -2077,49 +2161,20 @@ function IngredientReview({
       </p>
       <div className="max-h-[38vh] space-y-2 overflow-y-auto">
         {ingredients.map((ing) => (
-          <div key={ing.id} className="flex items-center gap-2 rounded-card bg-health-bg p-3">
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-[14px] font-medium">{ing.name}</p>
-              <p className="text-[11px] text-health-muted">
-                {ing.calories} kcal · {ing.protein}g P · {ing.carbs ?? 0}g G · {ing.fat ?? 0}g L
-              </p>
-            </div>
-            <div className="flex items-center gap-1">
-              <button
-                type="button"
-                className="h-8 w-8 rounded-full bg-white text-lg leading-none"
-                onClick={() => bumpGrams(ing.id, -10)}
-              >
-                −
-              </button>
-              <input
-                value={ing.grams}
-                onChange={(e) => {
-                  const grams = Number(e.target.value);
-                  if (!Number.isFinite(grams) || grams <= 0) return;
-                  setIngredients((list) =>
-                    list.map((item) => (item.id === ing.id ? scaleDetected(item, grams) : item)),
-                  );
-                }}
-                className="w-12 rounded-md bg-white text-center text-[13px] tabular-nums"
-              />
-              <span className="text-[11px] text-health-muted">g</span>
-              <button
-                type="button"
-                className="h-8 w-8 rounded-full bg-white text-lg leading-none"
-                onClick={() => bumpGrams(ing.id, 10)}
-              >
-                +
-              </button>
-              <button
-                type="button"
-                className="ml-1 text-health-muted"
-                onClick={() => setIngredients((list) => list.filter((item) => item.id !== ing.id))}
-              >
-                <Trash2 size={16} />
-              </button>
-            </div>
-          </div>
+          <QtyEditRow
+            key={ing.id}
+            name={ing.name}
+            qty={ing.qty ?? ing.grams}
+            unit={ing.unit ?? "g"}
+            grams={ing.grams}
+            detail={`${ing.calories} kcal · ${ing.protein}g P · ${ing.carbs ?? 0}g G · ${ing.fat ?? 0}g L`}
+            onQty={(qty) =>
+              setIngredients((list) =>
+                list.map((item) => (item.id === ing.id ? scaleDetectedQty(item, qty) : item)),
+              )
+            }
+            onRemove={() => setIngredients((list) => list.filter((item) => item.id !== ing.id))}
+          />
         ))}
       </div>
       {ingredients.length > 0 && (
@@ -2131,35 +2186,26 @@ function IngredientReview({
         <input
           value={newName}
           onChange={(e) => setNewName(e.target.value)}
-          placeholder="Huile d'olive"
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              void addManual();
+            }
+          }}
+          placeholder="Café au lait végétal d'avoine"
           className="flex-1 rounded-card bg-health-bg px-3 text-[13px]"
         />
         <input
           value={newGrams}
           onChange={(e) => setNewGrams(e.target.value)}
+          placeholder="g"
           className="w-16 rounded-card bg-health-bg text-center text-[13px]"
         />
         <button
           type="button"
-          className="rounded-card bg-health-bg px-3"
-          onClick={() => {
-            if (!newName.trim()) return;
-            const grams = Number(newGrams) || 10;
-            const parsed = parseFoodTextLocal(`${newName.trim()} ${grams}g`)[0];
-            setIngredients((list) => [
-              ...list,
-              parsed
-                ? { ...scaleDetected(parsed, grams), id: `n-${Date.now()}` }
-                : {
-                    id: `n-${Date.now()}`,
-                    name: newName.trim(),
-                    grams,
-                    calories: Math.round(grams * 4.5),
-                    protein: 0,
-                  },
-            ]);
-            setNewName("");
-          }}
+          disabled={adding || !newName.trim()}
+          className="rounded-card bg-health-bg px-3 disabled:opacity-40"
+          onClick={() => void addManual()}
         >
           <Plus size={16} />
         </button>

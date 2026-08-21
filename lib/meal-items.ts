@@ -1,12 +1,10 @@
-import type { DetectedIngredient, Macros, MealEntry, MealType } from "@/lib/types";
-import { normalizeIngredientLines } from "@/lib/food-log";
+import type { DetectedIngredient, Macros, MealEntry, MealType, QtyUnit } from "@/lib/types";
+import { formatLogLine, normalizeIngredientLines, parseLogLine } from "@/lib/food-log";
 import {
   isDessertItemLine,
   isEmptyDessertMarker,
   stripDessertPrefix,
 } from "@/lib/meal-templates";
-
-const GRAMS_RE = /(\d+(?:[.,]\d+)?)\s*g\b/i;
 
 export const MEAL_TYPE_OPTIONS: { id: MealType; label: string }[] = [
   { id: "petit-dejeuner", label: "Petit-déjeuner" },
@@ -19,6 +17,8 @@ export interface EditableItem extends DetectedIngredient {
   carbs: number;
   fat: number;
   dessert?: boolean;
+  qty: number;
+  unit: QtyUnit;
 }
 
 function round1(value: number) {
@@ -50,10 +50,15 @@ export function parseMealItems(meal: MealEntry): EditableItem[] {
   const parsed = lines.map((line, index) => {
     const dessert = isDessertItemLine(line);
     const cleaned = dessert ? stripDessertPrefix(line) : line;
-    const match = cleaned.match(GRAMS_RE);
-    const grams = match ? Number(match[1].replace(",", ".")) : 100;
-    const name = cleaned.replace(GRAMS_RE, "").replace(/[·,;\-]+$/, "").trim() || cleaned;
-    return { id: `${meal.id}-${index}`, name, grams, dessert };
+    const spec = parseLogLine(cleaned);
+    return {
+      id: `${meal.id}-${index}`,
+      name: spec.name,
+      grams: spec.grams,
+      qty: spec.qty,
+      unit: spec.unit,
+      dessert,
+    };
   });
 
   const plat = parsed.filter((item) => !item.dessert);
@@ -62,7 +67,7 @@ export function parseMealItems(meal: MealEntry): EditableItem[] {
   if (plat.length === 0) return shareMacros(dessert, meal.macros);
 
   const dessertMacros = normalizeIngredientLines(
-    dessert.map((item) => `${item.name} ${Math.round(item.grams)}g`),
+    dessert.map((item) => formatLogLine(item.name, item.qty, item.unit, item.grams)),
   ).macros;
   const platMacros: Macros = {
     calories: Math.max(0, meal.macros.calories - dessertMacros.calories),
@@ -80,14 +85,24 @@ export function parseMealItems(meal: MealEntry): EditableItem[] {
 export function scaleItem(item: EditableItem, grams: number): EditableItem {
   const nextGrams = Math.max(1, grams);
   const ratio = item.grams > 0 ? nextGrams / item.grams : 1;
+  const unit = item.unit ?? "g";
   return {
     ...item,
     grams: nextGrams,
+    qty: unit === "g" || unit === "ml" ? nextGrams : item.qty,
     calories: Math.round(item.calories * ratio),
     protein: round1(item.protein * ratio),
     carbs: round1(item.carbs * ratio),
     fat: round1(item.fat * ratio),
   };
+}
+
+export function scaleItemQty(item: EditableItem, qty: number): EditableItem {
+  const unit = item.unit ?? "g";
+  const from = Math.max(0.01, item.qty ?? (unit === "g" || unit === "ml" ? item.grams : 1));
+  const nextQty = Math.max(unit === "g" || unit === "ml" ? 1 : 0.5, qty);
+  const grams = Math.max(1, Math.round((item.grams / from) * nextQty));
+  return { ...scaleItem(item, grams), qty: nextQty, unit };
 }
 
 export function sumEditableMacros(items: EditableItem[]): Macros {
@@ -106,7 +121,12 @@ export function serializeItems(items: EditableItem[], opts?: { markEmptyDessert?
   const lines = items
     .filter((item) => item.name.trim())
     .map((item) => {
-      const line = `${stripDessertPrefix(item.name).trim()} ${Math.round(item.grams)}g`;
+      const line = formatLogLine(
+        stripDessertPrefix(item.name).trim(),
+        item.qty ?? item.grams,
+        item.unit ?? "g",
+        item.grams,
+      );
       return item.dessert ? `Dessert : ${line}` : line;
     });
   if (opts?.markEmptyDessert && !items.some((item) => item.dessert)) {

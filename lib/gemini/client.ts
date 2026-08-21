@@ -1,4 +1,5 @@
-import type { MealType, PlannedMeal, ProfileId } from "@/lib/types";
+import { parseFoodTextLocal } from "@/lib/food-log";
+import type { DetectedIngredient, DietType, MealType, PlannedMeal, ProfileId } from "@/lib/types";
 import type { GenerateMealsMode } from "@/lib/gemini/meals";
 import type { HouseholdCoachBias } from "@/lib/coach-apply";
 import type { MealCoachHousehold } from "@/lib/meal-coach";
@@ -87,6 +88,31 @@ export type CoachQuickAddResponse = {
   warning?: string;
   error?: string;
 };
+
+export async function requestLogText(
+  text: string,
+  diet: DietType,
+): Promise<DetectedIngredient[]> {
+  const trimmed = text.trim();
+  if (!trimmed) return [];
+  return withGeminiWait("Gemini estime les kcal…", async () => {
+    try {
+      const response = await fetch("/api/log-text", {
+        method: "POST",
+        cache: "no-store",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: trimmed, diet }),
+      });
+      const payload = (await response.json()) as { ingredients?: DetectedIngredient[] };
+      if (Array.isArray(payload.ingredients) && payload.ingredients.length > 0) {
+        return payload.ingredients;
+      }
+    } catch {
+      /* parseur local ci-dessous */
+    }
+    return parseFoodTextLocal(trimmed);
+  });
+}
 
 export async function requestCoachQuickAdd(body: {
   name: string;

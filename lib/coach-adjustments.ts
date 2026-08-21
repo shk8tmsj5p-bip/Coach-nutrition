@@ -13,6 +13,8 @@ export type AppliedNutrition = {
   tags: string[];
   /** Rapide Flash (ou secours) par repas × macro, clé mealId:kind */
   quickAdds?: Record<string, StoredCoachQuickAdd>;
+  /** Idéal / Rapide déjà ajouté au repas du jour */
+  acceptedAdds?: Record<string, StoredCoachAcceptedAdd>;
 };
 
 export type StoredCoachQuickAdd = {
@@ -22,6 +24,12 @@ export type StoredCoachQuickAdd = {
   grams: number;
   avoided: string[];
   fromFlash?: boolean;
+};
+
+export type StoredCoachAcceptedAdd = {
+  mealId: string;
+  kind: "carbs" | "protein" | "fat";
+  choice: "ideal" | "quick";
 };
 
 export function quickAddKey(mealId: string, kind: StoredCoachQuickAdd["kind"]) {
@@ -50,6 +58,26 @@ export function upsertNutritionQuickAdds(
   let next = adj;
   for (const add of adds) next = upsertNutritionQuickAdd(next, add);
   return next;
+}
+
+export function acceptNutritionAdds(
+  adj: AppliedAdjustments,
+  mealId: string,
+  picks: Array<{ kind: StoredCoachAcceptedAdd["kind"]; choice: StoredCoachAcceptedAdd["choice"] }>,
+): AppliedAdjustments {
+  if (!adj.nutrition || picks.length === 0) return adj;
+  const accepted = { ...(adj.nutrition.acceptedAdds ?? {}) };
+  for (const pick of picks) {
+    accepted[quickAddKey(mealId, pick.kind)] = {
+      mealId,
+      kind: pick.kind,
+      choice: pick.choice,
+    };
+  }
+  return {
+    ...adj,
+    nutrition: { ...adj.nutrition, acceptedAdds: accepted },
+  };
 }
 
 export type SportSessionDiff = {
@@ -290,6 +318,7 @@ export function parseAppliedAdjustments(value: unknown): AppliedAdjustments | nu
         ? n.tags.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
         : [],
       quickAdds: parseQuickAdds(n.quickAdds),
+      acceptedAdds: parseAcceptedAdds(n.acceptedAdds),
     };
     if (nutrition.tags.length === 0) {
       nutrition.tags = nutritionDiffTags(nutrition.deltas);
@@ -336,6 +365,24 @@ function parseQuickAdds(value: unknown): Record<string, StoredCoachQuickAdd> | u
       avoided: Array.isArray(row.avoided) ? row.avoided.map(String).filter(Boolean) : [],
       fromFlash: Boolean(row.fromFlash),
     };
+  }
+  return Object.keys(out).length ? out : undefined;
+}
+
+function parseAcceptedAdds(value: unknown): Record<string, StoredCoachAcceptedAdd> | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const rec = value as Record<string, unknown>;
+  const out: Record<string, StoredCoachAcceptedAdd> = {};
+  for (const [key, item] of Object.entries(rec)) {
+    if (!item || typeof item !== "object") continue;
+    const row = item as Record<string, unknown>;
+    const kind = row.kind;
+    if (kind !== "carbs" && kind !== "protein" && kind !== "fat") continue;
+    const choice = row.choice;
+    if (choice !== "ideal" && choice !== "quick") continue;
+    const mealId = typeof row.mealId === "string" ? row.mealId : key.split(":")[0];
+    if (!mealId) continue;
+    out[quickAddKey(mealId, kind)] = { mealId, kind, choice };
   }
   return Object.keys(out).length ? out : undefined;
 }

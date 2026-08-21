@@ -1,6 +1,6 @@
 import { parseGeminiJson } from "@/lib/gemini/meals";
 import { generateGeminiFlash } from "@/lib/gemini/flash";
-import type { DetectedIngredient, DietType, Macros } from "@/lib/types";
+import type { DetectedIngredient, DietType, Macros, QtyUnit } from "@/lib/types";
 
 type FoodRef = {
   keys: string[];
@@ -15,8 +15,11 @@ type FoodRef = {
 /** Valeurs / 100 g. Portions par défaut si l'utilisateur ne donne pas de grammes. */
 const FOODS: FoodRef[] = [
   { keys: ["pain bûcheron", "pain bucheron", "pain complet", "pain"], kcal: 255, protein: 9, carbs: 47, fat: 3.5, defaultG: 40 },
-  { keys: ["flocons d'avoine", "avoine", "flocons"], kcal: 370, protein: 13, carbs: 59, fat: 7, defaultG: 50 },
-  { keys: ["lait soja", "soja"], kcal: 35, protein: 3.3, carbs: 1.2, fat: 1.8, defaultG: 200 },
+  { keys: ["lait d avoine", "lait avoine", "lait vegetal d avoine", "lait vegetal avoine"], label: "Lait d'avoine", kcal: 43, protein: 0.8, carbs: 6.6, fat: 1.5, defaultG: 200 },
+  { keys: ["flocons d'avoine", "flocons avoine", "flocons"], kcal: 370, protein: 13, carbs: 59, fat: 7, defaultG: 50 },
+  { keys: ["avoine"], label: "Avoine", kcal: 370, protein: 13, carbs: 59, fat: 7, defaultG: 50 },
+  { keys: ["lait soja", "lait de soja"], kcal: 35, protein: 3.3, carbs: 1.2, fat: 1.8, defaultG: 200 },
+  { keys: ["cafe au lait", "cafe"], label: "Café", kcal: 2, protein: 0.3, carbs: 0, fat: 0, defaultG: 200 },
   { keys: ["chia"], kcal: 486, protein: 17, carbs: 42, fat: 31, defaultG: 10 },
   { keys: ["myrtilles", "myrtille"], kcal: 57, protein: 0.7, carbs: 14, fat: 0.3, defaultG: 80 },
   { keys: ["framboises", "framboise"], kcal: 52, protein: 1.2, carbs: 12, fat: 0.7, defaultG: 80 },
@@ -53,13 +56,28 @@ function norm(value: string) {
     .replace(/['’]/g, " ");
 }
 
+function tokenHit(text: string, token: string) {
+  if (token.length < 3) return false;
+  const escaped = token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(?:^|[^a-z0-9])${escaped}(?:$|[^a-z0-9])`).test(text);
+}
+
+function skipOatFlakes(text: string) {
+  return /\blait\b/.test(text) || /\bcafe\b/.test(text) || /\bboisson\b/.test(text);
+}
+
 function matchFood(chunk: string): FoodRef | undefined {
   const text = norm(chunk);
+  const hideFlakes = skipOatFlakes(text);
   let best: { food: FoodRef; len: number } | undefined;
   for (const food of FOODS) {
+    const isOatSolid =
+      food.keys.some((key) => /flocon/.test(norm(key))) ||
+      food.keys.every((key) => norm(key) === "avoine");
+    if (hideFlakes && isOatSolid) continue;
     for (const key of food.keys) {
       const token = norm(key);
-      if (!text.includes(token)) continue;
+      if (!tokenHit(text, token)) continue;
       if (!best || token.length > best.len) best = { food, len: token.length };
     }
   }
@@ -70,22 +88,149 @@ function num(raw: string) {
   return Number(raw.replace(",", "."));
 }
 
+const UNIT_TOKEN =
+  "carreaux?|carr[eé]s?|tranches?|pi[eè]ces?|cuill[eè]res?\\s*[àa]\\s*soupe|cuill[eè]res?\\s*[àa]\\s*caf[eé]|cs|cc|grammes?|gr\\.?|ml|g";
+
+export function parseQtyUnit(raw: string): QtyUnit | null {
+  const u = norm(raw).replace(/\s+/g, " ").trim();
+  if (!u) return null;
+  if (/^carreau|^carre\b|^carr[eé]/.test(u)) return "carreau";
+  if (/^tranch/.test(u)) return "tranche";
+  if (/^pi[eè]ce/.test(u)) return "piece";
+  if (/soupe|^cs$/.test(u)) return "cs";
+  if (/caf|^cc$/.test(u)) return "cc";
+  if (/^ml$/.test(u)) return "ml";
+  if (/^g$|^gr$|^gramme/.test(u)) return "g";
+  return null;
+}
+
+export function gramsPerUnit(unit: QtyUnit, food?: FoodRef) {
+  if (unit === "g" || unit === "ml") return 1;
+  if (unit === "cs") return 10;
+  if (unit === "cc") return 5;
+  if (unit === "carreau") return 10;
+  if (unit === "tranche") return food?.defaultG ?? 40;
+  if (unit === "piece") return food?.defaultG ?? 80;
+  return food?.defaultG ?? 10;
+}
+
+export function qtyLabel(qty: number, unit: QtyUnit) {
+  const n = Number.isInteger(qty) ? String(qty) : String(qty).replace(".", ",");
+  if (unit === "tranche") return qty <= 1 ? "1 tranche" : `${n} tranches`;
+  if (unit === "carreau") return qty <= 1 ? "1 carreau" : `${n} carreaux`;
+  if (unit === "piece") return qty <= 1 ? "1 pièce" : `${n} pièces`;
+  if (unit === "ml") return `${Math.round(qty)} ml`;
+  if (unit === "cs") return `${n} cs`;
+  if (unit === "cc") return `${n} cc`;
+  return `${Math.round(qty)} g`;
+}
+
+export function unitShortLabel(unit: QtyUnit) {
+  if (unit === "tranche") return "tr.";
+  if (unit === "carreau") return "car.";
+  if (unit === "piece") return "pce";
+  return unit;
+}
+
+export function qtyStep(unit: QtyUnit) {
+  return unit === "g" || unit === "ml" ? 5 : 1;
+}
+
+export type ParsedLogLine = {
+  name: string;
+  qty: number;
+  unit: QtyUnit;
+  grams: number;
+};
+
+function countFromWord(raw: string) {
+  if (/^une?$/i.test(raw)) return 1;
+  return num(raw);
+}
+
+function parseGramsFromChunk(chunk: string, unit: QtyUnit, qty: number, food?: FoodRef) {
+  const paren = chunk.match(/\((\d+(?:[.,]\d+)?)\s*g\)/i);
+  if (paren) return Math.max(1, Math.round(num(paren[1])));
+  if (unit === "g" || unit === "ml") return Math.max(1, Math.round(qty));
+  return Math.max(1, Math.round(qty * gramsPerUnit(unit, food)));
+}
+
 function parseGrams(chunk: string, food?: FoodRef) {
-  const grams = chunk.match(/(\d+(?:[.,]\d+)?)\s*(g|gr\.?|grammes?)\b/i);
-  if (grams) return Math.max(1, Math.round(num(grams[1])));
-  const ml = chunk.match(/(\d+(?:[.,]\d+)?)\s*ml\b/i);
-  if (ml) return Math.max(1, Math.round(num(ml[1])));
-  const slices = chunk.match(/(\d+|une?)\s*tranch/i);
-  if (slices) {
-    const n = /une?/i.test(slices[1]) ? 1 : Number(slices[1]);
-    return (food?.defaultG ?? 40) * n;
+  return parseLogLine(chunk, food).grams;
+}
+
+export function parseLogLine(line: string, foodHint?: FoodRef): ParsedLogLine {
+  const trimmed = line.trim();
+  const food = foodHint ?? matchFood(trimmed);
+
+  const colon = trimmed.match(
+    new RegExp(
+      `^(.*?)\\s*:\\s*(\\d+(?:[.,]\\d+)?|une?)\\s*(${UNIT_TOKEN})\\s*(?:\\((\\d+(?:[.,]\\d+)?)\\s*g\\))?\\s*$`,
+      "i",
+    ),
+  );
+  if (colon) {
+    const unit = parseQtyUnit(colon[3]) ?? "g";
+    const qty = countFromWord(colon[2]);
+    const grams = colon[4]
+      ? Math.max(1, Math.round(num(colon[4])))
+      : parseGramsFromChunk(trimmed, unit, qty, food);
+    return { name: titleName(colon[1].trim()) || foodName(food, trimmed), qty, unit, grams };
   }
-  if (/tranch/i.test(chunk)) return food?.defaultG ?? 40;
-  const tbsp = chunk.match(/(\d+)\s*(cs|c\.?\s*s\.?|cuillères?\s+à\s+soupe)/i);
-  if (tbsp) return Number(tbsp[1]) * 10;
-  const tsp = chunk.match(/(\d+)\s*(cc|c\.?\s*c\.?|cuillères?\s+à\s+café)/i);
-  if (tsp) return Number(tsp[1]) * 5;
-  return food?.defaultG ?? 80;
+
+  const trailing = trimmed.match(
+    new RegExp(
+      `^(.*?)\\s+(\\d+(?:[.,]\\d+)?|une?)\\s*(${UNIT_TOKEN})\\s*(?:\\((\\d+(?:[.,]\\d+)?)\\s*g\\))?\\s*$`,
+      "i",
+    ),
+  );
+  if (trailing) {
+    const unit = parseQtyUnit(trailing[3]) ?? "g";
+    const qty = countFromWord(trailing[2]);
+    const grams = trailing[4]
+      ? Math.max(1, Math.round(num(trailing[4])))
+      : parseGramsFromChunk(trimmed, unit, qty, food);
+    const name = leftoverName(trailing[1]) || foodName(food, trimmed);
+    return { name, qty, unit, grams };
+  }
+
+  const leading = trimmed.match(
+    new RegExp(`^(\\d+(?:[.,]\\d+)?|une?)\\s*(${UNIT_TOKEN})\\s+(?:de\\s+|d'|d’)?(.+)$`, "i"),
+  );
+  if (leading) {
+    const unit = parseQtyUnit(leading[2]) ?? "g";
+    const qty = countFromWord(leading[1]);
+    const grams = parseGramsFromChunk(trimmed, unit, qty, food);
+    return { name: foodName(food, leading[3]), qty, unit, grams };
+  }
+
+  const grams = food?.defaultG ?? 80;
+  return { name: foodName(food, trimmed), qty: grams, unit: "g", grams };
+}
+
+export function formatLogLine(name: string, qty: number, unit: QtyUnit, grams: number) {
+  const clean = name.trim() || "Aliment";
+  const g = Math.max(1, Math.round(grams));
+  const q = Math.max(unit === "g" || unit === "ml" ? 1 : 0.5, qty);
+  if (unit === "g") return `${clean} : ${g}g`;
+  if (unit === "ml") return `${clean} : ${Math.round(q)}ml`;
+  return `${clean} : ${qtyLabel(q, unit)} (${g}g)`;
+}
+
+export function formatDetectedLine(item: DetectedIngredient) {
+  const unit = item.unit ?? "g";
+  const qty = item.qty ?? item.grams;
+  return formatLogLine(item.name, qty, unit, item.grams);
+}
+
+function leftoverName(chunk: string) {
+  const name = chunk
+    .replace(/\(\d+(?:[.,]\d+)?\s*g\)/gi, " ")
+    .replace(new RegExp(`\\b(\\d+(?:[.,]\\d+)?|une?)\\s*(${UNIT_TOKEN})\\b`, "gi"), " ")
+    .replace(/\b(une?|de|d'|d’|du|des|la|le|les)\b/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return titleName(name);
 }
 
 function titleName(value: string) {
@@ -94,45 +239,11 @@ function titleName(value: string) {
   return trimmed.charAt(0).toUpperCase() + trimmed.slice(1);
 }
 
-function leftoverName(chunk: string) {
-  const name = chunk
-    .replace(/\b(\d+(?:[.,]\d+)?)\s*(g|gr\.?|grammes?|ml|cl|cs|cc)\b/gi, " ")
-    .replace(/\b(\d+|une?)\s*tranch\w*\b/gi, " ")
-    .replace(/\b(une?|de|d'|d’|du|des|la|le|les)\b/gi, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-  return titleName(name);
-}
-
 function foodName(food: FoodRef | undefined, chunk: string) {
-  if (!food) return leftoverName(chunk);
-  const catalog = food.label ?? titleName(food.keys[0]);
-  let rest = norm(leftoverName(chunk));
-  for (const key of [...food.keys].sort((a, b) => b.length - a.length)) {
-    rest = rest.replace(norm(key), " ");
-  }
-  rest = rest.replace(/\s+/g, " ").trim();
-  if (!rest) return catalog;
-  return `${catalog} ${titleName(rest)}`;
-}
-
-/** Toujours `Nom 60g` / `Pain bûcheron 1 tranche` / `Lait soja 200ml`. */
-function visualQty(chunk: string, grams: number) {
-  const ml = chunk.match(/(\d+(?:[.,]\d+)?)\s*ml\b/i);
-  if (ml) return `${Math.round(num(ml[1]))}ml`;
-  const g = chunk.match(/(\d+(?:[.,]\d+)?)\s*(g|gr\.?|grammes?)\b/i);
-  if (g) return `${Math.round(num(g[1]))}g`;
-  const slices = chunk.match(/(\d+|une?)\s*tranch/i);
-  if (slices) {
-    const n = /une?/i.test(slices[1]) ? 1 : Number(slices[1]);
-    return n <= 1 ? "1 tranche" : `${n} tranches`;
-  }
-  if (/tranch/i.test(chunk)) return "1 tranche";
-  const tbsp = chunk.match(/(\d+)\s*(cs|c\.?\s*s\.?|cuillères?\s+à\s+soupe)/i);
-  if (tbsp) return `${tbsp[1]} cs`;
-  const tsp = chunk.match(/(\d+)\s*(cc|c\.?\s*c\.?|cuillères?\s+à\s+café)/i);
-  if (tsp) return `${tsp[1]} cc`;
-  return `${grams}g`;
+  const leftover = leftoverName(chunk);
+  if (leftover && leftover.toLowerCase() !== "aliment") return leftover;
+  if (food) return food.label ?? titleName(food.keys[0]);
+  return leftover;
 }
 
 function macrosAt(food: FoodRef | undefined, grams: number) {
@@ -162,12 +273,14 @@ export function parseFoodTextLocal(text: string): DetectedIngredient[] {
   const parts = chunks.length > 0 ? chunks : [text.trim() || "Aliment"];
   return parts.map((chunk, index) => {
     const food = matchFood(chunk);
-    const grams = parseGrams(chunk, food);
-    const macros = macrosAt(food, grams);
+    const parsed = parseLogLine(chunk, food);
+    const macros = macrosAt(food, parsed.grams);
     return {
       id: `t-${Date.now()}-${index}`,
-      name: foodName(food, chunk),
-      grams,
+      name: parsed.name,
+      grams: parsed.grams,
+      qty: parsed.qty,
+      unit: parsed.unit,
       ...macros,
     };
   });
@@ -176,14 +289,24 @@ export function parseFoodTextLocal(text: string): DetectedIngredient[] {
 export function scaleDetected(item: DetectedIngredient, grams: number): DetectedIngredient {
   const next = Math.max(1, Math.round(grams));
   const ratio = item.grams > 0 ? next / item.grams : 1;
+  const unit = item.unit ?? "g";
   return {
     ...item,
     grams: next,
+    qty: unit === "g" || unit === "ml" ? next : item.qty,
     calories: Math.max(0, Math.round(item.calories * ratio)),
     protein: Math.max(0, Math.round(item.protein * ratio)),
     carbs: Math.max(0, Math.round((item.carbs ?? 0) * ratio)),
     fat: Math.max(0, Math.round((item.fat ?? 0) * ratio)),
   };
+}
+
+export function scaleDetectedQty(item: DetectedIngredient, qty: number): DetectedIngredient {
+  const unit = item.unit ?? "g";
+  const from = Math.max(0.01, item.qty ?? (unit === "g" || unit === "ml" ? item.grams : 1));
+  const nextQty = Math.max(unit === "g" || unit === "ml" ? 1 : 0.5, qty);
+  const grams = Math.max(1, Math.round((item.grams / from) * nextQty));
+  return { ...scaleDetected(item, grams), qty: nextQty, unit };
 }
 
 export function macrosFromIngredients(ingredients: DetectedIngredient[]) {
@@ -201,56 +324,33 @@ export function macrosFromIngredients(ingredients: DetectedIngredient[]) {
 export function formatIngredientLine(raw: string): { line: string } & Macros {
   const chunk = raw.trim();
   const food = matchFood(chunk);
-  const grams = parseGrams(chunk, food);
-  const macros = macrosAt(food, grams);
+  const parsed = parseLogLine(chunk, food);
+  const macros = macrosAt(food, parsed.grams);
   return {
-    line: `${foodName(food, chunk)} ${visualQty(chunk, grams)}`,
+    line: formatLogLine(parsed.name, parsed.qty, parsed.unit, parsed.grams),
     ...macros,
   };
 }
 
-export type QtyUnit = "g" | "ml" | "tranche" | "cs" | "cc";
-
-export function parseIngredientQty(line: string): { name: string; qty: number; unit: QtyUnit } {
-  const trimmed = line.trim();
-  const ml = trimmed.match(/^(.*?)\s+(\d+(?:[.,]\d+)?)\s*ml$/i);
-  if (ml) return { name: ml[1].trim(), qty: Math.round(num(ml[2])), unit: "ml" };
-  const g = trimmed.match(/^(.*?)\s+(\d+(?:[.,]\d+)?)\s*g$/i);
-  if (g) return { name: g[1].trim(), qty: Math.round(num(g[2])), unit: "g" };
-  const tr = trimmed.match(/^(.*?)\s+(\d+)\s*tranches?$/i);
-  if (tr) return { name: tr[1].trim(), qty: Number(tr[2]), unit: "tranche" };
-  const cs = trimmed.match(/^(.*?)\s+(\d+)\s*cs$/i);
-  if (cs) return { name: cs[1].trim(), qty: Number(cs[2]), unit: "cs" };
-  const cc = trimmed.match(/^(.*?)\s+(\d+)\s*cc$/i);
-  if (cc) return { name: cc[1].trim(), qty: Number(cc[2]), unit: "cc" };
-  const food = matchFood(trimmed);
-  return { name: foodName(food, trimmed), qty: parseGrams(trimmed, food), unit: "g" };
-}
-
-export function lineWithQty(name: string, qty: number, unit: QtyUnit) {
-  const n = Math.max(1, Math.round(qty));
-  if (unit === "tranche") return `${name} ${n <= 1 ? "1 tranche" : `${n} tranches`}`;
-  if (unit === "ml") return `${name} ${n}ml`;
-  if (unit === "cs") return `${name} ${n} cs`;
-  if (unit === "cc") return `${name} ${n} cc`;
-  return `${name} ${n}g`;
+export function parseIngredientQty(line: string): ParsedLogLine {
+  return parseLogLine(line);
 }
 
 export function setLineQuantity(line: string, qty: number) {
-  const parsed = parseIngredientQty(line);
-  return formatIngredientLine(lineWithQty(parsed.name, Math.max(1, qty), parsed.unit)).line;
-}
-
-export function qtyStep(unit: QtyUnit) {
-  return unit === "g" || unit === "ml" ? 5 : 1;
-}
-
-export function qtyLabel(qty: number, unit: QtyUnit) {
-  if (unit === "tranche") return qty <= 1 ? "1 tranche" : `${qty} tranches`;
-  if (unit === "ml") return `${qty} ml`;
-  if (unit === "cs") return `${qty} cs`;
-  if (unit === "cc") return `${qty} cc`;
-  return `${qty} g`;
+  const parsed = parseLogLine(line);
+  const next = scaleDetectedQty(
+    {
+      id: "tmp",
+      name: parsed.name,
+      grams: parsed.grams,
+      qty: parsed.qty,
+      unit: parsed.unit,
+      calories: 100,
+      protein: 0,
+    },
+    qty,
+  );
+  return formatLogLine(parsed.name, next.qty ?? qty, parsed.unit, next.grams);
 }
 
 export function normalizeIngredientLines(raws: string[]): { lines: string[]; macros: Macros } {
@@ -283,13 +383,19 @@ export function mergeFoodLogResult(
   text: string,
 ): DetectedIngredient[] {
   if (ai.length === 0) return local;
-  if (local.length > ai.length) return local;
   const hasExplicitG = /(\d+(?:[.,]\d+)?)\s*(g|gr\.?|grammes?)\b/i.test(text);
-  if (!hasExplicitG) return ai;
+  const hasVisualQty =
+    /(\d+(?:[.,]\d+)?|une?)\s*(carreaux?|carr[eé]s?|tranches?|pi[eè]ces?|cs|cc)\b/i.test(text);
   return ai.map((item, index) => {
     const loc = local[index];
-    if (!loc || loc.grams === item.grams) return item;
-    return scaleDetected(item, loc.grams);
+    if (!loc) return item;
+    const preferLocalGrams =
+      loc.grams !== item.grams &&
+      (hasExplicitG ||
+        (hasVisualQty && Boolean(loc.unit && loc.unit !== "g" && loc.unit !== "ml")));
+    const base = { ...item, name: item.name || loc.name };
+    if (!preferLocalGrams) return base;
+    return { ...scaleDetected(base, loc.grams), qty: loc.qty, unit: loc.unit };
   });
 }
 
@@ -308,6 +414,8 @@ function mapGeminiIngredients(raw: unknown): DetectedIngredient[] {
       id: `ai-${Date.now()}-${index}`,
       name,
       grams,
+      qty: Number(row.qty) > 0 ? Number(row.qty) : grams,
+      unit: parseQtyUnit(String(row.unit ?? "g")) ?? "g",
       calories: Math.max(0, Math.round(Number(row.calories) || 0)),
       protein: Math.max(0, Math.round(Number(row.protein) || 0)),
       carbs: Math.max(0, Math.round(Number(row.carbs) || 0)),
@@ -324,15 +432,19 @@ Régime : ${diet === "vegan" ? "vegan (aucun produit animal)" : "omnivore"}.
 Texte : """${text}"""
 
 Règles :
-- Découpe en ingrédients distincts (avec, et, +, virgule, "de la").
+- Découpe en ingrédients distincts SEULEMENT s'ils sont clairement séparés (avec, et, +, virgule).
+- N'ajoute JAMAIS un aliment absent du texte.
+- "lait d'avoine", "lait végétal d'avoine", "café au lait d'avoine" = BOISSON (lait d'avoine / café), PAS des flocons d'avoine.
+- Une phrase courte = UN seul ingrédient. Garde un nom proche de la saisie utilisateur.
 - "tranche de pain bûcheron avec de la margarine" = 2 ingrédients (pain + margarine).
 - Si un poids est écrit (20 g, 20gr, 20 grammes), UTILISE exactement ce gramme.
-- Sinon estime une portion réaliste (1 tranche de pain ≈ 40 g, 1 cs margarine ≈ 10 g).
+- Si une quantité visuelle est écrite (1 carreau, 2 tranches, 1 cs, 1 pièce), garde qty + unit et estime les grammes de CETTE quantité (1 carreau de chocolat ≈ 10 g, 1 tranche de pain ≈ 40 g, 1 cs ≈ 10 g).
+- Sinon estime une portion réaliste (café au lait d'avoine ≈ 200 ml de lait, pas 50 g de flocons).
 - Donne calories / protéines / glucides / lipides pour CETTE quantité, pas pour 100 g.
 - Noms propres, sans le poids dans le nom.
 
 JSON strict :
-{ "ingredients": [{ "name": "Pain bûcheron", "grams": 40, "calories": 102, "protein": 4, "carbs": 19, "fat": 1 }] }`;
+{ "ingredients": [{ "name": "Chocolat noir", "qty": 1, "unit": "carreau", "grams": 10, "calories": 58, "protein": 1, "carbs": 5, "fat": 4 }] }`;
 }
 
 export async function analyzeFoodText(text: string, diet: DietType): Promise<DetectedIngredient[]> {

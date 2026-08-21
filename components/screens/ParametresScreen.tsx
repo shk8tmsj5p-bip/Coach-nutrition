@@ -10,6 +10,7 @@ import { MealTemplatesEditor } from "@/components/parametres/MealTemplatesEditor
 import { StatusBadge, type ConnectionTone } from "@/components/parametres/StatusBadge";
 import { TagInput } from "@/components/parametres/TagInput";
 import { ToggleRow } from "@/components/parametres/ToggleRow";
+import { HouseholdLockCard } from "@/components/parametres/HouseholdLockCard";
 import {
   HEAT_STYLE_LABEL,
   KITCHEN_APPLIANCES,
@@ -204,6 +205,8 @@ export default function ParametresScreen() {
         Cuisine foyer, petit-déj, collations & desserts, connexions
       </p>
 
+      <HouseholdLockCard />
+
       <SectionTitle className="mb-1.5 mt-3">Règles à respecter</SectionTitle>
       <Card compact>
         <p className="text-[13px] font-semibold">Type de recettes</p>
@@ -325,8 +328,9 @@ export default function ParametresScreen() {
 
       <SectionTitle className="mb-1.5 mt-3">Petit-déj, collations & desserts</SectionTitle>
       <p className="mb-1.5 px-0.5 text-[11px] leading-snug text-health-muted">
-        Modèles stables par jour — pas d’IA. Les desserts s’ajoutent au déjeuner / dîner. Le plat déjeuner / dîner,
-        lui, vient de l’onglet Repas. Enregistrer met à jour Aujourd’hui.
+        Modèles stables par jour. À l’ajout d’un ingrédient, Gemini estime les kcal d’après ta phrase
+        (lait d’avoine ≠ flocons). Les desserts s’ajoutent au déjeuner / dîner. Le plat vient de Repas.
+        Enregistrer met à jour Aujourd’hui.
       </p>
       <MealTemplatesEditor
         profileId="alexis"

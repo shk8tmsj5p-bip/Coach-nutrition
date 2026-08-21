@@ -1,17 +1,18 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Camera, Plus, ScanBarcode, Sparkles, Trash2, X } from "lucide-react";
+import { Camera, Plus, ScanBarcode, Sparkles, X } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import {
   MEAL_TYPE_OPTIONS,
   parseMealItems,
-  scaleItem,
+  scaleItemQty,
   serializeItems,
   sumEditableMacros,
   type EditableItem,
 } from "@/lib/meal-items";
-import { parseFoodTextLocal } from "@/lib/food-log";
+import { QtyEditRow } from "@/components/today/QtyEditRow";
+import { requestLogText } from "@/lib/gemini/client";
 import type { MealEntry, MealType } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -37,6 +38,8 @@ export function EditMealSheet({
   const [type, setType] = useState<MealType>(meal.type);
   const [items, setItems] = useState<EditableItem[]>(() => parseMealItems(meal));
   const [dessertDraft, setDessertDraft] = useState("");
+  const [addingDessert, setAddingDessert] = useState(false);
+  const diet = meal.profileId === "elodie" ? "omnivore" : "vegan";
   const startedWithDessert = useMemo(
     () => parseMealItems(meal).some((item) => item.dessert),
     [meal],
@@ -54,20 +57,27 @@ export function EditMealSheet({
     setItems((list) => list.filter((row) => row.id !== id));
   }
 
-  function addDessert() {
+  async function addDessert() {
     const raw = dessertDraft.trim();
-    if (!raw) return;
-    const parsed = parseFoodTextLocal(raw);
-    const extra = parsed.map((item, index) => ({
-      ...item,
-      id: `dessert-${Date.now()}-${index}`,
-      carbs: item.carbs ?? 0,
-      fat: item.fat ?? 0,
-      dessert: true as const,
-    }));
-    if (!extra.length) return;
-    setItems((list) => [...list, ...extra]);
-    setDessertDraft("");
+    if (!raw || addingDessert) return;
+    setAddingDessert(true);
+    try {
+      const parsed = await requestLogText(raw, diet);
+      const extra: EditableItem[] = parsed.map((item, index) => ({
+        ...item,
+        id: `dessert-${Date.now()}-${index}`,
+        carbs: item.carbs ?? 0,
+        fat: item.fat ?? 0,
+        qty: item.qty ?? item.grams,
+        unit: item.unit ?? "g",
+        dessert: true,
+      }));
+      if (!extra.length) return;
+      setItems((list) => [...list, ...extra]);
+      setDessertDraft("");
+    } finally {
+      setAddingDessert(false);
+    }
   }
 
   function commit() {
@@ -154,19 +164,19 @@ export function EditMealSheet({
                   onKeyDown={(e) => {
                     if (e.key === "Enter") {
                       e.preventDefault();
-                      addDessert();
+                      void addDessert();
                     }
                   }}
-                  placeholder="Ex. Skyr 150g"
+                  placeholder="Ex. 1 carreau de chocolat"
                   className="min-w-0 flex-1 rounded-card bg-amber-50 px-3 py-2 text-[13px] outline-none dark:bg-amber-950/40"
                 />
                 <button
                   type="button"
-                  onClick={addDessert}
-                  disabled={!dessertDraft.trim()}
+                  onClick={() => void addDessert()}
+                  disabled={!dessertDraft.trim() || addingDessert}
                   className="rounded-card bg-health-ink px-3 text-[12px] font-semibold text-white disabled:opacity-40"
                 >
-                  Ajouter
+                  {addingDessert ? "…" : "Ajouter"}
                 </button>
               </div>
             </div>
@@ -217,44 +227,16 @@ function ItemRow({
   onRemove: () => void;
 }) {
   return (
-    <div
-      className={cn(
-        "mb-1.5 flex items-center gap-2 rounded-card p-3",
-        dessert ? "bg-amber-50 dark:bg-amber-950/40" : "bg-health-bg",
-      )}
-    >
-      <div className="min-w-0 flex-1">
-        <p className="truncate text-[14px] font-medium">{item.name}</p>
-        <p className="text-[11px] text-health-muted">
-          {item.calories} kcal · {Math.round(item.protein)}g P
-        </p>
-      </div>
-      <div className="flex items-center gap-1">
-        <button
-          type="button"
-          className="h-8 w-8 rounded-full bg-white text-lg leading-none"
-          onClick={() => onChange(scaleItem(item, item.grams - 10))}
-        >
-          −
-        </button>
-        <input
-          value={item.grams}
-          onChange={(e) => onChange(scaleItem(item, Number(e.target.value) || 1))}
-          className="w-12 rounded-md bg-white text-center text-[13px] tabular-nums"
-        />
-        <span className="text-[11px] text-health-muted">g</span>
-        <button
-          type="button"
-          className="h-8 w-8 rounded-full bg-white text-lg leading-none"
-          onClick={() => onChange(scaleItem(item, item.grams + 10))}
-        >
-          +
-        </button>
-        <button type="button" className="ml-1 text-health-muted" onClick={onRemove}>
-          <Trash2 size={16} />
-        </button>
-      </div>
-    </div>
+    <QtyEditRow
+      name={item.name}
+      qty={item.qty ?? item.grams}
+      unit={item.unit ?? "g"}
+      grams={item.grams}
+      dessert={dessert}
+      detail={`${item.calories} kcal · ${Math.round(item.protein)}g P`}
+      onQty={(qty) => onChange(scaleItemQty(item, qty))}
+      onRemove={onRemove}
+    />
   );
 }
 

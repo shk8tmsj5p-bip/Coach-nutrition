@@ -74,12 +74,12 @@ export function parseSlotTemplate(raw: unknown): SlotTemplate | null {
   };
 }
 
+/** Catalogue initial UNIQUEMENT si meal_templates n'a jamais été sauvé (null).
+ *  Ne jamais réécrire un foyer déjà saisi (pas de retour au skyr / oats démo). */
 export function parseMealTemplates(raw: unknown, profileId: ProfileId): SlotTemplate[] {
-  if (raw == null || !Array.isArray(raw) || raw.length === 0) {
-    return defaultMealTemplates(profileId);
-  }
-  const parsed = raw.map(parseSlotTemplate).filter((item): item is SlotTemplate => Boolean(item));
-  return parsed.length ? parsed : defaultMealTemplates(profileId);
+  if (raw == null) return defaultMealTemplates(profileId);
+  if (!Array.isArray(raw)) return defaultMealTemplates(profileId);
+  return raw.map(parseSlotTemplate).filter((item): item is SlotTemplate => Boolean(item));
 }
 
 export function mealTemplatesToJson(templates: SlotTemplate[]): Json {
@@ -100,6 +100,7 @@ export function mealTemplatesToJson(templates: SlotTemplate[]): Json {
 }
 
 export function defaultMealTemplates(profileId: ProfileId): SlotTemplate[] {
+  // Fallback first-run only. Do not persist these over user-saved meal_templates.
   if (profileId === "alexis") {
     return [
       {

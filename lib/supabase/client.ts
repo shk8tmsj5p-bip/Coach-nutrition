@@ -1,18 +1,16 @@
-import { createClient } from "@supabase/supabase-js";
+import { createBrowserClient } from "@supabase/ssr";
 import { getSupabaseBrowserEnv } from "@/lib/supabase/env";
 import type { Database } from "@/lib/supabase/database.types";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 let browserClient: SupabaseClient<Database> | null = null;
 
-/** Client anon, sans cookies ni session persistée. */
+/** Client foyer : session cookie (RLS authenticated) + anon key. */
 export function createBrowserSupabaseClient() {
   const env = getSupabaseBrowserEnv();
   if (!env) return null;
   if (!browserClient) {
-    browserClient = createClient<Database>(env.url, env.anonKey, {
-      auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
-    });
+    browserClient = createBrowserClient<Database>(env.url, env.anonKey);
   }
   return browserClient;
 }
