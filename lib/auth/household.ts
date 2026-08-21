@@ -119,7 +119,16 @@ export function isPublicPath(pathname: string) {
   if (pathname.startsWith("/api/auth/")) return true;
   if (pathname === "/api/webhooks/health" || pathname.startsWith("/api/webhooks/health/")) return true;
   if (pathname === "/api/health-webhook") return true;
-  if (pathname === "/manifest.json" || pathname === "/icon.svg") return true;
+  if (
+    pathname === "/manifest.json" ||
+    pathname === "/icon.svg" ||
+    pathname === "/icon-chat.png" ||
+    pathname === "/icon-192.png" ||
+    pathname === "/icon-512.png" ||
+    pathname === "/apple-touch-icon.png"
+  ) {
+    return true;
+  }
   return false;
 }
 
