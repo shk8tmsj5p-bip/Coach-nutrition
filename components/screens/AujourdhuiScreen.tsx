@@ -1,10 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from "react";
+import { useCallback, useEffect, useMemo, useState, type Dispatch, type SetStateAction } from "react";
 import {
   Camera,
   Check,
   Copy,
+  Images,
   Plus,
   RefreshCw,
   RotateCcw,
@@ -59,18 +60,19 @@ import {
   fetchTodayMeals,
   fillMissingSlotsFromTemplates,
   insertMeal,
+  isStoredMealId,
   plannedMealEntry,
   restorePlannedMeals,
   applyWeekPlatsToToday,
   applyTodaySlotTemplates,
   setMealSkipped,
   swapMeal,
-  updateMeal,
+  upsertMeal,
 } from "@/lib/supabase/today-data";
 import { loadWeekPlan } from "@/lib/supabase/week-plans";
 import { clearDailyFeel, fetchTodayFeels, upsertDailyFeel } from "@/lib/supabase/daily-feel";
 import { emptyFeel, hasCompleteFeel, hasFeelScore, type DailyFeelScores } from "@/lib/daily-feel";
-import { todayCoachRemark } from "@/lib/today-coach";
+import { todayCoachRemark, buildTodayCoachSnapshot } from "@/lib/today-coach";
 import type { FavoriteRecipe } from "@/lib/favorites";
 import {
   canFavoriteMeal,
@@ -114,14 +116,11 @@ import {
   dismissNutrition,
   quickAddKey,
   upsertNutritionQuickAdd,
-  upsertNutritionQuickAdds,
   visibleNutrition,
-  type StoredCoachQuickAdd,
 } from "@/lib/coach-adjustments";
 import {
   applyCoachAddsToMeal,
   collectDayBadges,
-  needsPrepToAdd,
   translateMealAdjustments,
   type CoachAddChoice,
   type MacroKind,
@@ -130,6 +129,43 @@ import {
 
 const MEAL_SLOTS: MealType[] = ["petit-dejeuner", "dejeuner", "diner"];
 const ALL_MEAL_SLOTS: MealType[] = [...MEAL_SLOTS, "collation"];
+const HOUSEHOLD_IDS: ProfileId[] = ["alexis", "elodie"];
+
+function otherProfileId(id: ProfileId): ProfileId {
+  return id === "alexis" ? "elodie" : "alexis";
+}
+
+function profileShortName(id: ProfileId) {
+  return id === "alexis" ? "Alexis" : "Élodie";
+}
+
+function slotOfProfile(list: MealEntry[], profileId: ProfileId, type: MealType) {
+  return list.find((meal) => meal.profileId === profileId && meal.type === type);
+}
+
+function isFilledMeal(meal: MealEntry | undefined) {
+  if (!meal || meal.isSkipped) return false;
+  const items = (meal.items ?? []).filter(
+    (line) => line.trim() && !isEmptyDessertMarker(line),
+  );
+  if (items.length > 0) return true;
+  if (meal.macros.calories > 0) return true;
+  const name = meal.name.trim().toLowerCase();
+  return name.length > 0 && name !== "repas sauté";
+}
+
+function mealFields(meal: Omit<MealEntry, "id" | "profileId"> | MealEntry): Omit<MealEntry, "id" | "profileId"> {
+  return {
+    name: meal.name,
+    type: meal.type,
+    time: meal.time,
+    macros: meal.macros,
+    source: meal.source,
+    items: meal.items,
+    notes: meal.notes,
+    isSkipped: meal.isSkipped,
+  };
+}
 
 function emptyMovement(date = todayISO()): Record<ProfileId, DailyMovement> {
   return {
@@ -319,14 +355,16 @@ export default function AujourdhuiScreen() {
 
     const withTemplatesAndPlan = (rows: MealEntry[], createMissing: boolean) =>
       fillMissingPlatsFromWeekPlan(
-        fillMissingSlotsFromTemplates(rows, ids, date, householdTemplates, { createMissing }),
+        fillMissingSlotsFromTemplates(rows, HOUSEHOLD_IDS, date, householdTemplates, {
+          createMissing,
+        }),
         plan,
-        ids,
+        HOUSEHOLD_IDS,
         date,
       );
 
     if (!supabase) {
-      setMeals(withTemplatesAndPlan(todayMeals.filter((meal) => ids.includes(meal.profileId)), true));
+      setMeals(withTemplatesAndPlan(todayMeals, true));
       setWorkouts(todayWorkouts.filter((workout) => ids.includes(workout.profileId)));
       setMovement(todayMovement);
       setStatus("offline");
@@ -336,7 +374,7 @@ export default function AujourdhuiScreen() {
 
     const seed = await ensureDemoMeals(supabase);
     if (!seed.ok) {
-      setMeals(withTemplatesAndPlan(todayMeals.filter((meal) => ids.includes(meal.profileId)), true));
+      setMeals(withTemplatesAndPlan(todayMeals, true));
       setWorkouts(todayWorkouts.filter((workout) => ids.includes(workout.profileId)));
       setMovement(todayMovement);
       setStatus("error");
@@ -345,7 +383,7 @@ export default function AujourdhuiScreen() {
     }
 
     const [{ meals: rows, error }, activity] = await Promise.all([
-      fetchTodayMeals(supabase, ids),
+      fetchTodayMeals(supabase, HOUSEHOLD_IDS),
       fetchTodayActivity(supabase, ids),
     ]);
 
@@ -366,38 +404,73 @@ export default function AujourdhuiScreen() {
     void reload();
   }, [reload]);
 
-  async function persistMeal(profileId: ProfileId, meal: Omit<MealEntry, "id" | "profileId">) {
-    const entry: Omit<MealEntry, "id"> = { ...meal, profileId };
-    const existing = meals.find((row) => row.profileId === profileId && row.type === meal.type);
+  function persistTargets(profileId: ProfileId): ProfileId[] {
+    return view === "couple" ? HOUSEHOLD_IDS : [profileId];
+  }
+
+  function applyLocalSlot(
+    prev: MealEntry[],
+    profileId: ProfileId,
+    payload: Omit<MealEntry, "id" | "profileId">,
+    matchType: MealType,
+  ) {
+    const existing = slotOfProfile(prev, profileId, matchType);
+    const row: MealEntry = {
+      ...payload,
+      profileId,
+      id: existing?.id ?? `${profileId}-${payload.type}-${Date.now()}`,
+      isSkipped: payload.isSkipped ?? false,
+    };
+    if (existing) {
+      return prev.map((meal) => (meal.id === existing.id ? row : meal));
+    }
+    return [...prev, row];
+  }
+
+  async function writeSlot(
+    profileId: ProfileId,
+    payload: Omit<MealEntry, "id" | "profileId">,
+    matchType = payload.type,
+  ) {
+    const existing = slotOfProfile(meals, profileId, matchType);
+    const entry: Omit<MealEntry, "id"> = { ...payload, profileId };
+    const supabase = createBrowserSupabaseClient();
+    if (!supabase) return;
+    if (existing && isStoredMealId(existing.id)) {
+      return upsertMeal(supabase, { ...existing, ...entry, id: existing.id });
+    }
+    return insertMeal(supabase, entry);
+  }
+
+  async function writeSlots(
+    profileIds: ProfileId[],
+    payload: Omit<MealEntry, "id" | "profileId">,
+    matchType = payload.type,
+  ) {
     const supabase = createBrowserSupabaseClient();
     if (!supabase) {
-      if (existing) {
-        setMeals((prev) =>
-          prev.map((row) => (row.id === existing.id ? { ...row, ...entry, id: existing.id } : row)),
-        );
-        return;
-      }
-      setMeals((prev) => [
-        ...prev,
-        { ...entry, id: `${profileId}-${Date.now()}`, isSkipped: entry.isSkipped ?? false },
-      ]);
-      return;
+      setMeals((prev) => {
+        let next = prev;
+        for (const id of profileIds) {
+          next = applyLocalSlot(next, id, payload, matchType);
+        }
+        return next;
+      });
+      return true;
     }
-    if (existing) {
-      const error = await updateMeal(supabase, { ...existing, ...entry, id: existing.id });
+    for (const id of profileIds) {
+      const error = await writeSlot(id, payload, matchType);
       if (error) {
         flash(error);
-        return;
+        return false;
       }
-      await reload();
-      return;
-    }
-    const error = await insertMeal(supabase, entry);
-    if (error) {
-      flash(error);
-      return;
     }
     await reload();
+    return true;
+  }
+
+  async function persistMeal(profileId: ProfileId, meal: Omit<MealEntry, "id" | "profileId">) {
+    await writeSlots(persistTargets(profileId), meal);
   }
 
   async function persistLoggedFood(
@@ -406,73 +479,52 @@ export default function AujourdhuiScreen() {
   ) {
     if (!logMealType) return;
     const type = logMealType;
-    const incoming: Omit<MealEntry, "id"> = {
-      profileId: logProfile,
-      name: payload.name,
-      type,
-      time: defaultMealTime(type),
-      macros: payload.macros,
-      source,
-      items: payload.items,
-      isSkipped: false,
+    const targets = persistTargets(logProfile);
+    const supabase = createBrowserSupabaseClient();
+
+    const mergedFor = (profileId: ProfileId): Omit<MealEntry, "id" | "profileId"> => {
+      const existing = slotOfProfile(meals, profileId, type);
+      if (!existing || existing.isSkipped) {
+        return {
+          name: payload.name,
+          type,
+          time: defaultMealTime(type),
+          macros: payload.macros,
+          source,
+          items: payload.items,
+          isSkipped: false,
+        };
+      }
+      return {
+        name: existing.name,
+        type,
+        time: existing.time || defaultMealTime(type),
+        macros: {
+          calories: existing.macros.calories + payload.macros.calories,
+          protein: existing.macros.protein + payload.macros.protein,
+          carbs: existing.macros.carbs + payload.macros.carbs,
+          fat: existing.macros.fat + payload.macros.fat,
+        },
+        source: existing.source ?? source,
+        items: appendPlatKeepingDessert(existing.items, payload.items),
+        notes: existing.notes,
+        isSkipped: false,
+      };
     };
 
-    const existing = meals.find(
-      (meal) => meal.profileId === logProfile && meal.type === type,
-    );
-
-    const supabase = createBrowserSupabaseClient();
     if (!supabase) {
-      if (existing) {
-        setMeals((prev) =>
-          prev.map((meal) =>
-            meal.id === existing.id
-              ? {
-                  ...meal,
-                  isSkipped: false,
-                  name: existing.isSkipped ? incoming.name : meal.name,
-                  items: existing.isSkipped
-                    ? incoming.items
-                    : appendPlatKeepingDessert(meal.items, incoming.items ?? []),
-                  macros: existing.isSkipped
-                    ? incoming.macros
-                    : {
-                        calories: meal.macros.calories + incoming.macros.calories,
-                        protein: meal.macros.protein + incoming.macros.protein,
-                        carbs: meal.macros.carbs + incoming.macros.carbs,
-                        fat: meal.macros.fat + incoming.macros.fat,
-                      },
-                }
-              : meal,
-          ),
-        );
-      } else {
-        setMeals((prev) => [...prev, { ...incoming, id: `${logProfile}-${Date.now()}` }]);
-      }
+      setMeals((prev) => {
+        let next = prev;
+        for (const id of targets) {
+          next = applyLocalSlot(next, id, mergedFor(id), type);
+        }
+        return next;
+      });
       return;
     }
 
-    if (existing) {
-      const merged: MealEntry = existing.isSkipped
-        ? { ...existing, ...incoming, id: existing.id, profileId: logProfile, isSkipped: false }
-        : {
-            ...existing,
-            isSkipped: false,
-            items: appendPlatKeepingDessert(existing.items, incoming.items ?? []),
-            macros: {
-              calories: existing.macros.calories + incoming.macros.calories,
-              protein: existing.macros.protein + incoming.macros.protein,
-              carbs: existing.macros.carbs + incoming.macros.carbs,
-              fat: existing.macros.fat + incoming.macros.fat,
-            },
-          };
-      const error = await updateMeal(supabase, merged);
-      if (error) {
-        flash(error);
-        return;
-      }
-    } else {
-      const error = await insertMeal(supabase, incoming);
+    for (const id of targets) {
+      const error = await writeSlot(id, mergedFor(id), type);
       if (error) {
         flash(error);
         return;
@@ -500,19 +552,64 @@ export default function AujourdhuiScreen() {
 
   async function toggleSkip(meal: MealEntry) {
     const nextSkipped = !meal.isSkipped;
-    setMeals((prev) =>
-      prev.map((row) => (row.id === meal.id ? { ...row, isSkipped: nextSkipped } : row)),
-    );
+    const targets = persistTargets(meal.profileId);
     const supabase = createBrowserSupabaseClient();
-    if (!supabase) return;
-    const error = await setMealSkipped(supabase, meal.id, nextSkipped);
-    if (error) {
-      setMeals((prev) =>
-        prev.map((row) => (row.id === meal.id ? { ...row, isSkipped: meal.isSkipped } : row)),
-      );
-      flash(error);
+    if (!supabase) {
+      setMeals((prev) => {
+        let next = prev;
+        for (const id of targets) {
+          const existing = slotOfProfile(next, id, meal.type);
+          if (existing) {
+            next = next.map((row) =>
+              row.id === existing.id ? { ...row, isSkipped: nextSkipped } : row,
+            );
+          } else {
+            next = applyLocalSlot(
+              next,
+              id,
+              {
+                name: "Repas sauté",
+                type: meal.type,
+                time: "",
+                macros: emptyMacros(),
+                source: "log",
+                items: [],
+                isSkipped: nextSkipped,
+              },
+              meal.type,
+            );
+          }
+        }
+        return next;
+      });
       return;
     }
+    for (const id of targets) {
+      const existing = slotOfProfile(meals, id, meal.type);
+      if (existing && isStoredMealId(existing.id)) {
+        const error = await setMealSkipped(supabase, existing.id, nextSkipped);
+        if (error) {
+          flash(error);
+          return;
+        }
+        continue;
+      }
+      const error = await writeSlot(
+        id,
+        {
+          ...mealFields(existing ?? meal),
+          name: existing?.name ?? (nextSkipped ? "Repas sauté" : meal.name),
+          macros: existing?.macros ?? (nextSkipped ? emptyMacros() : meal.macros),
+          isSkipped: nextSkipped,
+        },
+        meal.type,
+      );
+      if (error) {
+        flash(error);
+        return;
+      }
+    }
+    await reload();
   }
 
   async function skipEmptySlot(profileId: ProfileId, type: MealType) {
@@ -616,52 +713,48 @@ export default function AujourdhuiScreen() {
   }
 
   async function persistEditedMeal(next: MealEntry) {
-    const supabase = createBrowserSupabaseClient();
-    if (!supabase) {
-      setMeals((prev) => prev.map((meal) => (meal.id === next.id ? next : meal)));
-      setEditingMeal(null);
-      flash("Repas modifié (local)");
-      return;
-    }
+    const source = meals.find((meal) => meal.id === next.id);
+    const matchType = source?.type ?? next.type;
+    const targets = persistTargets(next.profileId);
     setSavingEdit(true);
-    const error = await updateMeal(supabase, next);
+    const ok = await writeSlots(targets, mealFields(next), matchType);
     setSavingEdit(false);
-    if (error) {
-      flash(error);
-      return;
-    }
+    if (!ok) return;
     setEditingMeal(null);
-    await reload();
-    flash("Repas enregistré");
+    flash(
+      targets.length > 1
+        ? "Repas enregistré pour Alexis et Élodie"
+        : "Repas enregistré",
+    );
   }
 
   async function persistMealFromCoach(next: MealEntry) {
-    const supabase = createBrowserSupabaseClient();
-    if (!supabase) {
-      setMeals((prev) => prev.map((meal) => (meal.id === next.id ? next : meal)));
-      return true;
-    }
-    const error = await updateMeal(supabase, next);
-    if (error) {
-      flash(error);
-      return false;
-    }
-    await reload();
-    return true;
+    return writeSlots([next.profileId], mealFields(next), next.type);
+  }
+
+  async function duplicateMealTo(source: MealEntry, targetId: ProfileId) {
+    const ok = await writeSlots(
+      [targetId],
+      { ...mealFields(source), isSkipped: false },
+      source.type,
+    );
+    if (!ok) return;
+    flash(`Repas copié pour ${profileShortName(targetId)}`);
   }
 
   async function serveWeekPlat(profileId: ProfileId, type: "dejeuner" | "diner") {
+    const targets = persistTargets(profileId);
     const supabase = createBrowserSupabaseClient();
     if (!supabase) {
       setMeals((prev) =>
-        fillMissingPlatsFromWeekPlan(prev, weekPlan, [profileId], todayISO(), { force: true }),
+        fillMissingPlatsFromWeekPlan(prev, weekPlan, targets, todayISO(), { force: true }),
       );
       flash("Plat de la semaine");
       return;
     }
     setBusy(true);
     const applied = await applyWeekPlatsToToday(supabase, todayISO(), {
-      profileIds: [profileId],
+      profileIds: targets,
       types: [type],
       force: true,
     });
@@ -737,6 +830,7 @@ export default function AujourdhuiScreen() {
           key={profile.id}
           profile={profile}
           meals={meals.filter((m) => m.profileId === profile.id)}
+          householdMeals={meals}
           ratings={ratings[profile.id] ?? emptyFeel()}
           onRate={(key, value) => void persistFeel(profile.id, key, value)}
           onResetFeel={() => void resetFeel(profile.id)}
@@ -748,6 +842,11 @@ export default function AujourdhuiScreen() {
           onResetMeal={(type) => void restoreMeals(profile.id, [type])}
           onResetAll={() => void restoreMeals(profile.id, ALL_MEAL_SLOTS)}
           onServeWeekPlat={(type) => void serveWeekPlat(profile.id, type)}
+          onDuplicateToOther={(meal) => void duplicateMealTo(meal, otherProfileId(meal.profileId))}
+          onCopyFromOther={(type) => {
+            const source = slotOfProfile(meals, otherProfileId(profile.id), type);
+            if (source) void duplicateMealTo(source, profile.id);
+          }}
           weekPlan={weekPlan}
           favorites={favorites}
           rejected={rejected}
@@ -923,6 +1022,7 @@ function QuickBtn({
 function ProfileToday({
   profile,
   meals,
+  householdMeals,
   ratings,
   onRate,
   onResetFeel,
@@ -934,6 +1034,8 @@ function ProfileToday({
   onResetMeal,
   onResetAll,
   onServeWeekPlat,
+  onDuplicateToOther,
+  onCopyFromOther,
   weekPlan,
   favorites,
   rejected,
@@ -947,6 +1049,7 @@ function ProfileToday({
 }: {
   profile: Profile;
   meals: MealEntry[];
+  householdMeals: MealEntry[];
   ratings: DailyFeelScores;
   onRate: (key: "hunger" | "energy" | "fatigue", value: number) => void;
   onResetFeel: () => void;
@@ -958,6 +1061,8 @@ function ProfileToday({
   onResetMeal: (type: MealType) => void;
   onResetAll: () => void;
   onServeWeekPlat: (type: "dejeuner" | "diner") => void;
+  onDuplicateToOther: (meal: MealEntry) => void;
+  onCopyFromOther: (type: MealType) => void;
   weekPlan: PlannedMeal[];
   favorites: FavoriteRecipe[];
   rejected: RejectedRecipe[];
@@ -976,6 +1081,8 @@ function ProfileToday({
   const weekStart = mondayOf(today);
   const weekLunch = plannedMealForDay(weekPlan, today, "dejeuner");
   const weekDinner = plannedMealForDay(weekPlan, today, "diner");
+  const otherId = otherProfileId(profile.id);
+  const otherName = profileShortName(otherId);
   const snackTemplate = templateForSlot(
     profile.mealTemplates ?? [],
     "collation",
@@ -997,10 +1104,21 @@ function ProfileToday({
     meals,
     weekPlan,
     workouts,
-    steps: movement.steps,
+    movement,
     feels: ratings,
     date: today,
   });
+  const coachSnapshot = ratings.validated
+    ? buildTodayCoachSnapshot({
+        profile,
+        meals,
+        weekPlan,
+        workouts,
+        movement,
+        feels: ratings,
+        date: today,
+      })
+    : null;
   const collations = meals.filter((m) => m.type === "collation");
   const collation = collations[0];
   const nutritionAdj = visibleNutrition(profile.appliedAdjustments);
@@ -1041,120 +1159,11 @@ function ProfileToday({
     () => collectDayBadges([...mealCoachViews.values()]),
     [mealCoachViews],
   );
-  const quickInflight = useRef("");
 
   async function hideNutrition() {
     if (!profile.appliedAdjustments) return;
     await updateAppliedAdjustments(profile.id, dismissNutrition(profile.appliedAdjustments));
   }
-
-  function pantryFallback(
-    mealId: string,
-    kind: MacroKind,
-    view: MealIngredientView | undefined,
-    avoided: string[],
-  ): StoredCoachQuickAdd | null {
-    const add = view?.adds.find((item) => item.kind === kind);
-    if (!add?.quickName || !add.quickGrams) return null;
-    return {
-      mealId,
-      kind,
-      name: add.quickName,
-      grams: add.quickGrams,
-      avoided: [...new Set([...avoided, add.quickName])],
-      fromFlash: false,
-    };
-  }
-
-  useEffect(() => {
-    if (!nutritionAdj || !profile.appliedAdjustments) return;
-    const slots = meals.flatMap((meal) => {
-      if (meal.isSkipped) return [];
-      const view = mealCoachViews.get(meal.id);
-      if (!view) return [];
-      return view.adds
-        .filter((add) => add.addGrams > 0 && needsPrepToAdd(add.name))
-        .filter((add) => !nutritionAdj.quickAdds?.[quickAddKey(meal.id, add.kind)])
-        .filter((add) => !nutritionAdj.acceptedAdds?.[quickAddKey(meal.id, add.kind)])
-        .map((add) => ({
-          mealId: meal.id,
-          mealName: meal.name,
-          mealType: meal.type,
-          items: (meal.items ?? []).filter((line) => line.trim()),
-          kind: add.kind,
-          macroG: Math.abs(Math.round(nutritionAdj.deltas[add.kind])),
-          idealName: add.name,
-          avoid: [add.name],
-        }));
-    });
-    if (slots.length === 0) return;
-    const signature = slots.map((slot) => `${slot.mealId}:${slot.kind}`).join("|");
-    if (quickInflight.current === signature) return;
-    quickInflight.current = signature;
-    let cancelled = false;
-    void (async () => {
-      const adj = profile.appliedAdjustments;
-      if (!adj) return;
-      try {
-        const result = await requestCoachQuickAdd({
-          name: profile.name,
-          diet: profile.diet,
-          aversions: profile.aversions ?? [],
-          slots,
-        });
-        if (cancelled) return;
-        const stored: StoredCoachQuickAdd[] = [];
-        for (const slot of slots) {
-          const hit = result.suggestions?.find(
-            (item) => item.mealId === slot.mealId && item.kind === slot.kind,
-          ) ?? result.suggestions?.find((item) => item.mealId === slot.mealId);
-          if (hit) {
-            stored.push({
-              mealId: slot.mealId,
-              kind: slot.kind,
-              name: hit.name,
-              grams: hit.grams,
-              avoided: [slot.idealName, hit.name],
-              fromFlash: true,
-            });
-          } else {
-            const fallback = pantryFallback(slot.mealId, slot.kind, mealCoachViews.get(slot.mealId), [
-              slot.idealName,
-            ]);
-            if (fallback) stored.push(fallback);
-          }
-        }
-        if (stored.length > 0) {
-          await updateAppliedAdjustments(profile.id, upsertNutritionQuickAdds(adj, stored));
-        }
-      } catch {
-        if (cancelled) return;
-        const fallback = slots
-          .map((slot) =>
-            pantryFallback(slot.mealId, slot.kind, mealCoachViews.get(slot.mealId), [slot.idealName]),
-          )
-          .filter((item): item is StoredCoachQuickAdd => Boolean(item));
-        if (fallback.length > 0) {
-          await updateAppliedAdjustments(profile.id, upsertNutritionQuickAdds(adj, fallback));
-        }
-      } finally {
-        if (quickInflight.current === signature) quickInflight.current = "";
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    meals,
-    mealCoachViews,
-    nutritionAdj,
-    profile.appliedAdjustments,
-    profile.aversions,
-    profile.diet,
-    profile.id,
-    profile.name,
-    updateAppliedAdjustments,
-  ]);
 
   async function autreIdeeRapide(meal: MealEntry, kind: MacroKind) {
     const adj = profile.appliedAdjustments;
@@ -1297,6 +1306,8 @@ function ProfileToday({
           })[0];
           const weekDish =
             slot === "dejeuner" ? weekLunch : slot === "diner" ? weekDinner : null;
+          const otherMeal = slotOfProfile(householdMeals, otherId, slot);
+          const copyFromOther = !isFilledMeal(meal) && isFilledMeal(otherMeal);
           if (!meal) {
             return (
               <Card key={slot}>
@@ -1326,6 +1337,12 @@ function ProfileToday({
                         <p className="mt-1 text-[12px] font-medium">Toucher pour ajouter</p>
                       </button>
                     )}
+                    {copyFromOther ? (
+                      <DuplicateMealBtn
+                        label={`Copier celui ${otherId === "elodie" ? "d’Élodie" : "d’Alexis"}`}
+                        onClick={() => onCopyFromOther(slot)}
+                      />
+                    ) : null}
                     <RestorePlannedBtn disabled={resetting} onClick={() => onResetMeal(slot)} />
                   </div>
                   <div className="flex shrink-0 flex-col items-end gap-2">
@@ -1350,6 +1367,7 @@ function ProfileToday({
           const fromWeek = Boolean(
             weekDish && isServingThisWeekPlat(meal, weekDish, weekStart),
           );
+          const canDuplicate = isFilledMeal(meal) && !isFilledMeal(otherMeal);
           return (
             <MealCard
               key={meal.id}
@@ -1368,6 +1386,14 @@ function ProfileToday({
               onClick={() => onEditMeal(meal)}
               onToggleSkip={() => onToggleSkip(meal)}
               onReset={() => onResetMeal(meal.type)}
+              onDuplicate={canDuplicate ? () => onDuplicateToOther(meal) : undefined}
+              duplicateLabel={canDuplicate ? `Pour ${otherName}` : undefined}
+              onCopyFromOther={copyFromOther ? () => onCopyFromOther(slot) : undefined}
+              copyFromOtherLabel={
+                copyFromOther
+                  ? `Copier celui ${otherId === "elodie" ? "d’Élodie" : "d’Alexis"}`
+                  : undefined
+              }
               onServeWeek={
                 weekDish && !fromWeek && !meal.isSkipped
                   ? () => onServeWeekPlat(slot as "dejeuner" | "diner")
@@ -1405,6 +1431,30 @@ function ProfileToday({
             onClick={() => onEditMeal(collation)}
             onToggleSkip={() => onToggleSkip(collation)}
             onReset={() => onResetMeal(collation.type)}
+            onDuplicate={
+              isFilledMeal(collation) &&
+              !isFilledMeal(slotOfProfile(householdMeals, otherId, "collation"))
+                ? () => onDuplicateToOther(collation)
+                : undefined
+            }
+            duplicateLabel={
+              isFilledMeal(collation) &&
+              !isFilledMeal(slotOfProfile(householdMeals, otherId, "collation"))
+                ? `Pour ${otherName}`
+                : undefined
+            }
+            onCopyFromOther={
+              !isFilledMeal(collation) &&
+              isFilledMeal(slotOfProfile(householdMeals, otherId, "collation"))
+                ? () => onCopyFromOther("collation")
+                : undefined
+            }
+            copyFromOtherLabel={
+              !isFilledMeal(collation) &&
+              isFilledMeal(slotOfProfile(householdMeals, otherId, "collation"))
+                ? `Copier celui ${otherId === "elodie" ? "d’Élodie" : "d’Alexis"}`
+                : undefined
+            }
           />
         ) : (
           <Card>
@@ -1425,6 +1475,12 @@ function ProfileToday({
               </button>
               <SkipToggle skipped={false} onClick={() => onSkipEmpty("collation")} />
             </div>
+            {isFilledMeal(slotOfProfile(householdMeals, otherId, "collation")) ? (
+              <DuplicateMealBtn
+                label={`Copier celui ${otherId === "elodie" ? "d’Élodie" : "d’Alexis"}`}
+                onClick={() => onCopyFromOther("collation")}
+              />
+            ) : null}
             <RestorePlannedBtn disabled={resetting} onClick={() => onResetMeal("collation")} />
           </Card>
         )}
@@ -1473,9 +1529,9 @@ function ProfileToday({
         )}
       </Card>
 
-      <TodayDayCoach remark={remark} />
+      <TodayDayCoach remark={remark} snapshot={coachSnapshot} />
 
-      <TodayPlannedCard profile={profile} />
+      <TodayPlannedCard profile={profile} workouts={workouts} />
 
       <SectionTitle>Activité</SectionTitle>
       <Card>
@@ -1565,6 +1621,10 @@ function MealCard({
   onClick,
   onToggleSkip,
   onReset,
+  onDuplicate,
+  duplicateLabel,
+  onCopyFromOther,
+  copyFromOtherLabel,
   onServeWeek,
   favoriteOn,
   onToggleFavorite,
@@ -1582,6 +1642,10 @@ function MealCard({
   onClick: () => void;
   onToggleSkip: () => void;
   onReset?: () => void;
+  onDuplicate?: () => void;
+  duplicateLabel?: string;
+  onCopyFromOther?: () => void;
+  copyFromOtherLabel?: string;
   onServeWeek?: () => void;
   favoriteOn?: boolean;
   onToggleFavorite?: () => void;
@@ -1653,6 +1717,12 @@ function MealCard({
               >
                 Mettre le plat de la semaine
               </button>
+            ) : null}
+            {onDuplicate && duplicateLabel ? (
+              <DuplicateMealBtn label={duplicateLabel} onClick={onDuplicate} />
+            ) : null}
+            {onCopyFromOther && copyFromOtherLabel ? (
+              <DuplicateMealBtn label={copyFromOtherLabel} onClick={onCopyFromOther} />
             ) : null}
             {onReset && (
               <RestorePlannedBtn onClick={onReset} />
@@ -1769,6 +1839,44 @@ function LogTile({
   );
 }
 
+function PhotoPickButton({
+  icon: Icon,
+  label,
+  capture,
+  disabled,
+  onPick,
+}: {
+  icon: typeof Camera;
+  label: string;
+  capture?: boolean;
+  disabled?: boolean;
+  onPick: (file: File) => void;
+}) {
+  return (
+    <label
+      className={cn(
+        "flex cursor-pointer flex-col items-center gap-2 rounded-card bg-health-bg py-6",
+        disabled && "pointer-events-none opacity-50",
+      )}
+    >
+      <Icon size={22} />
+      <span className="text-[13px] font-semibold">{label}</span>
+      <input
+        type="file"
+        accept="image/*"
+        capture={capture ? "environment" : undefined}
+        className="hidden"
+        disabled={disabled}
+        onChange={(event) => {
+          const file = event.target.files?.[0];
+          event.target.value = "";
+          if (file) onPick(file);
+        }}
+      />
+    </label>
+  );
+}
+
 function RestorePlannedBtn({
   onClick,
   disabled,
@@ -1788,6 +1896,28 @@ function RestorePlannedBtn({
     >
       <RotateCcw size={11} />
       Réinit.
+    </button>
+  );
+}
+
+function DuplicateMealBtn({
+  label,
+  onClick,
+}: {
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={(event) => {
+        event.stopPropagation();
+        onClick();
+      }}
+      className="mt-2 inline-flex items-center gap-1 text-[11px] font-semibold"
+    >
+      <Copy size={11} />
+      {label}
     </button>
   );
 }
@@ -1974,33 +2104,29 @@ function LogSheet({
 
         {mode === "photo" && !photoReady && (
           <>
-            <label className="flex cursor-pointer flex-col items-center gap-2 rounded-card bg-health-bg py-8">
-              {photoPreview ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={photoPreview}
-                  alt="Aperçu du repas"
-                  className="h-28 w-28 rounded-2xl object-cover"
-                />
-              ) : (
-                <Camera size={28} />
-              )}
-              <span className="text-[14px] font-semibold">
-                {analyzing ? "Analyse de la photo…" : "Prendre / importer une photo"}
-              </span>
-              <input
-                type="file"
-                accept="image/*"
-                capture="environment"
-                className="hidden"
-                disabled={analyzing}
-                onChange={(event) => {
-                  const file = event.target.files?.[0];
-                  event.target.value = "";
-                  if (file) void analyzePhoto(file);
-                }}
+            {photoPreview ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={photoPreview}
+                alt="Aperçu du repas"
+                className="mx-auto mb-3 h-28 w-28 rounded-2xl object-cover"
               />
-            </label>
+            ) : null}
+            <div className="grid grid-cols-2 gap-2">
+              <PhotoPickButton
+                icon={Camera}
+                label={analyzing ? "Analyse…" : "Appareil photo"}
+                capture
+                disabled={analyzing}
+                onPick={(file) => void analyzePhoto(file)}
+              />
+              <PhotoPickButton
+                icon={Images}
+                label={analyzing ? "Analyse…" : "Photothèque"}
+                disabled={analyzing}
+                onPick={(file) => void analyzePhoto(file)}
+              />
+            </div>
             {photoError ? <p className="mt-2 text-[12px] text-coral">{photoError}</p> : null}
             <p className="mt-2 text-[11px] leading-relaxed text-health-muted">
               L&apos;IA liste les aliments visibles. Tu corriges les grammes avant d&apos;enregistrer.

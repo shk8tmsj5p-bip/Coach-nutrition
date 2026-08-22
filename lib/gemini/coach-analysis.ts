@@ -1,5 +1,5 @@
 import type { Macros, Profile, SportActivity, SportEffort } from "@/lib/types";
-import type { CoachSessionSnapshot } from "@/lib/coach-week-sessions";
+import type { CoachActivityDay, CoachSessionSnapshot } from "@/lib/coach-week-sessions";
 import type { CoachTrendPoint, CoachWeekPayload } from "@/lib/coach-payload";
 import type { DailyFeelEntry } from "@/lib/daily-feel";
 import { formatDailyFeelsForPrompt, isStressedDaily, isStressedNotes } from "@/lib/daily-feel";
@@ -39,6 +39,7 @@ export type CoachAnalysisRequest = {
   recentJournals: CoachWeekPayload["recentJournals"];
   dailyFeels?: DailyFeelEntry[];
   sessions: CoachSessionSnapshot[];
+  activity7d?: CoachActivityDay[];
   currentTargets: Macros;
 };
 
@@ -216,6 +217,13 @@ export function localCoachAnalysis(body: CoachAnalysisRequest): CoachAnalysis {
   );
   const completed = body.sessions.filter((session) => session.completed).length;
   const planned = body.sessions.length;
+  const activity = body.activity7d ?? [];
+  const plannedMin = activity.reduce((sum, day) => sum + day.plannedMinutes, 0);
+  const doneMin = activity.reduce((sum, day) => sum + Math.max(day.workoutMinutes, day.completedMinutes), 0);
+  const avgActive = activity.length
+    ? Math.round(activity.reduce((sum, day) => sum + day.activeEnergyKcal, 0) / activity.length)
+    : 0;
+  const underTrained = plannedMin >= 90 && doneMin < plannedMin * 0.7;
   const first = body.weightTrend7d[0]?.value;
   const last = body.weightTrend7d[body.weightTrend7d.length - 1]?.value;
   const deltaKg =
@@ -261,6 +269,28 @@ export function localCoachAnalysis(body: CoachAnalysisRequest): CoachAnalysis {
   }
 
   if (body.plateau && body.profile.primaryGoal === "perte") {
+    if (underTrained) {
+      return {
+        analysis: `Moyenne 7 j quasi plate (${body.latestMa7 ?? "n/a"} kg) mais le volume sport est sous le plan (${doneMin} min faites / ${plannedMin} min prévues, ~${avgActive} kcal actives/j). Ce n’est pas un signal pour couper l’assiette : d’abord tenir les séances. ${weightLine}`,
+        nutrition: [
+          "Calories inchangées (pas un plateau d’assiette)",
+          hasRun ? "+20g glucides les jours de course" : "Jours d’entraînement : conserver les glucides",
+          "Protéines inchangées",
+        ],
+        sport: [
+          "Rattraper le volume prévu, pas d’intensité en plus",
+          "Ajouter ~1000 pas hors sport si la fatigue reste ≤ 3",
+        ],
+        sportAdjustments: [],
+        targets: current,
+        trainingDay: clampAgainstCurrent(current, { ...current, calories: current.calories + 40, carbs: current.carbs + 10 }, false),
+        restDay: current,
+        calorieDelta: 0,
+        proteinDelta: 0,
+        carbsDelta: 0,
+        caution: false,
+      };
+    }
     const rest = clampAgainstCurrent(
       current,
       { ...current, calories: current.calories - 150, carbs: current.carbs - 20 },
@@ -282,7 +312,7 @@ export function localCoachAnalysis(body: CoachAnalysisRequest): CoachAnalysis {
       false,
     );
     return {
-      analysis: `Moyenne 7 j quasi plate (${body.latestMa7 ?? "n/a"} kg). Journal dimanche OK. Objectif ${goalLabel(body.profile.primaryGoal)} (${formatWeeklyRate(body.profile.weeklyRateKg)}) : micro-ajustement sur les jours de repos, glucides protégés à l’entraînement. ${weightLine}`,
+      analysis: `Moyenne 7 j quasi plate (${body.latestMa7 ?? "n/a"} kg). Sport à peu près tenu (${doneMin}/${plannedMin || 0} min). Journal dimanche OK. Objectif ${goalLabel(body.profile.primaryGoal)} (${formatWeeklyRate(body.profile.weeklyRateKg)}) : micro-ajustement sur les jours de repos. ${weightLine}`,
       nutrition: [
         "−150 kcal les jours de repos (féculents du dîner)",
         hasRun ? "+20g glucides les jours de course" : "Jours d’entraînement : conserver les glucides",
@@ -379,21 +409,37 @@ ${recent ? `Autres notes :\n${recent}` : ""}
 
 ${formatDailyFeelsForPrompt(body.dailyFeels)}
 
-Séances 7 j (prévues + validées Strava) :
+Séances 7 j (prévues + validées Santé / Strava) :
 ${sessions}
+
+Dépense 7 j Apple Santé (pas de FC / D+ / fractionné mesuré) :
+${
+  (body.activity7d ?? [])
+    .map(
+      (day) =>
+        `- ${day.date} : ${Math.round(day.activeEnergyKcal)} kcal actives · exercice ${day.workoutMinutes} min (plan ${day.plannedMinutes} min, validé ${day.completedMinutes} min) · ${day.steps} pas`,
+    )
+    .join("\n") || "(pas encore de sync Santé sur 7 j)"
+}
+
+Lecture plateau :
+- Poids plat ET minutes d’exercice clairement sous le plan → d’abord bouger / tenir les séances, INTERDIT de couper l’assiette.
+- Poids plat ET sport tenu ET notes OK → possible surplus alimentaire : −150 kcal max les jours de repos.
+- Poids plat ET faim≥4 / fatigue≥4 / énergie≤2 (jour noté) → pas de coupe.
 
 Routine persistée (source Tab 2 / séance du jour) :
 ${routine}
 
 Mission :
-1. Analyser fatigue vs performance vs évolution du poids sur 7 j (3–5 phrases, français).
+1. Analyser fatigue vs performance vs poids vs DÉPENSE RÉELLE 7 j (3–5 phrases, français). Distinguer clairement : pas assez bougé / trop mangé / vrai plateau / récupération.
 2. Proposer des micro-ajustements EXACTS (kcal, glucides, protéines) distincts jour d'entraînement vs jour de repos. Exemple : "+20g glucides les jours de course".
 3. Ajuster l'intensité / la durée sport si faim/fatigue hautes (alléger fractionné → Zone 2, raccourcir 10 min). Ne pas inventer de nouvelles séances.
 
 Règles :
 - Si faim ≥ 4 OU fatigue ≥ 4 OU énergie ≤ 2 (journal dimanche OU n'importe quel check-in quotidien noté) : INTERDIT de baisser les calories. calorie_delta = 0. Préférer glucides d'entraînement + récupération. sport_adjustments : duration_delta_min négatif (−10) et next_effort plus facile si fractionné / HIIT.
 - Jours SANS check-in quotidien : ignorer complètement (ne pas inventer de 3/5).
-- Plateau perte ET notes OK (journal dimanche + check-ins notés, jours sans note ignorés) : −150 kcal/j max, plutôt les jours de repos. Jamais plus de −200 kcal/j. sport_adjustments = [] (volume conservé).
+- Plateau perte ET sport sous le plan : calorie_delta = 0. Dire de tenir les séances / +pas. sport_adjustments = [].
+- Plateau perte ET sport tenu ET notes OK (journal dimanche + check-ins notés, jours sans note ignorés) : −150 kcal/j max, plutôt les jours de repos. Jamais plus de −200 kcal/j. sport_adjustments = [] (volume conservé).
 - Prise de masse : ne pas couper les kcal.
 - Maintien : viser ~0 de delta moyen.
 - targets = cible journalière moyenne à appliquer aux anneaux / Gem Chef.

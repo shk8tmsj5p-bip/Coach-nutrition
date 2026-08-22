@@ -26,8 +26,9 @@ import {
   loadSessionValidations,
   markSessionsValidated,
   matchPlannedSessions,
+  matchWorkoutsToPlanned,
 } from "@/lib/strava-match";
-import type { Profile, SportActivity, SportSession } from "@/lib/types";
+import type { Profile, SportActivity, SportSession, Workout } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 const ACTIVITY_ICON = {
@@ -36,7 +37,13 @@ const ACTIVITY_ICON = {
   muscu: Dumbbell,
 } as const;
 
-export function TodayPlannedCard({ profile }: { profile: Profile }) {
+export function TodayPlannedCard({
+  profile,
+  workouts = [],
+}: {
+  profile: Profile;
+  workouts?: Workout[];
+}) {
   const { updateAppliedAdjustments } = useProfile();
   const date = todayISO();
   const weekday = isoWeekday(date);
@@ -51,6 +58,21 @@ export function TodayPlannedCard({ profile }: { profile: Profile }) {
     setValidations(loadSessionValidations(profile.id, date));
     setNotice(null);
   }, [profile.id, date]);
+
+  useEffect(() => {
+    if (planned.length === 0 || workouts.length === 0) return;
+    const hits = matchWorkoutsToPlanned(workouts, planned, date);
+    const fresh = [...hits.entries()].filter(([id]) => !loadSessionValidations(profile.id, date)[id]);
+    if (fresh.length === 0) return;
+    setValidations(
+      markSessionsValidated(
+        profile.id,
+        fresh.map(([id]) => id),
+        fresh[0][1],
+        date,
+      ),
+    );
+  }, [workouts, planned, profile.id, date]);
 
   async function hideSport(sessionId: string) {
     if (!profile.appliedAdjustments) return;
@@ -182,7 +204,7 @@ function PlannedRow({
         )}
         {validated && (
           <span className="rounded-full bg-white px-2 py-0.5 text-[11px] font-semibold text-health-ink">
-            Strava
+            {stravaName?.toLowerCase().includes("strava") ? "Strava" : "Santé"}
           </span>
         )}
       </div>

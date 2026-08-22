@@ -76,6 +76,14 @@ export function pickCanonicalMeals(meals: MealEntry[]): { keep: MealEntry[]; ext
   return { keep, extraIds };
 }
 
+const STORED_MEAL_ID =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** True when the meal row exists in `repas` (UUID). Client overlays use `week-…` / `alexis-…`. */
+export function isStoredMealId(id: string) {
+  return STORED_MEAL_ID.test(id);
+}
+
 export async function insertMeal(
   supabase: SupabaseClient<Database>,
   meal: Omit<MealEntry, "id">,
@@ -117,6 +125,33 @@ export async function updateMeal(
     })
     .eq("id", meal.id);
   return error?.message;
+}
+
+/** Update a DB row, or insert when the card is a local overlay (week plat / template). */
+export async function upsertMeal(
+  supabase: SupabaseClient<Database>,
+  meal: MealEntry,
+) {
+  if (isStoredMealId(meal.id)) {
+    const { data, error } = await supabase
+      .from("repas")
+      .update({
+        type: meal.type,
+        nom: meal.name,
+        items: meal.items ?? [],
+        calories: meal.macros.calories,
+        proteines_g: meal.macros.protein,
+        glucides_g: meal.macros.carbs,
+        lipides_g: meal.macros.fat,
+        is_skipped: meal.isSkipped ?? false,
+        notes: meal.notes ?? null,
+      })
+      .eq("id", meal.id)
+      .select("id");
+    if (error) return error.message;
+    if (data && data.length > 0) return;
+  }
+  return insertMeal(supabase, meal);
 }
 
 export async function restorePlannedMeals(

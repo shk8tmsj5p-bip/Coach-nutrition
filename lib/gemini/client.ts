@@ -4,6 +4,8 @@ import type { GenerateMealsMode } from "@/lib/gemini/meals";
 import type { HouseholdCoachBias } from "@/lib/coach-apply";
 import type { MealCoachHousehold } from "@/lib/meal-coach";
 import type { CoachAnalysis, CoachAnalysisRequest } from "@/lib/gemini/coach-analysis";
+import type { CoachTodayAdvice } from "@/lib/gemini/coach-today";
+import type { CoachTodaySnapshot } from "@/lib/today-coach";
 import type { SwapProposal } from "@/lib/swap-proposals";
 import { withGeminiWait } from "@/lib/gemini/wait";
 
@@ -80,6 +82,25 @@ export async function requestCoachAnalysis(
       throw new Error(payload.error ?? "Analyse coach impossible");
     }
     return payload;
+  });
+}
+
+export async function requestCoachToday(snapshot: CoachTodaySnapshot) {
+  return withGeminiWait("Le coach prépare 3 actions…", async () => {
+    const response = await fetch("/api/coach-today", {
+      method: "POST",
+      cache: "no-store",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ snapshot }),
+    });
+    const payload = (await response.json()) as {
+      advice?: CoachTodayAdvice;
+      error?: string;
+    };
+    if (!payload.advice) {
+      throw new Error(payload.error ?? "Conseil du moment impossible");
+    }
+    return payload.advice;
   });
 }
 

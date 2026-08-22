@@ -21,7 +21,7 @@ import {
   coachWeightTrend,
   type CoachWeekPayload,
 } from "@/lib/coach-payload";
-import { sessionsLast7Days, type CoachSessionSnapshot } from "@/lib/coach-week-sessions";
+import { sessionsLast7Days, activityWeekSummary, type CoachActivityDay, type CoachSessionSnapshot } from "@/lib/coach-week-sessions";
 import { formatSportPatch, coachHeadline } from "@/lib/gemini/coach-analysis";
 import { friendlyLlmWarning } from "@/lib/gemini/flash";
 import { requestCoachAnalysis } from "@/lib/gemini/client";
@@ -35,6 +35,7 @@ import { applyCoachBoostsToLoadedPlan } from "@/lib/coach-plan-sync";
 import { mondayOf, todayISO, formatLongDate } from "@/lib/dates";
 import { createBrowserSupabaseClient } from "@/lib/supabase/client";
 import { fetchDailyFeels, last7DaysRange } from "@/lib/supabase/daily-feel";
+import { fetchActivityRange } from "@/lib/supabase/health-logs";
 import { hasFeelScore, type DailyFeelEntry } from "@/lib/daily-feel";
 import { loadPesees } from "@/lib/supabase/pesees";
 import { loadWeekPlan, saveWeekPlan } from "@/lib/supabase/week-plans";
@@ -46,6 +47,7 @@ export function CoachAnalysisCard({ profile }: { profile: Profile }) {
   const { catalog, updateTargets, updateSportRoutines, updateAppliedAdjustments } = useProfile();
   const [payload, setPayload] = useState<CoachWeekPayload | null>(null);
   const [sessions, setSessions] = useState<CoachSessionSnapshot[]>([]);
+  const [activity7d, setActivity7d] = useState<CoachActivityDay[]>([]);
   const [dailyFeels, setDailyFeels] = useState<DailyFeelEntry[]>([]);
   const [stored, setStored] = useState<StoredCoachAnalysis | null>(null);
   const [applyNutrition, setApplyNutrition] = useState(true);
@@ -61,9 +63,19 @@ export function CoachAnalysisCard({ profile }: { profile: Profile }) {
       const { rows } = await loadPesees(profile.id);
       if (cancelled) return;
       setPayload(buildCoachContextFromRows(profile, rows));
-      setSessions(sessionsLast7Days(profile.id, profile.sportRoutine.sessions));
       const range = last7DaysRange();
-      const feels = await fetchDailyFeels(createBrowserSupabaseClient(), [profile.id], range.from, range.to);
+      const supabase = createBrowserSupabaseClient();
+      const activity = await fetchActivityRange(supabase, profile.id, range.from, range.to);
+      if (cancelled) return;
+      const weekSessions = sessionsLast7Days(
+        profile.id,
+        profile.sportRoutine.sessions,
+        todayISO(),
+        activity.workouts,
+      );
+      setSessions(weekSessions);
+      setActivity7d(activityWeekSummary(activity.days, weekSessions));
+      const feels = await fetchDailyFeels(supabase, [profile.id], range.from, range.to);
       if (cancelled) return;
       setDailyFeels(feels.filter((row) => row.profileId === profile.id));
       const loaded = loadCoachAnalysis(profile.id);
@@ -87,13 +99,21 @@ export function CoachAnalysisCard({ profile }: { profile: Profile }) {
     setBusy(true);
     try {
       const range = last7DaysRange();
-      const feels = await fetchDailyFeels(
-        createBrowserSupabaseClient(),
-        [profile.id],
-        range.from,
-        range.to,
-      );
+      const supabase = createBrowserSupabaseClient();
+      const [feels, activity] = await Promise.all([
+        fetchDailyFeels(supabase, [profile.id], range.from, range.to),
+        fetchActivityRange(supabase, profile.id, range.from, range.to),
+      ]);
       setDailyFeels(feels);
+      const weekSessions = sessionsLast7Days(
+        profile.id,
+        profile.sportRoutine.sessions,
+        todayISO(),
+        activity.workouts,
+      );
+      setSessions(weekSessions);
+      const weekActivity = activityWeekSummary(activity.days, weekSessions);
+      setActivity7d(weekActivity);
       const result = await requestCoachAnalysis({
         profile,
         weightTrend7d: coachWeightTrend(payload),
@@ -103,7 +123,8 @@ export function CoachAnalysisCard({ profile }: { profile: Profile }) {
         journal: payload.journal,
         recentJournals: payload.recentJournals,
         dailyFeels: feels,
-        sessions,
+        sessions: weekSessions,
+        activity7d: weekActivity,
         currentTargets: profile.targets,
       });
       if (!result.analysis) {
@@ -308,6 +329,12 @@ export function CoachAnalysisCard({ profile }: { profile: Profile }) {
             ? `Check-in Aujourd’hui : ${dailyFeels.filter(hasFeelScore).length} j notés sur 7 · jours sans note ignorés`
             : "Pas encore de check-in quotidien · le coach ignore les jours sans note"}
         </p>
+        {activity7d.length > 0 ? (
+          <p className="mt-1 text-center text-[11px] text-health-muted">
+            Santé 7 j : {activity7d.reduce((sum, day) => sum + day.workoutMinutes, 0)} min exercice · plan{" "}
+            {activity7d.reduce((sum, day) => sum + day.plannedMinutes, 0)} min
+          </p>
+        ) : null}
         <button
           type="button"
           onClick={() => void requestAnalysis()}

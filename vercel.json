@@ -8,6 +8,7 @@
     "app/api/log-photo/route.ts": { "maxDuration": 90 },
     "app/api/log-text/route.ts": { "maxDuration": 60 },
     "app/api/coach-quick-add/route.ts": { "maxDuration": 60 },
+    "app/api/coach-today/route.ts": { "maxDuration": 90 },
     "app/api/ocr-renpho/route.ts": { "maxDuration": 90 }
   }
 }

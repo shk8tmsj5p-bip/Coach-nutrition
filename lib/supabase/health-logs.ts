@@ -530,6 +530,31 @@ export async function loadHealthHistory(profileId: ProfileId): Promise<DailyMove
   return data.map(movementFromRow);
 }
 
+export async function fetchActivityRange(
+  supabase: SupabaseClient<Database> | null,
+  profileId: ProfileId,
+  from: string,
+  to: string,
+): Promise<{ days: DailyMovement[]; workouts: Workout[] }> {
+  if (!supabase) return { days: [], workouts: [] };
+  const { data, error } = await supabase
+    .from("logs_sante")
+    .select("*")
+    .eq("profile_id", profileId)
+    .eq("kind", "activite")
+    .gte("date", from)
+    .lte("date", to)
+    .order("date", { ascending: true });
+  if (error || !data) return { days: [], workouts: [] };
+  const days: DailyMovement[] = [];
+  const workouts: Workout[] = [];
+  for (const row of data) {
+    if (row.activity_type === DAILY_TYPE) days.push(mapDailyRow(row));
+    else workouts.push(mapWorkoutRow(row));
+  }
+  return { days, workouts };
+}
+
 export function movementSeries(
   days: DailyMovement[],
   key: "steps" | "distanceKm" | "cyclingDistanceKm" | "workoutMinutes" | "activeEnergyKcal" | "restingEnergyKcal",

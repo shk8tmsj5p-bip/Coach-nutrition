@@ -1,6 +1,6 @@
 import { isoWeekday, todayISO } from "@/lib/dates";
 import { storage } from "@/lib/storage";
-import type { ProfileId, SportActivity, SportSession } from "@/lib/types";
+import type { ProfileId, SportActivity, SportSession, Workout } from "@/lib/types";
 
 export type SimulatedStravaActivity = {
   name: string;
@@ -69,4 +69,40 @@ export function matchPlannedSessions(
     (session) =>
       (session.weekdays ?? []).includes(weekday) && activityMatchesSession(activity, session),
   );
+}
+
+export function sportActivityFromText(text: string): SportActivity | null {
+  const t = text
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+  if (/run|course|foot|jog/.test(t)) return "course";
+  if (/ride|cycl|velo|bike/.test(t)) return "velo";
+  if (/strength|muscu|weight|force|hiit|gym|musculation/.test(t)) return "muscu";
+  return null;
+}
+
+/** Associe les séances Santé / Watch aux séances prévues (type + durée). Une séance = un match. */
+export function matchWorkoutsToPlanned(
+  workouts: Array<Pick<Workout, "name" | "type" | "durationMin">>,
+  sessions: SportSession[],
+  date = todayISO(),
+) {
+  const hits = new Map<string, string>();
+  const used = new Set<number>();
+  for (const session of sessions) {
+    const index = workouts.findIndex((workout, i) => {
+      if (used.has(i)) return false;
+      const type = sportActivityFromText(`${workout.type} ${workout.name}`);
+      if (!type) return false;
+      return activityMatchesSession(
+        { name: workout.name, type, durationMin: workout.durationMin, date },
+        session,
+      );
+    });
+    if (index < 0) continue;
+    used.add(index);
+    hits.set(session.id, workouts[index].name);
+  }
+  return hits;
 }

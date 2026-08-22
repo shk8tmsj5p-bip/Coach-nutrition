@@ -49,3 +49,21 @@ export function isoWeekday(iso = todayISO()): 1 | 2 | 3 | 4 | 5 | 6 | 7 {
   const day = new Date(`${iso}T12:00:00`).getDay();
   return (day === 0 ? 7 : day) as 1 | 2 | 3 | 4 | 5 | 6 | 7;
 }
+
+/** Heure 0–23 à Paris (conseils matin / midi / soir). */
+export function parisHour(date = new Date()) {
+  const hour = Number(
+    new Intl.DateTimeFormat("en-GB", {
+      timeZone: TZ,
+      hour: "numeric",
+      hourCycle: "h23",
+    }).format(date),
+  );
+  return Number.isFinite(hour) ? hour : date.getHours();
+}
+
+export function dayPeriod(hour = parisHour()): "matin" | "midi" | "soir" {
+  if (hour < 11) return "matin";
+  if (hour < 16) return "midi";
+  return "soir";
+}
