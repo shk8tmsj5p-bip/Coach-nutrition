@@ -41,6 +41,12 @@ export function macrosAtGrams(per100: Macros, grams: number): Macros {
   };
 }
 
+/** Grammes (étiquette OFF) et kcal saisis restent indépendants. P / G / L suivent les grammes. */
+export function macrosAtGramsWithCalories(per100: Macros, grams: number, calories: number): Macros {
+  const base = macrosAtGrams(per100, grams);
+  return { ...base, calories: Math.max(0, Math.round(calories)) };
+}
+
 export function parseOffProduct(raw: unknown, barcode: string): BarcodeProduct | null {
   if (!raw || typeof raw !== "object") return null;
   const rec = raw as Record<string, unknown>;

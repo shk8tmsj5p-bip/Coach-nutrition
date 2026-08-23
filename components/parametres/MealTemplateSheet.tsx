@@ -19,7 +19,6 @@ import {
 import { requestLogText } from "@/lib/gemini/client";
 import { todayISO } from "@/lib/dates";
 import { recentFoodsFromMeals, recentFoodToDetected, type DatedMeal } from "@/lib/recent-foods";
-import { macrosAtGrams } from "@/lib/barcode";
 import { SLOT_TEMPLATE_KINDS } from "@/lib/meal-templates";
 import { WEEKDAYS, toggleWeekday } from "@/lib/sport-routine";
 import { createBrowserSupabaseClient } from "@/lib/supabase/client";
@@ -324,8 +323,7 @@ export function MealTemplateSheet({
             appendDetected(ingredients);
             closeLog();
           }}
-          onSaveBarcode={(product, grams) => {
-            const macros = macrosAtGrams(product.per100, grams);
+          onSaveBarcode={(product, grams, macros) => {
             const line = {
               id: `barcode-${Date.now()}`,
               name: product.name,

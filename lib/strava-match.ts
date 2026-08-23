@@ -1,4 +1,4 @@
-import { isoWeekday, todayISO } from "@/lib/dates";
+import { todayISO } from "@/lib/dates";
 import { storage } from "@/lib/storage";
 import type { ProfileId, SportActivity, SportSession, Workout } from "@/lib/types";
 
@@ -9,7 +9,8 @@ export type SimulatedStravaActivity = {
   date: string;
 };
 
-type DayValidations = Record<string, { activityName: string }>;
+export type SessionValidation = { activityName: string; dismissed?: boolean };
+type DayValidations = Record<string, SessionValidation>;
 
 function storageKey(profileId: ProfileId, date: string) {
   return `strava-match:${profileId}:${date}`;
@@ -17,6 +18,10 @@ function storageKey(profileId: ProfileId, date: string) {
 
 export function loadSessionValidations(profileId: ProfileId, date = todayISO()): DayValidations {
   return storage.getJSON<DayValidations>(storageKey(profileId, date), {});
+}
+
+export function isSessionValidated(entry: SessionValidation | undefined) {
+  return Boolean(entry && !entry.dismissed);
 }
 
 export function markSessionsValidated(
@@ -34,41 +39,37 @@ export function markSessionsValidated(
   return next;
 }
 
-export function stravaTypeLabel(type: SportActivity) {
-  if (type === "course") return "Course";
-  if (type === "muscu") return "Musculation";
-  return "Vélo";
+/** Marque la séance non faite. Santé ne la revalide pas aujourd’hui. */
+export function unvalidateSession(
+  profileId: ProfileId,
+  sessionId: string,
+  date = todayISO(),
+) {
+  const current = loadSessionValidations(profileId, date);
+  const next = {
+    ...current,
+    [sessionId]: { activityName: current[sessionId]?.activityName ?? "", dismissed: true },
+  };
+  storage.setJSON(storageKey(profileId, date), next);
+  return next;
 }
 
-/** Type + durée (±15 min ou 25 %) — placeholder avant le vrai webhook Strava. */
+export function toggleSessionValidation(
+  profileId: ProfileId,
+  sessionId: string,
+  date = todayISO(),
+) {
+  if (isSessionValidated(loadSessionValidations(profileId, date)[sessionId])) {
+    return unvalidateSession(profileId, sessionId, date);
+  }
+  return markSessionsValidated(profileId, [sessionId], "Manuel", date);
+}
+
+/** Type + durée (±15 min ou 25 %). */
 export function activityMatchesSession(activity: SimulatedStravaActivity, session: SportSession) {
   if (activity.type !== session.activity) return false;
   const delta = Math.abs(activity.durationMin - session.durationMin);
   return delta <= 15 || (session.durationMin > 0 && delta / session.durationMin <= 0.25);
-}
-
-export function buildSimulatedStravaActivity(session: SportSession, date = todayISO()): SimulatedStravaActivity {
-  const durationMin =
-    session.activity === "course" && Math.abs(session.durationMin - 40) <= 15
-      ? 40
-      : session.durationMin;
-  return {
-    name: `${stravaTypeLabel(session.activity)} — simulation Strava`,
-    type: session.activity,
-    durationMin,
-    date,
-  };
-}
-
-export function matchPlannedSessions(
-  activity: SimulatedStravaActivity,
-  sessions: SportSession[],
-  weekday = isoWeekday(activity.date),
-) {
-  return sessions.filter(
-    (session) =>
-      (session.weekdays ?? []).includes(weekday) && activityMatchesSession(activity, session),
-  );
 }
 
 export function sportActivityFromText(text: string): SportActivity | null {

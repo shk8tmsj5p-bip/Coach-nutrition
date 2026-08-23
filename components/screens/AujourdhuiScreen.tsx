@@ -17,7 +17,6 @@ import { CopyYesterdaySheet } from "@/components/today/CopyYesterdaySheet";
 import { RecentsSheet } from "@/components/today/RecentsSheet";
 import { EditMealSheet } from "@/components/today/EditMealSheet";
 import { LogSheet } from "@/components/today/LogSheet";
-import { macrosAtGrams } from "@/lib/barcode";
 import { SwapProposalSheet } from "@/components/today/SwapProposalSheet";
 import { TodayPlannedCard } from "@/components/today/TodayPlannedCard";
 import { TodayDayCoach } from "@/components/today/TodayDayCoach";
@@ -112,7 +111,7 @@ import type {
 } from "@/lib/types";
 import { sanitizeRestingKcal } from "@/lib/health-energy";
 import { macroStatus, slotCalorieTarget, TONE_TEXT } from "@/lib/macro-status";
-import { cn, formatKcal, formatKm, formatMin, formatSteps, mealTypeLabel, passiveKcalFromMovement } from "@/lib/utils";
+import { cn, formatKcal, formatKm, formatMin, formatSteps, mealTypeLabel } from "@/lib/utils";
 import {
   acceptNutritionAdds,
   dismissNutrition,
@@ -1023,8 +1022,7 @@ export default function AujourdhuiScreen() {
             closeLog();
             flash("Aliment ajouté");
           }}
-          onSaveBarcode={(product, grams) => {
-            const macros = macrosAtGrams(product.per100, grams);
+          onSaveBarcode={(product, grams, macros) => {
             void persistLoggedFood("barcode", {
               name: product.name,
               macros,
@@ -1167,8 +1165,6 @@ function ProfileToday({
   const snack = snackTemplate
     ? { name: snackTemplate.name, macros: snackTemplate.macros }
     : suggestedSnacks[profile.id];
-  const sportKcal = workouts.reduce((sum, workout) => sum + workout.calories, 0);
-  const passiveKcal = passiveKcalFromMovement(movement.activeEnergyKcal, sportKcal);
   const restingDisplay = sanitizeRestingKcal(movement.restingEnergyKcal, {
     bmr: profile.bmr,
     tdee: profile.tdee,
@@ -1665,7 +1661,6 @@ function ProfileToday({
           <HealthMetricTile compact label="Exercice" value={formatMin(movement.workoutMinutes)} />
           <HealthMetricTile compact label="Active" value={formatKcal(movement.activeEnergyKcal)} />
           <HealthMetricTile compact label="Repos" value={formatKcal(restingDisplay)} />
-          <HealthMetricTile compact label="Hors sport" value={`${passiveKcal}`} />
           {movement.weightKg != null ? (
             <HealthMetricTile
               compact

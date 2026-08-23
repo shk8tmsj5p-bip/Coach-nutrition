@@ -1,9 +1,9 @@
 "use client";
 
-import { Bike, Check, Dumbbell, Footprints, RefreshCw, Users } from "lucide-react";
+import { Bike, Check, Dumbbell, Footprints, Users } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Card, SectionTitle } from "@/components/ui/Card";
-import { CoachBadge, CoachDiffTags, coachHighlightClass } from "@/components/today/CoachDelta";
+import { CoachBadge, CoachDiffTags } from "@/components/today/CoachDelta";
 import { useProfile } from "@/context/ProfileContext";
 import {
   dismissSport,
@@ -22,11 +22,11 @@ import {
   sessionsForWeekday,
 } from "@/lib/sport-routine";
 import {
-  buildSimulatedStravaActivity,
+  isSessionValidated,
   loadSessionValidations,
   markSessionsValidated,
-  matchPlannedSessions,
   matchWorkoutsToPlanned,
+  toggleSessionValidation,
 } from "@/lib/strava-match";
 import type { Profile, SportActivity, SportSession, Workout } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -36,6 +36,14 @@ const ACTIVITY_ICON = {
   velo: Bike,
   muscu: Dumbbell,
 } as const;
+
+function sourceBadge(activityName?: string) {
+  if (!activityName) return null;
+  const n = activityName.toLowerCase();
+  if (n === "manuel") return null;
+  if (n.includes("strava")) return "Strava";
+  return "Santé";
+}
 
 export function TodayPlannedCard({
   profile,
@@ -52,17 +60,16 @@ export function TodayPlannedCard({
     [profile.sportRoutine, weekday],
   );
   const [validations, setValidations] = useState(() => loadSessionValidations(profile.id, date));
-  const [notice, setNotice] = useState<string | null>(null);
 
   useEffect(() => {
     setValidations(loadSessionValidations(profile.id, date));
-    setNotice(null);
   }, [profile.id, date]);
 
   useEffect(() => {
     if (planned.length === 0 || workouts.length === 0) return;
     const hits = matchWorkoutsToPlanned(workouts, planned, date);
-    const fresh = [...hits.entries()].filter(([id]) => !loadSessionValidations(profile.id, date)[id]);
+    const current = loadSessionValidations(profile.id, date);
+    const fresh = [...hits.entries()].filter(([id]) => current[id] == null);
     if (fresh.length === 0) return;
     setValidations(
       markSessionsValidated(
@@ -82,27 +89,8 @@ export function TodayPlannedCard({
     );
   }
 
-  function simulateStrava() {
-    const pending = planned.find((session) => !validations[session.id]) ?? planned[0];
-    if (!pending) return;
-    const activity = buildSimulatedStravaActivity(pending, date);
-    const matched = matchPlannedSessions(activity, planned, weekday);
-    if (matched.length === 0) {
-      setNotice(
-        `Aucune séance prévue ne correspond à ${activity.name} (${activity.durationMin} min).`,
-      );
-      return;
-    }
-    const next = markSessionsValidated(
-      profile.id,
-      matched.map((session) => session.id),
-      activity.name,
-      date,
-    );
-    setValidations(next);
-    setNotice(
-      `Strava · ${activity.name} · ${activity.durationMin} min — ${matched.length} séance${matched.length > 1 ? "s" : ""} validée${matched.length > 1 ? "s" : ""}.`,
-    );
+  function toggleDone(sessionId: string) {
+    setValidations(toggleSessionValidation(profile.id, sessionId, date));
   }
 
   async function hideAllSport() {
@@ -132,29 +120,28 @@ export function TodayPlannedCard({
           </div>
         ) : (
           <div className="space-y-3">
-            {planned.map((session) => (
-              <PlannedRow
-                key={session.id}
-                session={session}
-                validated={Boolean(validations[session.id])}
-                stravaName={validations[session.id]?.activityName}
-                coachDiff={
-                  validations[session.id]
-                    ? null
-                    : visibleSportDiff(profile.appliedAdjustments, session.id, session.activity)
-                }
-                onDismissCoach={() => void hideSport(session.id)}
-              />
-            ))}
-            <button
-              type="button"
-              onClick={simulateStrava}
-              className="flex w-full items-center justify-center gap-2 rounded-card bg-health-bg py-2.5 text-[13px] font-semibold"
-            >
-              <RefreshCw size={14} />
-              Simuler sync Strava
-            </button>
-            {notice && <p className="text-[12px] leading-relaxed text-health-muted">{notice}</p>}
+            {planned.map((session) => {
+              const entry = validations[session.id];
+              const validated = isSessionValidated(entry);
+              return (
+                <PlannedRow
+                  key={session.id}
+                  session={session}
+                  validated={validated}
+                  sourceLabel={validated ? sourceBadge(entry?.activityName) : null}
+                  sourceName={validated && sourceBadge(entry?.activityName) ? entry?.activityName : undefined}
+                  coachDiff={
+                    validated ? null : visibleSportDiff(profile.appliedAdjustments, session.id, session.activity)
+                  }
+                  onToggle={() => toggleDone(session.id)}
+                  onDismissCoach={() => void hideSport(session.id)}
+                />
+              );
+            })}
+            <p className="text-[11px] leading-relaxed text-health-muted">
+              Touche À faire / Validé pour marquer à la main. Une séance Watch ou Strava dans Santé
+              valide toute seule si le type et la durée collent.
+            </p>
           </div>
         )}
       </Card>
@@ -165,14 +152,18 @@ export function TodayPlannedCard({
 function PlannedRow({
   session,
   validated,
-  stravaName,
+  sourceLabel,
+  sourceName,
   coachDiff,
+  onToggle,
   onDismissCoach,
 }: {
   session: SportSession;
   validated: boolean;
-  stravaName?: string;
+  sourceLabel: string | null;
+  sourceName?: string;
   coachDiff: ReturnType<typeof visibleSportDiff>;
+  onToggle: () => void;
   onDismissCoach: () => void;
 }) {
   const Icon = ACTIVITY_ICON[session.activity as SportActivity];
@@ -192,7 +183,7 @@ function PlannedRow({
             {session.activity !== "muscu" ? ` · D+ ${session.elevationM} m` : ""}
           </p>
         </div>
-        <StatusPill validated={validated} />
+        <StatusPill validated={validated} onToggle={onToggle} />
       </div>
       <div className="mt-1.5 flex flex-wrap gap-1.5">
         {highlighted && <CoachBadge onDismiss={onDismissCoach} />}
@@ -202,11 +193,11 @@ function PlannedRow({
             Duo
           </span>
         )}
-        {validated && (
+        {validated && sourceLabel ? (
           <span className="rounded-full bg-white px-2 py-0.5 text-[11px] font-semibold text-health-ink">
-            {stravaName?.toLowerCase().includes("strava") ? "Strava" : "Santé"}
+            {sourceLabel}
           </span>
-        )}
+        ) : null}
       </div>
       {highlighted && <CoachDiffTags tags={tags} />}
       {named.length > 0 ? (
@@ -218,16 +209,16 @@ function PlannedRow({
           ))}
         </ul>
       ) : null}
-      {validated && stravaName && (
-        <p className="mt-1 text-[11px] text-health-muted">{stravaName}</p>
-      )}
+      {validated && sourceName ? <p className="mt-1 text-[11px] text-health-muted">{sourceName}</p> : null}
     </div>
   );
 }
 
-function StatusPill({ validated }: { validated: boolean }) {
+function StatusPill({ validated, onToggle }: { validated: boolean; onToggle: () => void }) {
   return (
-    <span
+    <button
+      type="button"
+      onClick={onToggle}
       className={cn(
         "inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold",
         validated ? "bg-emerald-50 text-emerald-700" : "bg-white text-health-muted",
@@ -235,6 +226,6 @@ function StatusPill({ validated }: { validated: boolean }) {
     >
       {validated ? <Check size={11} /> : null}
       {validated ? "Validé" : "À faire"}
-    </span>
+    </button>
   );
 }

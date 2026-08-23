@@ -1,5 +1,5 @@
 import { addDaysISO, isoWeekday, todayISO } from "@/lib/dates";
-import { loadSessionValidations, matchWorkoutsToPlanned } from "@/lib/strava-match";
+import { isSessionValidated, loadSessionValidations, matchWorkoutsToPlanned } from "@/lib/strava-match";
 import { activityLabel, effortLabel, sessionsForWeekday } from "@/lib/sport-routine";
 import type { DailyMovement, ProfileId, SportActivity, SportEffort, SportSession, Workout } from "@/lib/types";
 
@@ -71,7 +71,7 @@ export function sessionsLast7Days(
         activity: session.activity,
         effort: session.effort,
         durationMin: session.durationMin,
-        completed: Boolean(validations[session.id]) || hits.has(session.id),
+        completed: isSessionValidated(validations[session.id]) || hits.has(session.id),
         label: `${activityLabel(session.activity)} · ${effortLabel(session.effort)} · ${session.durationMin} min`,
       });
     }

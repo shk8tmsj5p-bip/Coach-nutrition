@@ -14,10 +14,10 @@ import {
   scaleDetectedQty,
   clampGrams,
 } from "@/lib/food-log";
-import { macrosAtGrams, type BarcodeProduct } from "@/lib/barcode";
+import { macrosAtGrams, macrosAtGramsWithCalories, type BarcodeProduct } from "@/lib/barcode";
 import { requestLogText } from "@/lib/gemini/client";
 import { withGeminiWait } from "@/lib/gemini/wait";
-import type { DetectedIngredient, DietType, MealType, ProfileId } from "@/lib/types";
+import type { DetectedIngredient, DietType, Macros, MealType, ProfileId } from "@/lib/types";
 import { cn, mealTypeLabel } from "@/lib/utils";
 
 export type FoodLogMode = "text" | "barcode" | "photo";
@@ -48,7 +48,7 @@ export function LogSheet({
   onClose: () => void;
   onAnalyzeText?: () => void | Promise<void>;
   onSaveText: () => void;
-  onSaveBarcode: (product: BarcodeProduct, grams: number) => void;
+  onSaveBarcode: (product: BarcodeProduct, grams: number, macros: Macros) => void;
   onSavePhoto: () => void;
 }) {
   const [newName, setNewName] = useState("");
@@ -193,7 +193,7 @@ export function LogSheet({
               setBarcodeProduct(null);
               setBarcodeGrams(100);
             }}
-            onSave={() => onSaveBarcode(barcodeProduct, barcodeGrams)}
+            onSave={(macros) => onSaveBarcode(barcodeProduct, barcodeGrams, macros)}
           />
         )}
 
@@ -274,10 +274,12 @@ function BarcodeQuantityEditor({
   mealType: MealType;
   confirmLabel?: string;
   onRescan: () => void;
-  onSave: () => void;
+  onSave: (macros: Macros) => void;
 }) {
-  const macros = macrosAtGrams(product.per100, grams);
-  const servingMacros = macrosAtGrams(product.per100, product.servingG);
+  const labelMacros = macrosAtGrams(product.per100, grams);
+  const [kcal, setKcal] = useState(() => labelMacros.calories);
+  const [kcalText, setKcalText] = useState(() => String(labelMacros.calories));
+  const macros = macrosAtGramsWithCalories(product.per100, grams, kcal);
   const presets = [
     { label: "¼ portion", value: Math.max(1, Math.round(product.servingG / 4)) },
     { label: "½ portion", value: Math.max(1, Math.round(product.servingG / 2)) },
@@ -289,10 +291,19 @@ function BarcodeQuantityEditor({
     onChange(clampGrams(next));
   }
 
-  function setKcal(kcal: number) {
-    const density = product.per100.calories;
-    if (density <= 0) return;
-    setGrams((kcal * 100) / density);
+  function applyPreset(nextGrams: number) {
+    const g = clampGrams(nextGrams);
+    onChange(g);
+    const nextKcal = macrosAtGrams(product.per100, g).calories;
+    setKcal(nextKcal);
+    setKcalText(String(nextKcal));
+  }
+
+  function commitKcal(raw: string) {
+    if (/[.,]$/.test(raw.trim())) return;
+    const next = Number(raw.trim().replace(",", "."));
+    if (!Number.isFinite(next) || next < 0) return;
+    setKcal(Math.round(next));
   }
 
   return (
@@ -307,7 +318,7 @@ function BarcodeQuantityEditor({
 
       <p className="mb-2 mt-4 text-[13px] font-medium">Quantité consommée</p>
       <p className="mb-3 text-[12px] leading-relaxed text-health-muted">
-        Grammes ou kcal : l&apos;un recalcule l&apos;autre depuis l&apos;étiquette.
+        Grammes et kcal sont indépendants : corriger les kcal ne change pas le poids.
       </p>
 
       <div className="mb-3 flex flex-wrap gap-1.5">
@@ -315,7 +326,7 @@ function BarcodeQuantityEditor({
           <button
             key={preset.label}
             type="button"
-            onClick={() => setGrams(preset.value)}
+            onClick={() => applyPreset(preset.value)}
             className={cn(
               "rounded-full px-3 py-1.5 text-[12px] font-semibold",
               grams === preset.value ? "bg-health-ink text-white" : "bg-health-bg text-health-muted",
@@ -336,9 +347,9 @@ function BarcodeQuantityEditor({
         </button>
         <div className="flex items-baseline gap-1">
           <input
-            inputMode="numeric"
+            inputMode="decimal"
             value={grams}
-            onChange={(e) => setGrams(Number(e.target.value) || 1)}
+            onChange={(e) => setGrams(Number(e.target.value.replace(",", ".")) || 0)}
             className="w-16 rounded-md bg-white py-1 text-center text-[22px] font-semibold tabular-nums"
           />
           <span className="text-[13px] text-health-muted">g</span>
@@ -354,11 +365,22 @@ function BarcodeQuantityEditor({
 
       <div className="mt-2 flex items-center justify-center gap-1.5">
         <input
-          inputMode="numeric"
-          value={macros.calories}
+          inputMode="decimal"
+          value={kcalText}
           onChange={(e) => {
-            const next = Number(e.target.value.replace(",", "."));
-            if (Number.isFinite(next) && next > 0) setKcal(next);
+            const raw = e.target.value;
+            setKcalText(raw);
+            commitKcal(raw);
+          }}
+          onBlur={() => {
+            const next = Number(kcalText.trim().replace(",", "."));
+            if (Number.isFinite(next) && next >= 0) {
+              const rounded = Math.round(next);
+              setKcal(rounded);
+              setKcalText(String(rounded));
+            } else {
+              setKcalText(String(kcal));
+            }
           }}
           className="w-16 rounded-md bg-health-bg py-1.5 text-center text-[15px] font-semibold tabular-nums"
         />
@@ -370,13 +392,13 @@ function BarcodeQuantityEditor({
           {macros.calories} kcal · {macros.protein}g P · {macros.carbs}g G · {macros.fat}g L
         </p>
         <p className="mt-1 text-[11px] text-health-muted">
-          Recalculé depuis {product.servingG}g ({servingMacros.calories} kcal)
+          OFF pour {grams}g : {labelMacros.calories} kcal. P / G / L suivent les grammes.
         </p>
       </Card>
 
       <button
         type="button"
-        onClick={onSave}
+        onClick={() => onSave(macros)}
         className="mt-3 w-full rounded-card bg-health-ink py-3 text-[15px] font-semibold text-white"
       >
         {confirmLabel ?? `Ajouter ${grams}g au ${mealTypeLabel(mealType).toLowerCase()}`}
