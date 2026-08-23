@@ -602,6 +602,7 @@ Déjà dans la recette (NE PAS les reproposer) : ${others || "—"}.
 Ingrédient à remplacer : "${ingredientName}" (${ingredient?.notes ?? ingredient?.visualQuantity ?? ""}).
 ${use}
 Propose EXACTEMENT 3 alternatives culinaires pour CE plat, pas 3 aliments au hasard de la même catégorie.
+Si un STOCK FOYER est fourni et qu'un item a le même rôle culinaire, mets-le en suggestion n°1 (sans casser la règle de rôle).
 ${roleRule}
 ${veganOk}
 N'écris aucune formule négative (« sans X »).

@@ -11,7 +11,7 @@ import {
   activityLabel,
   effortLabel,
   emptySession,
-  formatExercises,
+  formatExerciseLine,
   formatHoursMinutes,
   formatWeekdays,
   parseSportRoutine,
@@ -278,8 +278,8 @@ function SessionRow({
   onEdit: () => void;
   onDelete: () => void;
 }) {
-  const breakdown = formatExercises(session.exercises);
   const days = formatWeekdays(session.weekdays);
+  const named = session.exercises.filter((exercise) => exercise.name.trim());
   return (
     <div className="rounded-2xl bg-health-bg px-3 py-2.5">
       <div className="flex items-start justify-between gap-2">
@@ -292,7 +292,15 @@ function SessionRow({
         {session.activity !== "muscu" && <Badge>D+ {session.elevationM} m</Badge>}
         <Badge>{effortLabel(session.effort)}</Badge>
       </div>
-      {breakdown && <p className="mt-1.5 text-[12px] leading-relaxed text-health-muted">{breakdown}</p>}
+      {named.length > 0 ? (
+        <ul className="mt-1.5 space-y-0.5">
+          {named.map((exercise) => (
+            <li key={exercise.id} className="text-[12px] leading-snug text-health-muted">
+              {formatExerciseLine(exercise)}
+            </li>
+          ))}
+        </ul>
+      ) : null}
       <div className="mt-2 flex gap-2">
         <button
           type="button"

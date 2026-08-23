@@ -39,6 +39,8 @@ const NAMED: Array<{ keys: string[]; macros: Per100 }> = [
   { keys: ["huile"], macros: { kcal: 884, protein: 0, carbs: 0, fat: 100 } },
   { keys: ["tahini", "tahin", "beurre de sesame"], macros: { kcal: 595, protein: 17, carbs: 21, fat: 54 } },
   { keys: ["avocat"], macros: { kcal: 160, protein: 2, carbs: 9, fat: 15 } },
+  { keys: ["banane"], macros: { kcal: 89, protein: 1.1, carbs: 23, fat: 0.3 } },
+  { keys: ["pomme"], macros: { kcal: 52, protein: 0.3, carbs: 14, fat: 0.2 } },
   { keys: ["sauce soja"], macros: { kcal: 53, protein: 8, carbs: 5, fat: 0 } },
 ];
 

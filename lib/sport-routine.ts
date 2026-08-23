@@ -164,6 +164,7 @@ function parseExercise(value: unknown, index: number): SportExercise {
     reps: clampCount(rec.reps, 10, 50),
     workSec: clampCount(rec.workSec ?? rec.work_sec, 30, 300),
     restSec: clampCount(rec.restSec ?? rec.rest_sec, 30, 180),
+    notes: String(rec.notes ?? rec.cue ?? "").trim().slice(0, 160) || undefined,
   };
 }
 
@@ -283,6 +284,7 @@ export function sportRoutineToJson(routine: SportRoutine): Json {
         reps: exercise.reps,
         workSec: exercise.workSec,
         restSec: exercise.restSec,
+        notes: exercise.notes?.trim() || undefined,
       })),
     })),
   };
@@ -327,14 +329,19 @@ export function formatSecondsAsClock(sec: number) {
 }
 
 export function formatExerciseLine(exercise: SportExercise) {
+  const notes = exercise.notes?.trim();
+  let line: string;
   if (exercise.target === "temps") {
     const work = formatSecondsAsClock(exercise.workSec);
     const hold = exercise.sets <= 1 ? work : `${exercise.sets} × ${work}`;
-    return exercise.restSec > 0
-      ? `${exercise.name} ${hold} / ${formatSecondsAsClock(exercise.restSec)} repos`
-      : `${exercise.name} ${hold}`;
+    line =
+      exercise.restSec > 0
+        ? `${exercise.name} ${hold} / ${formatSecondsAsClock(exercise.restSec)} repos`
+        : `${exercise.name} ${hold}`;
+  } else {
+    line = `${exercise.name} ${exercise.sets}×${exercise.reps}`;
   }
-  return `${exercise.name} ${exercise.sets}×${exercise.reps}`;
+  return notes ? `${line} — ${notes}` : line;
 }
 
 export function upsertSession(sessions: SportSession[], session: SportSession): SportSession[] {

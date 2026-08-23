@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { isoWeekday, mondayOf, todayISO, yesterdayISO } from "@/lib/dates";
+import { isoWeekday, mondayOf, todayISO, yesterdayISO, addDaysISO } from "@/lib/dates";
 import { mapProfil, mapRepas } from "@/lib/mappers";
 import type { SwapProposal } from "@/lib/swap-proposals";
 import type { Database } from "@/lib/supabase/database.types";
@@ -53,6 +53,27 @@ export async function fetchTodayMeals(
     await supabase.from("repas").delete().in("id", extraIds);
   }
   return { meals: keep };
+}
+
+export async function fetchRecentLoggedMeals(
+  supabase: SupabaseClient<Database>,
+  profileIds: ProfileId[],
+  days = 14,
+): Promise<{ meals: Array<MealEntry & { date: string }>; error?: string }> {
+  const today = todayISO();
+  const from = addDaysISO(today, -days);
+  const { data, error } = await supabase
+    .from("repas")
+    .select("*")
+    .in("profile_id", profileIds)
+    .gte("date", from)
+    .lt("date", today)
+    .eq("is_skipped", false)
+    .order("date", { ascending: false });
+  if (error) return { meals: [], error: error.message };
+  return {
+    meals: (data ?? []).map((row) => ({ ...mapRepas(row), date: row.date })),
+  };
 }
 
 export function pickCanonicalMeals(meals: MealEntry[]): { keep: MealEntry[]; extraIds: string[] } {

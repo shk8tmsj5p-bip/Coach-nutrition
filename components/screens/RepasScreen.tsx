@@ -32,8 +32,22 @@ import {
 } from "@/lib/weekly-plan";
 import { planTagByMealId, taggedUniqueMeals } from "@/lib/meal-tags";
 import { QtyScaleToggle } from "@/components/repas/QtyScaleToggle";
+import { StockPanel } from "@/components/repas/StockPanel";
 import { cn } from "@/lib/utils";
 import { loadKitchenPrefs, formatKitchenPrefsForPrompt } from "@/lib/kitchen-prefs";
+import {
+  DEFAULT_STOCK,
+  formatStockForPrompt,
+  formatStockItem,
+  loadLocalStock,
+  newlyGeneratedMeals,
+  removeStockItems,
+  stockIsActive,
+  stockItemsUsedInMeals,
+  type HouseholdStock,
+} from "@/lib/stock";
+import { loadStock, persistStock } from "@/lib/supabase/stock";
+import { markShoppingCheckedForNames } from "@/lib/shopping-from-plan";
 import { buildMealCoachFromProfiles, formatMealCoachForPrompt, scalePlanToGoals } from "@/lib/meal-coach";
 import {
   clearPlanTargetsSnapshot,
@@ -91,11 +105,12 @@ export default function RepasScreen() {
   const [openFavorite, setOpenFavorite] = useState<FavoriteRecipe | null>(null);
   const [placeFavorite, setPlaceFavorite] = useState<FavoriteRecipe | null>(null);
   const [openRejected, setOpenRejected] = useState<RejectedRecipe | null>(null);
+  const [stock, setStock] = useState<HouseholdStock>(DEFAULT_STOCK);
 
   function kitchenContext() {
     const prefs = formatKitchenPrefsForPrompt(loadKitchenPrefs(), [catalog.alexis, catalog.elodie]);
     const coach = formatMealCoachForPrompt(buildMealCoachFromProfiles(catalog.alexis, catalog.elodie));
-    return [prefs, coach].filter(Boolean).join("\n\n");
+    return [prefs, coach, formatStockForPrompt(loadLocalStock())].filter(Boolean).join("\n\n");
   }
 
   function nutritionCoach() {
@@ -127,15 +142,27 @@ export default function RepasScreen() {
   useEffect(() => {
     let cancelled = false;
     void (async () => {
-      const [favs, bans] = await Promise.all([loadFavorites(), loadRejected()]);
+      const [favs, bans, pantry] = await Promise.all([loadFavorites(), loadRejected(), loadStock()]);
       if (cancelled) return;
       setFavorites(favs);
       setRejected(bans);
+      setStock(pantry);
     })();
     return () => {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    if (tab !== "plan") return;
+    let cancelled = false;
+    void loadStock().then((pantry) => {
+      if (!cancelled) setStock(pantry);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [tab]);
 
   useEffect(() => {
     let cancelled = false;
@@ -207,15 +234,19 @@ export default function RepasScreen() {
         nutritionCoach: nutritionCoach(),
       });
       if (result.plan) {
+        const used = await consumeStockFromMeals(newlyGeneratedMeals(plan, result.plan));
         await persist(result.plan);
         stampTargets();
         setNonce((n) => n + 1);
         const label =
           mode === "weekdays" ? "Lun–Ven généré" : mode === "weekend" ? "Week-end généré" : "Repas généré";
+        const stockNote = used.length
+          ? ` · stock : ${used.map(formatStockItem).join(", ")}`
+          : "";
         flash(
           result.warning
-            ? `${label}. ${result.warning}`
-            : `${label} · Gemini Pro`,
+            ? `${label}. ${result.warning}${stockNote}`
+            : `${label} · Gemini Pro${stockNote}`,
         );
       } else {
         flash(result.error ?? "Génération impossible");
@@ -281,6 +312,25 @@ export default function RepasScreen() {
     setRejected(next);
     const error = await persistRejected(next);
     if (error) flash(`Plus jamais en local · ${error}`);
+  }
+
+  async function saveStock(next: HouseholdStock) {
+    setStock(next);
+    const error = await persistStock(next);
+    if (error) flash(`Stock en local · ${error}`);
+  }
+
+  async function consumeStockFromMeals(meals: PlannedMeal[]) {
+    const current = loadLocalStock();
+    if (!stockIsActive(current) || meals.length === 0) return [];
+    const used = stockItemsUsedInMeals(current.items, meals);
+    if (used.length === 0) return [];
+    await saveStock(removeStockItems(current, used.map((item) => item.id)));
+    markShoppingCheckedForNames(
+      weekStart,
+      used.map((item) => item.name),
+    );
+    return used;
   }
 
   async function toggleFavorite(recipe: PlannedMeal) {
@@ -397,6 +447,7 @@ export default function RepasScreen() {
 
       {tab === "plan" && (
         <div className="mt-2">
+          <StockPanel stock={stock} onChange={(next) => void saveStock(next)} />
           <GenerateControls
             theme={theme}
             onThemeChange={setTheme}
@@ -529,11 +580,15 @@ export default function RepasScreen() {
                 nutritionCoach: nutritionCoach(),
               });
               if (result.plan) {
+                const used = await consumeStockFromMeals(newlyGeneratedMeals(plan, result.plan));
                 await persist(result.plan);
+                const stockNote = used.length
+                  ? ` · stock : ${used.map(formatStockItem).join(", ")}`
+                  : "";
                 flash(
                   result.warning
-                    ? `Recette réadaptée. ${result.warning}`
-                    : "Recette réadaptée · Gemini Pro",
+                    ? `Recette réadaptée. ${result.warning}${stockNote}`
+                    : `Recette réadaptée · Gemini Pro${stockNote}`,
                 );
               }
               setSwapMeal(null);

@@ -445,6 +445,19 @@ export function shoppingDisplayName(raw: string) {
   );
 }
 
+export function shoppingItemIdForName(raw: string) {
+  return `shop:${fold(shoppingDisplayName(raw))}`;
+}
+
+/** Coche les lignes courses déjà sorties du stock (pas à racheter). */
+export function markShoppingCheckedForNames(weekStart: string, names: string[]) {
+  if (!weekStart || names.length === 0) return;
+  const key = `shop-checked:${weekStart}`;
+  const current = storage.getJSON<string[]>(key, []);
+  const extra = names.map((name) => shoppingItemIdForName(name));
+  storage.setJSON(key, [...new Set([...current, ...extra])]);
+}
+
 /** Produits frais souvent collés au nom (sauce tahini-citron, poulet yassa citron-oignon). */
 const IMPLIED_PRODUCE: Array<{ keys: string[]; name: string; grams: number; visual: string }> = [
   { keys: ["citron vert"], name: "Citron vert", grams: 70, visual: "1 pièce" },

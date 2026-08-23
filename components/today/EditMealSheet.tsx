@@ -1,11 +1,12 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Camera, Plus, ScanBarcode, Sparkles, X } from "lucide-react";
+import { Camera, Clock, Plus, ScanBarcode, Sparkles, X } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import {
   MEAL_TYPE_OPTIONS,
   parseMealItems,
+  scaleItem,
   scaleItemQty,
   serializeItems,
   sumEditableMacros,
@@ -16,7 +17,7 @@ import { requestLogText } from "@/lib/gemini/client";
 import type { MealEntry, MealType } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
-export type QuickLogMode = "text" | "barcode" | "photo";
+export type QuickLogMode = "text" | "barcode" | "photo" | "recent";
 
 function hasDessertSlot(type: MealType) {
   return type === "dejeuner" || type === "diner";
@@ -188,10 +189,11 @@ export function EditMealSheet({
             <Plus size={14} />
             Ajouter au plat
           </p>
-          <div className="grid grid-cols-3 gap-2">
+          <div className="grid grid-cols-2 gap-2">
             <AddLogTile icon={Sparkles} label="Texte / IA" onClick={() => onAdd("text")} />
             <AddLogTile icon={ScanBarcode} label="Code-barres" onClick={() => onAdd("barcode")} />
             <AddLogTile icon={Camera} label="Photo" onClick={() => onAdd("photo")} />
+            <AddLogTile icon={Clock} label="Récents" onClick={() => onAdd("recent")} />
           </div>
         </div>
 
@@ -235,6 +237,7 @@ function ItemRow({
       dessert={dessert}
       detail={`${item.calories} kcal · ${Math.round(item.protein)}g P`}
       onQty={(qty) => onChange(scaleItemQty(item, qty))}
+      onGrams={(grams) => onChange(scaleItem(item, grams))}
       onRemove={onRemove}
     />
   );

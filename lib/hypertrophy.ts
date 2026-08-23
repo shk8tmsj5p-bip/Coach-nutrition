@@ -35,9 +35,12 @@ export const DEFAULT_HYPERTROPHY: HypertrophyPrefs = {
   weekdays: [1, 3, 5],
 };
 
+export const HYPERTROPHY_MINUTES = [10, 15, 20, 30, 45, 60, 75] as const;
+
 const MIN_DAYS = 3;
 const MIN_MINUTES = 45;
 const MIN_WEEKLY = 135;
+const MIN_ALLOWED_MINUTES = 10;
 
 const CATALOG: Record<MuscleGroup, Array<{ name: string; sets: number; reps: number }>> = {
   pecs: [
@@ -96,7 +99,7 @@ export function parseHypertrophy(raw: unknown): HypertrophyPrefs | undefined {
   return {
     focus: focus.length ? [...new Set(focus)] : [...DEFAULT_HYPERTROPHY.focus],
     minutesPerSession: Number.isFinite(minutes)
-      ? Math.min(90, Math.max(20, Math.round(minutes / 5) * 5))
+      ? Math.min(90, Math.max(MIN_ALLOWED_MINUTES, Math.round(minutes / 5) * 5))
       : DEFAULT_HYPERTROPHY.minutesPerSession,
     weekdays: weekdays.length ? [...new Set(weekdays)].sort((a, b) => a - b) : [...DEFAULT_HYPERTROPHY.weekdays],
   };
@@ -122,10 +125,10 @@ export function volumeAdvice(prefs: HypertrophyPrefs): { warning: string | null;
         : "";
     const timeHint =
       prefs.minutesPerSession < MIN_MINUTES
-        ? ` Passe à ${MIN_MINUTES} min par séance.`
+        ? ` Idéal : ${MIN_MINUTES} min/séance, mais ${prefs.minutesPerSession} min c’est OK — tu peux valider ce rythme.`
         : "";
     return {
-      warning: `Pour une prise de masse, vise au moins ${MIN_DAYS} séances de ${MIN_MINUTES} min (${MIN_WEEKLY} min / sem). ${dayHint}${timeHint}`.trim(),
+      warning: `Pour hypertrophier, le volume cible reste ${MIN_DAYS} × ${MIN_MINUTES} min (${MIN_WEEKLY} min / sem). ${dayHint}${timeHint}`.trim(),
       recommendedDays,
       recommendedMinutesPerWeek,
     };
@@ -133,21 +136,23 @@ export function volumeAdvice(prefs: HypertrophyPrefs): { warning: string | null;
   return { warning: null, recommendedDays, recommendedMinutesPerWeek };
 }
 
-function exercisesFor(groups: MuscleGroup[], index: number): SportExercise[] {
+function exercisesFor(groups: MuscleGroup[], index: number, minutes: number): SportExercise[] {
   const picks = groups.length ? groups : (["pecs", "dos"] as MuscleGroup[]);
   const group = picks[index % picks.length];
   const extra = picks[(index + 1) % picks.length];
   const main = CATALOG[group] ?? CATALOG.pecs;
   const accessory = group === extra ? CATALOG.abdos : (CATALOG[extra] ?? []).slice(0, 1);
-  const rows = [...main.slice(0, 3), ...accessory.slice(0, 1)];
+  const take = minutes <= 10 ? 2 : minutes <= 20 ? 3 : 4;
+  const rows = [...main.slice(0, Math.min(3, take)), ...accessory.slice(0, 1)].slice(0, take);
+  const short = minutes <= 15;
   return rows.map((row, i) => ({
     id: `hyp-ex-${group}-${index}-${i}`,
     name: row.name,
-    sets: row.sets,
+    sets: short ? Math.max(2, Math.round(row.sets / 2)) : row.sets,
     target: group === "abdos" && row.name === "Gainage" ? "temps" : "reps",
     reps: row.reps,
     workSec: row.name === "Gainage" ? 40 : 30,
-    restSec: 45,
+    restSec: short ? 30 : 45,
   }));
 }
 
@@ -159,11 +164,11 @@ export function localHypertrophyProgram(prefs: HypertrophyPrefs, profileId: stri
     id: `hyp-${profileId}-${day}`,
     activity: "muscu",
     effort: "force",
-    durationMin: prefs.minutesPerSession || MIN_MINUTES,
+    durationMin: prefs.minutesPerSession || MIN_ALLOWED_MINUTES,
     elevationM: 0,
     shared: false,
     weekdays: [day],
-    exercises: exercisesFor(focus, index),
+    exercises: exercisesFor(focus, index, prefs.minutesPerSession || MIN_ALLOWED_MINUTES),
   }));
   return {
     warning: advice.warning,
@@ -189,10 +194,18 @@ Zones à muscler : ${focus || "full body"}.
 Disponibilité : ${input.weekdays.length} jour(s) (${days || "aucun"}) · ${input.minutesPerSession} min / séance.
 Muscu actuelle : ${input.currentMuscuDays} séance(s) / sem.
 
-Propose EXACTEMENT ${Math.max(1, input.weekdays.length)} séances, une par jour choisi, qui tiennent dans ${input.minutesPerSession} min.
-Exercices d'hypertrophie (4–8 reps force ou 8–12), 3 à 5 mouvements par séance. Pas de machines introuvables : haltères, barre, poids du corps, banc OK.
+Propose EXACTEMENT ${Math.max(1, input.weekdays.length)} séances, une par jour choisi.
+durationMin de CHAQUE séance = ${input.minutesPerSession} (interdit de mettre 30 ou 45 si ce n’est pas demandé).
+${
+  input.minutesPerSession <= 10
+    ? "10 min : 2 mouvements, 2 séries, full body / essentiel."
+    : input.minutesPerSession <= 20
+      ? "15–20 min : 3 mouvements, 2–3 séries."
+      : "30+ min : 3 à 5 mouvements."
+}
+Exercices d'hypertrophie (4–8 reps force ou 8–12). Pas de machines introuvables : haltères, barre, poids du corps, banc OK.
 
-Si le volume est trop bas pour une prise de masse (< 3×45 min / sem), remplis "warning" avec une préconisation concrète (jours et minutes en plus). Sinon warning = null.
+Si le volume est trop bas pour une prise de masse « idéale » (< 3×45 min / sem), remplis "warning" (préconisation), SANS changer durationMin. Sinon warning = null.
 
 JSON strict :
 {
@@ -201,8 +214,8 @@ JSON strict :
     {
       "weekday": 1,
       "title": "Pecs / Triceps",
-      "durationMin": 45,
-      "exercises": [{ "name": "Développé haltères", "sets": 4, "reps": 8, "target": "reps" }]
+      "durationMin": ${input.minutesPerSession},
+      "exercises": [{ "name": "Développé haltères", "sets": 2, "reps": 8, "target": "reps" }]
     }
   ]
 }`;
@@ -224,7 +237,8 @@ export function parseHypertrophyProposal(
     const day = weekday >= 1 && weekday <= 7 ? weekday : prefs.weekdays[index];
     if (!day) return;
     const exercisesRaw = Array.isArray(row.exercises) ? row.exercises : [];
-    const exercises: SportExercise[] = exercisesRaw.slice(0, 6).map((ex, exIndex) => {
+    const maxEx = prefs.minutesPerSession <= 10 ? 2 : prefs.minutesPerSession <= 20 ? 3 : 6;
+    const exercises: SportExercise[] = exercisesRaw.slice(0, maxEx).map((ex, exIndex) => {
       const e = ex && typeof ex === "object" ? (ex as Record<string, unknown>) : {};
       const name = String(e.name ?? "").trim() || `Exercice ${exIndex + 1}`;
       const target = e.target === "temps" ? "temps" : "reps";
@@ -236,6 +250,7 @@ export function parseHypertrophyProposal(
         reps: Math.min(20, Math.max(5, Math.round(Number(e.reps) || 10))),
         workSec: Math.min(90, Math.max(20, Math.round(Number(e.workSec) || 40))),
         restSec: Math.min(90, Math.max(20, Math.round(Number(e.restSec) || 45))),
+        notes: String(e.notes ?? "").trim().slice(0, 160) || undefined,
       };
     });
     if (exercises.length === 0) return;
@@ -243,7 +258,7 @@ export function parseHypertrophyProposal(
       id: `hyp-${profileId}-${day}`,
       activity: "muscu",
       effort: "force",
-      durationMin: Math.min(90, Math.max(20, Math.round(Number(row.durationMin) || prefs.minutesPerSession))),
+      durationMin: prefs.minutesPerSession,
       elevationM: 0,
       shared: false,
       weekdays: [day],

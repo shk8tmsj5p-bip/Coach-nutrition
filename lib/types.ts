@@ -44,6 +44,8 @@ export interface SportExercise {
   reps: number;
   workSec: number;
   restSec: number;
+  /** Consigne libre (tempo, placement). */
+  notes?: string;
 }
 
 export interface SportSession {

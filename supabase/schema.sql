@@ -136,6 +136,7 @@ create table if not exists public.parametres (
   kitchen_prefs jsonb not null default '{}'::jsonb,
   favorite_recipes jsonb not null default '[]'::jsonb,
   rejected_recipes jsonb not null default '[]'::jsonb,
+  pantry_stock jsonb not null default '{"items":[],"useStock":true,"intensity":"use"}'::jsonb,
   updated_at timestamptz not null default now()
 );
 

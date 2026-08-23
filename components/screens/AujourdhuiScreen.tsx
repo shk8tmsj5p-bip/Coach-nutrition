@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState, type Dispatch, type SetState
 import {
   Camera,
   Check,
+  Clock,
   Copy,
   Images,
   Plus,
@@ -16,6 +17,7 @@ import {
 } from "lucide-react";
 import { useProfile } from "@/context/ProfileContext";
 import { CopyYesterdaySheet } from "@/components/today/CopyYesterdaySheet";
+import { RecentsSheet } from "@/components/today/RecentsSheet";
 import { EditMealSheet } from "@/components/today/EditMealSheet";
 import { SwapProposalSheet } from "@/components/today/SwapProposalSheet";
 import { TodayPlannedCard } from "@/components/today/TodayPlannedCard";
@@ -47,16 +49,19 @@ import { createBrowserSupabaseClient } from "@/lib/supabase/client";
 import { profileIdsForView } from "@/lib/supabase/filters";
 import { fetchTodayActivity } from "@/lib/supabase/health-logs";
 import { ensureDemoMeals } from "@/lib/supabase/seed-today";
+import { formatDetectedLine, macrosFromIngredients, parseFoodTextLocal, scaleDetected, scaleDetectedQty } from "@/lib/food-log";
 import {
-  macrosFromIngredients,
-  parseFoodTextLocal,
-  scaleDetectedQty,
-  formatDetectedLine,
-} from "@/lib/food-log";
+  recentFoodLine,
+  recentFoodsFromMeals,
+  recentFoodToDetected,
+  type DatedMeal,
+  type RecentFood,
+} from "@/lib/recent-foods";
 import { withGeminiWait } from "@/lib/gemini/wait";
 import { requestCoachQuickAdd, requestLogText } from "@/lib/gemini/client";
 import {
   copyYesterdayMeals,
+  fetchRecentLoggedMeals,
   fetchTodayMeals,
   fillMissingSlotsFromTemplates,
   insertMeal,
@@ -152,6 +157,16 @@ function isFilledMeal(meal: MealEntry | undefined) {
   if (meal.macros.calories > 0) return true;
   const name = meal.name.trim().toLowerCase();
   return name.length > 0 && name !== "repas sauté";
+}
+
+function yesterdayHasSlot(yesterdayMeals: MealEntry[], profileId: ProfileId, type: MealType) {
+  return yesterdayMeals.some(
+    (meal) => meal.profileId === profileId && meal.type === type && isFilledMeal(meal),
+  );
+}
+
+function isTemplateSlot(meal: MealEntry | undefined) {
+  return Boolean(meal && meal.source === "plan");
 }
 
 function mealFields(meal: Omit<MealEntry, "id" | "profileId"> | MealEntry): Omit<MealEntry, "id" | "profileId"> {
@@ -260,6 +275,8 @@ export default function AujourdhuiScreen() {
   const [swapOpen, setSwapOpen] = useState(false);
   const [copyOpen, setCopyOpen] = useState(false);
   const [yesterdayMeals, setYesterdayMeals] = useState<MealEntry[]>([]);
+  const [recentMeals, setRecentMeals] = useState<DatedMeal[]>([]);
+  const [recentsOpen, setRecentsOpen] = useState(false);
   const [workouts, setWorkouts] = useState<Workout[]>([]);
   const [movement, setMovement] = useState<Record<ProfileId, DailyMovement>>(emptyMovement);
   const [weekPlan, setWeekPlan] = useState<PlannedMeal[]>([]);
@@ -382,9 +399,11 @@ export default function AujourdhuiScreen() {
       return;
     }
 
-    const [{ meals: rows, error }, activity] = await Promise.all([
+    const [{ meals: rows, error }, activity, yest, recents] = await Promise.all([
       fetchTodayMeals(supabase, HOUSEHOLD_IDS),
       fetchTodayActivity(supabase, ids),
+      fetchTodayMeals(supabase, HOUSEHOLD_IDS, yesterdayISO()),
+      fetchRecentLoggedMeals(supabase, HOUSEHOLD_IDS),
     ]);
 
     if (error) {
@@ -394,6 +413,8 @@ export default function AujourdhuiScreen() {
     }
 
     setMeals(withTemplatesAndPlan(rows, false));
+    setYesterdayMeals((yest.meals ?? []).filter((meal) => !meal.isSkipped));
+    setRecentMeals(recents.meals ?? []);
     setWorkouts(activity.workouts);
     setMovement(activity.movement);
     setStatus(seed.seeded ? "seeded" : "ready");
@@ -476,8 +497,8 @@ export default function AujourdhuiScreen() {
   async function persistLoggedFood(
     source: "text" | "photo" | "barcode",
     payload: { name: string; macros: Macros; items: string[] },
-  ) {
-    if (!logMealType) return;
+  ): Promise<boolean> {
+    if (!logMealType) return false;
     const type = logMealType;
     const targets = persistTargets(logProfile);
     const supabase = createBrowserSupabaseClient();
@@ -505,7 +526,7 @@ export default function AujourdhuiScreen() {
           carbs: existing.macros.carbs + payload.macros.carbs,
           fat: existing.macros.fat + payload.macros.fat,
         },
-        source: existing.source ?? source,
+        source: existing.source === "plan" ? source : (existing.source ?? source),
         items: appendPlatKeepingDessert(existing.items, payload.items),
         notes: existing.notes,
         isSkipped: false,
@@ -520,17 +541,18 @@ export default function AujourdhuiScreen() {
         }
         return next;
       });
-      return;
+      return true;
     }
 
     for (const id of targets) {
       const error = await writeSlot(id, mergedFor(id), type);
       if (error) {
         flash(error);
-        return;
+        return false;
       }
     }
     await reload();
+    return true;
   }
 
   function closeLog() {
@@ -538,16 +560,65 @@ export default function AujourdhuiScreen() {
     setAddSlot(null);
     setLogMealType(null);
     setTextInput("");
+    setRecentsOpen(false);
   }
 
-  function startLog(profileId: ProfileId, type: MealType, mode: Exclude<LogMode, null>) {
+  function startLog(profileId: ProfileId, type: MealType, mode: Exclude<LogMode, null> | "recent") {
     setAddSlot(null);
     setEditingMeal(null);
     setLogProfile(profileId);
     setLogMealType(type);
+    if (mode === "recent") {
+      setRecentsOpen(true);
+      return;
+    }
     setLogMode(mode);
     setTextInput("");
     setIngredients([]);
+  }
+
+  async function persistRecentFood(food: RecentFood) {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const detected = recentFoodToDetected(food);
+      const ok = await persistLoggedFood("text", {
+        name: food.name,
+        macros: {
+          calories: detected.calories,
+          protein: detected.protein,
+          carbs: detected.carbs ?? 0,
+          fat: detected.fat ?? 0,
+        },
+        items: [recentFoodLine(food)],
+      });
+      if (!ok) return;
+      setRecentsOpen(false);
+      flash("Aliment ajouté");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function copyYesterdayFromSlot(profileId: ProfileId, type: MealType) {
+    const supabase = createBrowserSupabaseClient();
+    if (!supabase) {
+      flash("Supabase non configuré");
+      return;
+    }
+    setBusy(true);
+    const result = await copyYesterdayMeals(supabase, persistTargets(profileId), [type]);
+    setBusy(false);
+    if (result.error) {
+      flash(result.error);
+      return;
+    }
+    if (result.copied === 0) {
+      flash("Rien à copier pour hier");
+      return;
+    }
+    await reload();
+    flash(type === "collation" ? "Collation d’hier copiée" : "Petit-déj d’hier copié");
   }
 
   async function toggleSkip(meal: MealEntry) {
@@ -847,6 +918,8 @@ export default function AujourdhuiScreen() {
             const source = slotOfProfile(meals, otherProfileId(profile.id), type);
             if (source) void duplicateMealTo(source, profile.id);
           }}
+          yesterdayMeals={yesterdayMeals}
+          onCopyYesterday={(type) => void copyYesterdayFromSlot(profile.id, type)}
           weekPlan={weekPlan}
           favorites={favorites}
           rejected={rejected}
@@ -895,13 +968,29 @@ export default function AujourdhuiScreen() {
                 <X size={16} />
               </button>
             </div>
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-2 gap-2">
               <LogTile icon={Sparkles} label="Texte / IA" onClick={() => startLog(addSlot.profileId, addSlot.type, "text")} />
               <LogTile icon={ScanBarcode} label="Code-barres" onClick={() => startLog(addSlot.profileId, addSlot.type, "barcode")} />
               <LogTile icon={Camera} label="Photo" onClick={() => startLog(addSlot.profileId, addSlot.type, "photo")} />
+              <LogTile icon={Clock} label="Récents" onClick={() => startLog(addSlot.profileId, addSlot.type, "recent")} />
             </div>
           </div>
         </div>
+      )}
+
+      {recentsOpen && logMealType && (
+        <RecentsSheet
+          foods={recentFoodsFromMeals(
+            [
+              ...meals.map((meal) => ({ ...meal, date: todayISO() })),
+              ...recentMeals,
+            ],
+            logProfile,
+          )}
+          confirming={busy}
+          onClose={() => setRecentsOpen(false)}
+          onPick={(food) => void persistRecentFood(food)}
+        />
       )}
 
       {logMode && logMealType && (
@@ -1036,6 +1125,8 @@ function ProfileToday({
   onServeWeekPlat,
   onDuplicateToOther,
   onCopyFromOther,
+  yesterdayMeals,
+  onCopyYesterday,
   weekPlan,
   favorites,
   rejected,
@@ -1063,6 +1154,8 @@ function ProfileToday({
   onServeWeekPlat: (type: "dejeuner" | "diner") => void;
   onDuplicateToOther: (meal: MealEntry) => void;
   onCopyFromOther: (type: MealType) => void;
+  yesterdayMeals: MealEntry[];
+  onCopyYesterday: (type: MealType) => void;
   weekPlan: PlannedMeal[];
   favorites: FavoriteRecipe[];
   rejected: RejectedRecipe[];
@@ -1343,6 +1436,13 @@ function ProfileToday({
                         onClick={() => onCopyFromOther(slot)}
                       />
                     ) : null}
+                    {(slot === "petit-dejeuner" || slot === "collation") &&
+                    yesterdayHasSlot(yesterdayMeals, profile.id, slot) ? (
+                      <DuplicateMealBtn
+                        label="Comme hier"
+                        onClick={() => onCopyYesterday(slot)}
+                      />
+                    ) : null}
                     <RestorePlannedBtn disabled={resetting} onClick={() => onResetMeal(slot)} />
                   </div>
                   <div className="flex shrink-0 flex-col items-end gap-2">
@@ -1392,6 +1492,13 @@ function ProfileToday({
               copyFromOtherLabel={
                 copyFromOther
                   ? `Copier celui ${otherId === "elodie" ? "d’Élodie" : "d’Alexis"}`
+                  : undefined
+              }
+              onCopyYesterday={
+                (slot === "petit-dejeuner" || slot === "collation") &&
+                yesterdayHasSlot(yesterdayMeals, profile.id, slot) &&
+                (isTemplateSlot(meal) || !isFilledMeal(meal))
+                  ? () => onCopyYesterday(slot)
                   : undefined
               }
               onServeWeek={
@@ -1455,6 +1562,12 @@ function ProfileToday({
                 ? `Copier celui ${otherId === "elodie" ? "d’Élodie" : "d’Alexis"}`
                 : undefined
             }
+            onCopyYesterday={
+              yesterdayHasSlot(yesterdayMeals, profile.id, "collation") &&
+              (isTemplateSlot(collation) || !isFilledMeal(collation))
+                ? () => onCopyYesterday("collation")
+                : undefined
+            }
           />
         ) : (
           <Card>
@@ -1479,6 +1592,12 @@ function ProfileToday({
               <DuplicateMealBtn
                 label={`Copier celui ${otherId === "elodie" ? "d’Élodie" : "d’Alexis"}`}
                 onClick={() => onCopyFromOther("collation")}
+              />
+            ) : null}
+            {yesterdayHasSlot(yesterdayMeals, profile.id, "collation") ? (
+              <DuplicateMealBtn
+                label="Comme hier"
+                onClick={() => onCopyYesterday("collation")}
               />
             ) : null}
             <RestorePlannedBtn disabled={resetting} onClick={() => onResetMeal("collation")} />
@@ -1625,6 +1744,7 @@ function MealCard({
   duplicateLabel,
   onCopyFromOther,
   copyFromOtherLabel,
+  onCopyYesterday,
   onServeWeek,
   favoriteOn,
   onToggleFavorite,
@@ -1646,6 +1766,7 @@ function MealCard({
   duplicateLabel?: string;
   onCopyFromOther?: () => void;
   copyFromOtherLabel?: string;
+  onCopyYesterday?: () => void;
   onServeWeek?: () => void;
   favoriteOn?: boolean;
   onToggleFavorite?: () => void;
@@ -1723,6 +1844,9 @@ function MealCard({
             ) : null}
             {onCopyFromOther && copyFromOtherLabel ? (
               <DuplicateMealBtn label={copyFromOtherLabel} onClick={onCopyFromOther} />
+            ) : null}
+            {onCopyYesterday ? (
+              <DuplicateMealBtn label="Comme hier" onClick={onCopyYesterday} />
             ) : null}
             {onReset && (
               <RestorePlannedBtn onClick={onReset} />
@@ -2319,6 +2443,11 @@ function IngredientReview({
             onQty={(qty) =>
               setIngredients((list) =>
                 list.map((item) => (item.id === ing.id ? scaleDetectedQty(item, qty) : item)),
+              )
+            }
+            onGrams={(grams) =>
+              setIngredients((list) =>
+                list.map((item) => (item.id === ing.id ? scaleDetected(item, grams) : item)),
               )
             }
             onRemove={() => setIngredients((list) => list.filter((item) => item.id !== ing.id))}

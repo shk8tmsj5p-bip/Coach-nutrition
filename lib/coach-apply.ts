@@ -92,7 +92,7 @@ function matchesSportPatch(session: SportSession, patch: CoachSportPatch) {
 }
 
 function clampSessionDuration(minutes: number) {
-  return Math.max(15, Math.min(240, Math.round(minutes / 5) * 5));
+  return Math.max(10, Math.min(240, Math.round(minutes / 5) * 5));
 }
 
 export function applyCoachSportPatches(

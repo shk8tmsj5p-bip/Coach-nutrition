@@ -2,12 +2,24 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { RefreshCw, Sparkles, X } from "lucide-react";
+import { ToggleRow } from "@/components/parametres/ToggleRow";
 import { Card } from "@/components/ui/Card";
 import { useProfile } from "@/context/ProfileContext";
 import { loadHouseholdCoachBias } from "@/lib/coach-apply";
 import { requestGenerateMeals } from "@/lib/gemini/client";
 import { loadKitchenPrefs, formatKitchenPrefsForPrompt } from "@/lib/kitchen-prefs";
 import { buildMealCoachFromProfiles, formatMealCoachForPrompt } from "@/lib/meal-coach";
+import {
+  DEFAULT_STOCK,
+  formatStockForPrompt,
+  formatStockItem,
+  loadLocalStock,
+  removeStockItems,
+  stockIsActive,
+  stockItemsUsedInNames,
+  type HouseholdStock,
+} from "@/lib/stock";
+import { loadStock, persistStock } from "@/lib/supabase/stock";
 import { MEAL_TYPE_OPTIONS } from "@/lib/meal-items";
 import { pickSwapProposal, SWAP_THEMES, type SwapProposal } from "@/lib/swap-proposals";
 import type { MealEntry, MealType, Profile, ProfileId } from "@/lib/types";
@@ -52,8 +64,13 @@ export function SwapProposalSheet({
   const [generating, setGenerating] = useState(false);
   const [fallback, setFallback] = useState(false);
   const [warning, setWarning] = useState<string | null>(null);
+  const [stock, setStock] = useState<HouseholdStock>(DEFAULT_STOCK);
 
   const activeTheme = theme;
+
+  useEffect(() => {
+    void loadStock().then(setStock);
+  }, []);
 
   function catalogFallback(type: MealType, index: number, th: string | null) {
     const next: Partial<Record<ProfileId, SwapProposal>> = {};
@@ -78,6 +95,7 @@ export function SwapProposalSheet({
         const kitchenContext = [
           formatKitchenPrefsForPrompt(loadKitchenPrefs(), [catalog.alexis, catalog.elodie]),
           formatMealCoachForPrompt(buildMealCoachFromProfiles(catalog.alexis, catalog.elodie)),
+          formatStockForPrompt(loadLocalStock()),
         ]
           .filter(Boolean)
           .join("\n\n");
@@ -141,11 +159,31 @@ export function SwapProposalSheet({
     setNonce((n) => n + 1);
   }
 
-  function confirm() {
+  function patchUseStock(useStock: boolean) {
+    const next = { ...loadLocalStock(), useStock };
+    setStock(next);
+    void persistStock(next);
+    if (mealType) {
+      setProposals(null);
+      setNonce((n) => n + 1);
+    }
+  }
+
+  async function confirm() {
     if (!mealType || !proposals) return;
     const next: Partial<Record<ProfileId, SwapProposal>> = {};
     for (const row of rows) {
       if (row.current && row.proposal) next[row.profile.id] = row.proposal;
+    }
+    if (!fallback && stockIsActive(loadLocalStock())) {
+      const pantry = loadLocalStock();
+      const names = Object.values(next).flatMap((proposal) =>
+        proposal ? [proposal.nom, ...proposal.items] : [],
+      );
+      const used = stockItemsUsedInNames(pantry.items, names);
+      if (used.length > 0) {
+        await persistStock(removeStockItems(pantry, used.map((item) => item.id)));
+      }
     }
     onConfirm(mealType, next);
   }
@@ -173,6 +211,13 @@ export function SwapProposalSheet({
         {!mealType ? (
           <>
             <p className="mb-4 text-[15px] leading-snug">Quel repas veux-tu remplacer&nbsp;?</p>
+            {stock.items.length > 0 ? (
+              <p className="mb-3 text-[12px] leading-snug text-health-muted">
+                Stock : {stock.items.slice(0, 4).map(formatStockItem).join(" · ")}
+                {stock.items.length > 4 ? "…" : ""}
+                {stock.useStock ? " — Gem peut s’en servir." : " — toggle off."}
+              </p>
+            ) : null}
             <div className="grid gap-2">
               {MEAL_TYPE_OPTIONS.map((option) => {
                 const enabled = availableTypes.some((item) => item.id === option.id);
@@ -209,6 +254,16 @@ export function SwapProposalSheet({
               {activeTheme ? ` · thème ${activeTheme}` : ""}
               {fallback ? " · secours" : " · Gem Chef"}
             </p>
+            {stock.items.length > 0 ? (
+              <div className="mb-3 rounded-card bg-health-bg px-3 py-1">
+                <ToggleRow
+                  label="Utiliser le stock"
+                  hint={stock.items.slice(0, 3).map((item) => item.name).join(" · ")}
+                  checked={stock.useStock}
+                  onChange={patchUseStock}
+                />
+              </div>
+            ) : null}
 
             <div className="max-h-[38vh] space-y-3 overflow-y-auto">
               {rows.map(({ profile, current, proposal }) => (
@@ -321,7 +376,7 @@ export function SwapProposalSheet({
             <button
               type="button"
               disabled={!canSwap || confirming}
-              onClick={confirm}
+              onClick={() => void confirm()}
               className="mt-3 w-full rounded-card bg-health-ink py-3 text-[15px] font-semibold text-white disabled:opacity-50"
             >
               {confirming ? "Remplacement…" : "Confirmer le remplacement"}

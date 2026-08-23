@@ -4,13 +4,15 @@ import { useMemo, useState } from "react";
 import { Sparkles } from "lucide-react";
 import {
   DEFAULT_HYPERTROPHY,
+  HYPERTROPHY_MINUTES,
   MUSCLE_GROUPS,
   applyHypertrophySessions,
   volumeAdvice,
   type HypertrophyProposal,
 } from "@/lib/hypertrophy";
-import { WEEKDAYS, deriveRoutine, formatExercises, formatWeekdays } from "@/lib/sport-routine";
-import type { HypertrophyPrefs, MuscleGroup, Profile, SportRoutine, Weekday } from "@/lib/types";
+import { WEEKDAYS, deriveRoutine, formatWeekdays } from "@/lib/sport-routine";
+import { ExerciseListEditor } from "@/components/sport/ExerciseListEditor";
+import type { HypertrophyPrefs, MuscleGroup, Profile, SportExercise, SportRoutine, SportSession, Weekday } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { withGeminiWait } from "@/lib/gemini/wait";
 
@@ -84,11 +86,24 @@ export function HypertrophyPlanner({
     await onApply(deriveRoutine(sessions, undefined, prefs, routine.cardio));
   }
 
+  function patchSession(sessionId: string, patch: Partial<SportSession>) {
+    setProposal((current) =>
+      current
+        ? {
+            ...current,
+            sessions: current.sessions.map((session) =>
+              session.id === sessionId ? { ...session, ...patch } : session,
+            ),
+          }
+        : current,
+    );
+  }
+
   return (
     <div className="mt-3 rounded-2xl bg-health-bg px-3 py-3">
       <p className="text-[13px] font-semibold">Prise de masse · muscu</p>
       <p className="mt-0.5 text-[11px] leading-snug text-health-muted">
-        Propose les séances. Tu valides → ça devient ta routine. Zones à muscler, jours et durée. Le coach propose les exercices.
+        Propose les séances. Tu corriges les exercices (nom, séries, consigne), puis tu valides → ça devient ta routine. 10 min OK. 45 min reste l’idéal, pas un plancher.
       </p>
 
       <p className="mb-1.5 mt-3 text-[11px] font-medium text-health-muted">Je veux muscler</p>
@@ -133,7 +148,7 @@ export function HypertrophyPlanner({
 
       <p className="mb-1.5 mt-3 text-[11px] font-medium text-health-muted">Temps par séance</p>
       <div className="flex flex-wrap gap-1.5">
-        {[30, 45, 60, 75].map((min) => (
+        {HYPERTROPHY_MINUTES.map((min) => (
           <button
             key={min}
             type="button"
@@ -182,9 +197,13 @@ export function HypertrophyPlanner({
               <p className="text-[13px] font-semibold">
                 {formatWeekdays(session.weekdays)} · {session.durationMin} min
               </p>
-              <p className="mt-0.5 text-[11px] leading-snug text-health-muted">
-                {formatExercises(session.exercises) ?? "—"}
-              </p>
+              <div className="mt-2">
+                <ExerciseListEditor
+                  exercises={session.exercises}
+                  onChange={(exercises: SportExercise[]) => patchSession(session.id, { exercises })}
+                  hint="Remplace par ce que tu fais vraiment. Ajoute, retire, réordonne."
+                />
+              </div>
             </div>
           ))}
           <button

@@ -1,5 +1,6 @@
 import { parseGeminiJson } from "@/lib/gemini/meals";
 import { generateGeminiFlash } from "@/lib/gemini/flash";
+import { estimateIngredientMacros } from "@/lib/recipe-macros";
 import type { DetectedIngredient, DietType, Macros, QtyUnit } from "@/lib/types";
 
 type FoodRef = {
@@ -10,42 +11,48 @@ type FoodRef = {
   carbs: number;
   fat: number;
   defaultG: number;
+  defaultUnit?: QtyUnit;
 };
 
-/** Valeurs / 100 g. Portions par défaut si l'utilisateur ne donne pas de grammes. */
+/** Valeurs / 100 g (CIQUAL / USDA). `defaultG` = 1 pièce / portion typique comestible. */
 const FOODS: FoodRef[] = [
-  { keys: ["pain bûcheron", "pain bucheron", "pain complet", "pain"], kcal: 255, protein: 9, carbs: 47, fat: 3.5, defaultG: 40 },
-  { keys: ["lait d avoine", "lait avoine", "lait vegetal d avoine", "lait vegetal avoine"], label: "Lait d'avoine", kcal: 43, protein: 0.8, carbs: 6.6, fat: 1.5, defaultG: 200 },
-  { keys: ["flocons d'avoine", "flocons avoine", "flocons"], kcal: 370, protein: 13, carbs: 59, fat: 7, defaultG: 50 },
-  { keys: ["avoine"], label: "Avoine", kcal: 370, protein: 13, carbs: 59, fat: 7, defaultG: 50 },
-  { keys: ["lait soja", "lait de soja"], kcal: 35, protein: 3.3, carbs: 1.2, fat: 1.8, defaultG: 200 },
-  { keys: ["cafe au lait", "cafe"], label: "Café", kcal: 2, protein: 0.3, carbs: 0, fat: 0, defaultG: 200 },
-  { keys: ["chia"], kcal: 486, protein: 17, carbs: 42, fat: 31, defaultG: 10 },
-  { keys: ["myrtilles", "myrtille"], kcal: 57, protein: 0.7, carbs: 14, fat: 0.3, defaultG: 80 },
-  { keys: ["framboises", "framboise"], kcal: 52, protein: 1.2, carbs: 12, fat: 0.7, defaultG: 80 },
-  { keys: ["fraises", "fraise"], kcal: 32, protein: 0.7, carbs: 8, fat: 0.3, defaultG: 80 },
-  { keys: ["granola"], kcal: 470, protein: 10, carbs: 64, fat: 20, defaultG: 30 },
-  { keys: ["fromage blanc"], kcal: 47, protein: 8, carbs: 4, fat: 0.2, defaultG: 200 },
-  { keys: ["tofu soyeux"], kcal: 55, protein: 5.3, carbs: 2.3, fat: 2.7, defaultG: 150 },
-  { keys: ["whey vegan", "whey"], kcal: 380, protein: 80, carbs: 6, fat: 5, defaultG: 25 },
-  { keys: ["chocolat noir", "chocolat"], kcal: 580, protein: 8, carbs: 45, fat: 42, defaultG: 15 },
-  { keys: ["bacon végétal", "bacon vegan", "bacon"], label: "Bacon végétal", kcal: 250, protein: 18, carbs: 4, fat: 18, defaultG: 20 },
-  { keys: ["margarine saint hubert", "saint hubert"], label: "Margarine Saint Hubert", kcal: 720, protein: 0.2, carbs: 0.4, fat: 80, defaultG: 10 },
-  { keys: ["margarine"], label: "Margarine", kcal: 720, protein: 0.2, carbs: 0.4, fat: 80, defaultG: 10 },
-  { keys: ["beurre"], kcal: 745, protein: 0.7, carbs: 0.1, fat: 82, defaultG: 10 },
-  { keys: ["houmous", "hummus"], kcal: 250, protein: 8, carbs: 14, fat: 17, defaultG: 40 },
-  { keys: ["confiture"], kcal: 250, protein: 0.4, carbs: 62, fat: 0.1, defaultG: 20 },
-  { keys: ["fromage"], kcal: 330, protein: 22, carbs: 1, fat: 27, defaultG: 30 },
-  { keys: ["skyr"], kcal: 62, protein: 11, carbs: 4, fat: 0.2, defaultG: 200 },
-  { keys: ["yaourt", "yogurt"], kcal: 60, protein: 4, carbs: 6, fat: 1.5, defaultG: 125 },
-  { keys: ["œuf", "oeuf"], kcal: 143, protein: 13, carbs: 1, fat: 10, defaultG: 55 },
-  { keys: ["banane"], kcal: 89, protein: 1.1, carbs: 23, fat: 0.3, defaultG: 120 },
-  { keys: ["pomme"], kcal: 52, protein: 0.3, carbs: 14, fat: 0.2, defaultG: 150 },
-  { keys: ["riz"], kcal: 130, protein: 2.7, carbs: 28, fat: 0.3, defaultG: 180 },
-  { keys: ["pâtes", "pates"], kcal: 160, protein: 6, carbs: 31, fat: 1, defaultG: 180 },
-  { keys: ["tofu"], kcal: 145, protein: 16, carbs: 2, fat: 9, defaultG: 150 },
-  { keys: ["poulet"], kcal: 165, protein: 31, carbs: 0, fat: 3.6, defaultG: 150 },
-  { keys: ["huile"], kcal: 884, protein: 0, carbs: 0, fat: 100, defaultG: 10 },
+  { keys: ["pain bûcheron", "pain bucheron", "pain complet", "pain"], label: "Pain bûcheron", kcal: 255, protein: 9, carbs: 47, fat: 3.5, defaultG: 40, defaultUnit: "tranche" },
+  { keys: ["lait d avoine", "lait avoine", "lait vegetal d avoine", "lait vegetal avoine"], label: "Lait d'avoine", kcal: 43, protein: 0.8, carbs: 6.6, fat: 1.5, defaultG: 200, defaultUnit: "ml" },
+  { keys: ["flocons d avoine", "flocons d'avoine", "flocon d avoine", "flocon d'avoine", "flocons avoine", "flocon avoine", "flocons", "flocon"], label: "Flocons d'avoine", kcal: 370, protein: 13, carbs: 59, fat: 7, defaultG: 50, defaultUnit: "g" },
+  { keys: ["avoine"], label: "Flocons d'avoine", kcal: 370, protein: 13, carbs: 59, fat: 7, defaultG: 50, defaultUnit: "g" },
+  { keys: ["lait soja", "lait de soja"], label: "Lait de soja", kcal: 35, protein: 3.3, carbs: 1.2, fat: 1.8, defaultG: 200, defaultUnit: "ml" },
+  { keys: ["cafe au lait", "cafe"], label: "Café", kcal: 2, protein: 0.3, carbs: 0, fat: 0, defaultG: 200, defaultUnit: "ml" },
+  { keys: ["chia"], label: "Graines de chia", kcal: 486, protein: 17, carbs: 42, fat: 31, defaultG: 10, defaultUnit: "g" },
+  { keys: ["myrtilles", "myrtille"], label: "Myrtilles", kcal: 57, protein: 0.7, carbs: 14, fat: 0.3, defaultG: 80, defaultUnit: "g" },
+  { keys: ["framboises", "framboise"], label: "Framboises", kcal: 52, protein: 1.2, carbs: 12, fat: 0.7, defaultG: 80, defaultUnit: "g" },
+  { keys: ["fraises", "fraise"], label: "Fraises", kcal: 32, protein: 0.7, carbs: 8, fat: 0.3, defaultG: 80, defaultUnit: "g" },
+  { keys: ["granola"], label: "Granola", kcal: 470, protein: 10, carbs: 64, fat: 20, defaultG: 30, defaultUnit: "g" },
+  { keys: ["fromage blanc"], label: "Fromage blanc", kcal: 47, protein: 8, carbs: 4, fat: 0.2, defaultG: 200, defaultUnit: "g" },
+  { keys: ["tofu soyeux"], label: "Tofu soyeux", kcal: 55, protein: 5.3, carbs: 2.3, fat: 2.7, defaultG: 150, defaultUnit: "g" },
+  { keys: ["whey vegan", "whey"], label: "Whey vegan", kcal: 380, protein: 80, carbs: 6, fat: 5, defaultG: 25, defaultUnit: "g" },
+  { keys: ["chocolat noir", "chocolat"], label: "Chocolat noir", kcal: 580, protein: 8, carbs: 45, fat: 42, defaultG: 10, defaultUnit: "carreau" },
+  { keys: ["bacon vegetal", "bacon vegan", "bacon vg", "bacon végétal", "bacon"], label: "Bacon végétal", kcal: 250, protein: 18, carbs: 4, fat: 18, defaultG: 20, defaultUnit: "tranche" },
+  { keys: ["margarine saint hubert", "saint hubert"], label: "Margarine Saint Hubert", kcal: 720, protein: 0.2, carbs: 0.4, fat: 80, defaultG: 10, defaultUnit: "cs" },
+  { keys: ["margarine vegetale", "margarine végétale", "margarine"], label: "Margarine végétale", kcal: 720, protein: 0.2, carbs: 0.4, fat: 80, defaultG: 10, defaultUnit: "cs" },
+  { keys: ["beurre de sesame", "tahini", "tahin"], label: "Beurre de sésame", kcal: 595, protein: 17, carbs: 21, fat: 54, defaultG: 15, defaultUnit: "cs" },
+  { keys: ["beurre"], label: "Beurre", kcal: 745, protein: 0.7, carbs: 0.1, fat: 82, defaultG: 10, defaultUnit: "cs" },
+  { keys: ["houmous", "hummus"], label: "Houmous", kcal: 250, protein: 8, carbs: 14, fat: 17, defaultG: 40, defaultUnit: "cs" },
+  { keys: ["confiture"], label: "Confiture", kcal: 250, protein: 0.4, carbs: 62, fat: 0.1, defaultG: 20, defaultUnit: "cs" },
+  { keys: ["fromage"], label: "Fromage", kcal: 330, protein: 22, carbs: 1, fat: 27, defaultG: 30, defaultUnit: "g" },
+  { keys: ["skyr"], label: "Skyr", kcal: 62, protein: 11, carbs: 4, fat: 0.2, defaultG: 200, defaultUnit: "g" },
+  { keys: ["yaourt", "yogurt"], label: "Yaourt", kcal: 60, protein: 4, carbs: 6, fat: 1.5, defaultG: 125, defaultUnit: "g" },
+  { keys: ["œuf", "oeuf"], label: "Œuf", kcal: 143, protein: 13, carbs: 1, fat: 10, defaultG: 55, defaultUnit: "piece" },
+  { keys: ["banane"], label: "Banane", kcal: 89, protein: 1.1, carbs: 23, fat: 0.3, defaultG: 110, defaultUnit: "piece" },
+  { keys: ["pomme"], label: "Pomme", kcal: 52, protein: 0.3, carbs: 14, fat: 0.2, defaultG: 150, defaultUnit: "piece" },
+  { keys: ["poire"], label: "Poire", kcal: 57, protein: 0.4, carbs: 15, fat: 0.1, defaultG: 150, defaultUnit: "piece" },
+  { keys: ["orange"], label: "Orange", kcal: 47, protein: 0.9, carbs: 12, fat: 0.1, defaultG: 150, defaultUnit: "piece" },
+  { keys: ["kiwi"], label: "Kiwi", kcal: 61, protein: 1.1, carbs: 15, fat: 0.5, defaultG: 75, defaultUnit: "piece" },
+  { keys: ["avocat"], label: "Avocat", kcal: 160, protein: 2, carbs: 9, fat: 15, defaultG: 100, defaultUnit: "piece" },
+  { keys: ["riz"], label: "Riz cuit", kcal: 130, protein: 2.7, carbs: 28, fat: 0.3, defaultG: 180, defaultUnit: "g" },
+  { keys: ["pâtes", "pates"], label: "Pâtes cuites", kcal: 160, protein: 6, carbs: 31, fat: 1, defaultG: 180, defaultUnit: "g" },
+  { keys: ["tofu"], label: "Tofu", kcal: 145, protein: 16, carbs: 2, fat: 9, defaultG: 150, defaultUnit: "g" },
+  { keys: ["poulet"], label: "Poulet", kcal: 165, protein: 31, carbs: 0, fat: 3.6, defaultG: 150, defaultUnit: "g" },
+  { keys: ["huile"], label: "Huile", kcal: 884, protein: 0, carbs: 0, fat: 100, defaultG: 10, defaultUnit: "cs" },
 ];
 
 function norm(value: string) {
@@ -59,7 +66,7 @@ function norm(value: string) {
 function tokenHit(text: string, token: string) {
   if (token.length < 3) return false;
   const escaped = token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return new RegExp(`(?:^|[^a-z0-9])${escaped}(?:$|[^a-z0-9])`).test(text);
+  return new RegExp(`(?:^|[^a-z0-9])${escaped}(?:s|x)?(?:$|[^a-z0-9])`).test(text);
 }
 
 function skipOatFlakes(text: string) {
@@ -116,9 +123,10 @@ export function gramsPerUnit(unit: QtyUnit, food?: FoodRef) {
 
 export function qtyLabel(qty: number, unit: QtyUnit) {
   const n = Number.isInteger(qty) ? String(qty) : String(qty).replace(".", ",");
-  if (unit === "tranche") return qty <= 1 ? "1 tranche" : `${n} tranches`;
-  if (unit === "carreau") return qty <= 1 ? "1 carreau" : `${n} carreaux`;
-  if (unit === "piece") return qty <= 1 ? "1 pièce" : `${n} pièces`;
+  const plural = qty > 1;
+  if (unit === "tranche") return `${n} tranche${plural ? "s" : ""}`;
+  if (unit === "carreau") return `${n} carreau${plural ? "x" : ""}`;
+  if (unit === "piece") return `${n} pièce${plural ? "s" : ""}`;
   if (unit === "ml") return `${Math.round(qty)} ml`;
   if (unit === "cs") return `${n} cs`;
   if (unit === "cc") return `${n} cc`;
@@ -133,7 +141,9 @@ export function unitShortLabel(unit: QtyUnit) {
 }
 
 export function qtyStep(unit: QtyUnit) {
-  return unit === "g" || unit === "ml" ? 5 : 1;
+  if (unit === "g" || unit === "ml") return 5;
+  if (unit === "piece" || unit === "tranche") return 0.5;
+  return 1;
 }
 
 export type ParsedLogLine = {
@@ -144,8 +154,38 @@ export type ParsedLogLine = {
 };
 
 function countFromWord(raw: string) {
-  if (/^une?$/i.test(raw)) return 1;
+  const n = norm(raw).replace(/\s+/g, " ").trim();
+  if (/^une?$/.test(n)) return 1;
+  if (/^deux$/.test(n)) return 2;
+  if (/^demi/.test(n) || n === "1/2" || n === "½" || n === "0.5" || n === "0,5") return 0.5;
   return num(raw);
+}
+
+function parseHalfPrefix(chunk: string): { rest: string } | null {
+  const m = chunk
+    .trim()
+    .match(/^(?:une?\s+)?(?:demi(?:e)?(?:-|\s+)?|1\s*\/\s*2\s+|½\s+|0[.,]5\s+)(?:de\s+|d'|d’)?(.+)$/i);
+  if (!m?.[1]) return null;
+  return { rest: m[1].trim() };
+}
+
+function parseCountPrefix(chunk: string): { qty: number; rest: string } | null {
+  const m = chunk.trim().match(/^(\d+(?:[.,]\d+)?|une?|deux)\s+(?:de\s+|d'|d’)?(.+)$/i);
+  if (!m) return null;
+  const rest = m[2].trim();
+  if (!rest || parseQtyUnit(rest.split(/\s+/)[0] ?? "")) return null;
+  return { qty: countFromWord(m[1]), rest };
+}
+
+function isWholeItem(food: FoodRef) {
+  return /banane|pomme|poire|orange|kiwi|avocat|oeuf|œuf/.test(norm(food.keys[0]));
+}
+
+function portionOf(food: FoodRef | undefined, qty: number, unit: QtyUnit, gramsHint?: number) {
+  const typical = Math.max(1, Math.round(qty * gramsPerUnit(unit, food)));
+  if (!gramsHint || !food) return typical;
+  if (gramsHint > typical * 2.2 || gramsHint < Math.max(1, typical * 0.35)) return typical;
+  return Math.max(1, Math.round(gramsHint));
 }
 
 function parseGramsFromChunk(chunk: string, unit: QtyUnit, qty: number, food?: FoodRef) {
@@ -165,7 +205,7 @@ export function parseLogLine(line: string, foodHint?: FoodRef): ParsedLogLine {
 
   const colon = trimmed.match(
     new RegExp(
-      `^(.*?)\\s*:\\s*(\\d+(?:[.,]\\d+)?|une?)\\s*(${UNIT_TOKEN})\\s*(?:\\((\\d+(?:[.,]\\d+)?)\\s*g\\))?\\s*$`,
+      `^(.*?)\\s*:\\s*(\\d+(?:[.,]\\d+)?|une?|demi(?:e)?)\\s*(${UNIT_TOKEN})\\s*(?:\\((\\d+(?:[.,]\\d+)?)\\s*g\\))?\\s*$`,
       "i",
     ),
   );
@@ -180,7 +220,7 @@ export function parseLogLine(line: string, foodHint?: FoodRef): ParsedLogLine {
 
   const trailing = trimmed.match(
     new RegExp(
-      `^(.*?)\\s+(\\d+(?:[.,]\\d+)?|une?)\\s*(${UNIT_TOKEN})\\s*(?:\\((\\d+(?:[.,]\\d+)?)\\s*g\\))?\\s*$`,
+      `^(.*?)\\s+(\\d+(?:[.,]\\d+)?|une?|demi(?:e)?)\\s*(${UNIT_TOKEN})\\s*(?:\\((\\d+(?:[.,]\\d+)?)\\s*g\\))?\\s*$`,
       "i",
     ),
   );
@@ -195,7 +235,7 @@ export function parseLogLine(line: string, foodHint?: FoodRef): ParsedLogLine {
   }
 
   const leading = trimmed.match(
-    new RegExp(`^(\\d+(?:[.,]\\d+)?|une?)\\s*(${UNIT_TOKEN})\\s+(?:de\\s+|d'|d’)?(.+)$`, "i"),
+    new RegExp(`^(\\d+(?:[.,]\\d+)?|une?|demi(?:e)?)\\s*(${UNIT_TOKEN})\\s+(?:de\\s+|d'|d’)?(.+)$`, "i"),
   );
   if (leading) {
     const unit = parseQtyUnit(leading[2]) ?? "g";
@@ -204,8 +244,39 @@ export function parseLogLine(line: string, foodHint?: FoodRef): ParsedLogLine {
     return { name: foodName(food, leading[3]), qty, unit, grams };
   }
 
+  const half = parseHalfPrefix(trimmed);
+  if (half) {
+    const named = foodHint ?? matchFood(half.rest);
+    const grams = portionOf(named, 0.5, "piece");
+    return {
+      name: foodName(named, half.rest),
+      qty: 0.5,
+      unit: named ? "piece" : "g",
+      grams,
+    };
+  }
+
+  const counted = parseCountPrefix(trimmed);
+  if (counted) {
+    const named = foodHint ?? matchFood(counted.rest) ?? matchFood(trimmed);
+    if (named) {
+      return {
+        name: foodName(named, counted.rest),
+        qty: counted.qty,
+        unit: "piece",
+        grams: portionOf(named, counted.qty, "piece"),
+      };
+    }
+  }
+
   const grams = food?.defaultG ?? 80;
-  return { name: foodName(food, trimmed), qty: grams, unit: "g", grams };
+  const unit = defaultUnitOf(food);
+  return {
+    name: foodName(food, trimmed),
+    qty: unit === "g" || unit === "ml" ? grams : 1,
+    unit,
+    grams,
+  };
 }
 
 export function formatLogLine(name: string, qty: number, unit: QtyUnit, grams: number) {
@@ -227,7 +298,7 @@ function leftoverName(chunk: string) {
   const name = chunk
     .replace(/\(\d+(?:[.,]\d+)?\s*g\)/gi, " ")
     .replace(new RegExp(`\\b(\\d+(?:[.,]\\d+)?|une?)\\s*(${UNIT_TOKEN})\\b`, "gi"), " ")
-    .replace(/\b(une?|de|d'|d’|du|des|la|le|les)\b/gi, " ")
+    .replace(/\b(une?|de|du|des|la|le|les)\b/gi, " ")
     .replace(/\s+/g, " ")
     .trim();
   return titleName(name);
@@ -239,32 +310,46 @@ function titleName(value: string) {
   return trimmed.charAt(0).toUpperCase() + trimmed.slice(1);
 }
 
-function foodName(food: FoodRef | undefined, chunk: string) {
-  const leftover = leftoverName(chunk);
-  if (leftover && leftover.toLowerCase() !== "aliment") return leftover;
-  if (food) return food.label ?? titleName(food.keys[0]);
-  return leftover;
+function catalogName(food: FoodRef) {
+  return food.label ?? titleName(food.keys[0]);
 }
 
-function macrosAt(food: FoodRef | undefined, grams: number) {
-  const kcal = food?.kcal ?? 130;
-  const protein = food?.protein ?? 4;
-  const carbs = food?.carbs ?? 15;
-  const fat = food?.fat ?? 5;
-  return {
-    calories: Math.max(1, Math.round((kcal * grams) / 100)),
-    protein: Math.max(0, Math.round((protein * grams) / 100)),
-    carbs: Math.max(0, Math.round((carbs * grams) / 100)),
-    fat: Math.max(0, Math.round((fat * grams) / 100)),
-  };
+function defaultUnitOf(food?: FoodRef): QtyUnit {
+  if (!food) return "g";
+  if (food.defaultUnit) return food.defaultUnit;
+  if (isWholeItem(food)) return "piece";
+  return "g";
+}
+
+function foodName(food: FoodRef | undefined, chunk: string) {
+  if (food) return catalogName(food);
+  return leftoverName(chunk) || "Aliment";
+}
+
+function macrosAt(food: FoodRef | undefined, grams: number, name = "") {
+  if (food) {
+    return {
+      calories: Math.max(0, Math.round((food.kcal * grams) / 100)),
+      protein: Math.max(0, Math.round((food.protein * grams) / 100)),
+      carbs: Math.max(0, Math.round((food.carbs * grams) / 100)),
+      fat: Math.max(0, Math.round((food.fat * grams) / 100)),
+    };
+  }
+  return estimateIngredientMacros(name || "aliment", grams);
 }
 
 function splitChunks(text: string) {
-  return text
+  const protectedFractions = text.replace(/(\d+)\s*\/\s*(\d+)/g, "$1\u2044$2");
+  return protectedFractions
     .split(
       /\s*(?:,|;|\+|\/|\n|\s+avec\s+|\s+et\s+|\s+puis\s+|\s+tartin\S*\s+de\s+|\s+napp\S*\s+de\s+|\s+garni\S*\s+de\s+|\s+recouvert\S*\s+de\s+)\s*/gi,
     )
-    .map((chunk) => chunk.replace(/^(de la|du|de l'|d'|des|le|la|les)\s+/i, "").trim())
+    .map((chunk) =>
+      chunk
+        .replace(/\u2044/g, "/")
+        .replace(/^(de la|du|de l'|d'|des|le|la|les)\s+/i, "")
+        .trim(),
+    )
     .filter((chunk) => chunk.length > 1);
 }
 
@@ -274,26 +359,81 @@ export function parseFoodTextLocal(text: string): DetectedIngredient[] {
   return parts.map((chunk, index) => {
     const food = matchFood(chunk);
     const parsed = parseLogLine(chunk, food);
-    const macros = macrosAt(food, parsed.grams);
-    return {
+    return applyTrustedNutrition({
       id: `t-${Date.now()}-${index}`,
       name: parsed.name,
       grams: parsed.grams,
       qty: parsed.qty,
       unit: parsed.unit,
-      ...macros,
-    };
+      calories: 0,
+      protein: 0,
+      carbs: 0,
+      fat: 0,
+    });
   });
+}
+
+export function applyTrustedNutrition(item: DetectedIngredient): DetectedIngredient {
+  const food = matchFood(item.name);
+  const name = food ? catalogName(food) : item.name;
+  let unit = item.unit ?? defaultUnitOf(food);
+  let qty = item.qty ?? (unit === "g" || unit === "ml" ? item.grams : 1);
+  let grams = Math.max(1, Math.round(item.grams));
+
+  if (food && isWholeItem(food)) {
+    if (unit === "g" || unit === "ml") {
+      if (grams > food.defaultG * 1.8) grams = food.defaultG;
+      qty = grams < food.defaultG * 0.75 ? 0.5 : grams < food.defaultG * 1.5 ? 1 : Math.max(1, Math.round(grams / food.defaultG));
+      unit = "piece";
+    } else {
+      grams = portionOf(food, qty, "piece", item.grams);
+      unit = "piece";
+    }
+    return { ...item, name, grams, qty, unit, ...macrosAt(food, grams, name) };
+  }
+
+  if (food && (unit === "g" || unit === "ml")) {
+    return { ...item, name, grams, qty: grams, unit, ...macrosAt(food, grams, name) };
+  }
+
+  if (food) {
+    grams = portionOf(food, qty, unit, item.grams);
+    return { ...item, name, grams, qty, unit, ...macrosAt(food, grams, name) };
+  }
+
+  const table = macrosAt(undefined, grams, name);
+  const density = item.grams > 0 ? (item.calories * 100) / item.grams : 0;
+  if (density >= 20 && density <= 900 && item.calories > 0) {
+    if (grams === item.grams) return { ...item, name, grams, qty, unit };
+    const ratio = grams / item.grams;
+    return {
+      ...item,
+      name,
+      grams,
+      qty,
+      unit,
+      calories: Math.max(0, Math.round(item.calories * ratio)),
+      protein: Math.max(0, Math.round(item.protein * ratio)),
+      carbs: Math.max(0, Math.round((item.carbs ?? 0) * ratio)),
+      fat: Math.max(0, Math.round((item.fat ?? 0) * ratio)),
+    };
+  }
+  return { ...item, name, grams, qty, unit, ...table };
 }
 
 export function scaleDetected(item: DetectedIngredient, grams: number): DetectedIngredient {
   const next = Math.max(1, Math.round(grams));
-  const ratio = item.grams > 0 ? next / item.grams : 1;
   const unit = item.unit ?? "g";
+  const qty = unit === "g" || unit === "ml" ? next : item.qty;
+  const food = matchFood(item.name);
+  if (food) {
+    return { ...item, name: catalogName(food), grams: next, qty, unit, ...macrosAt(food, next, catalogName(food)) };
+  }
+  const ratio = item.grams > 0 ? next / item.grams : 1;
   return {
     ...item,
     grams: next,
-    qty: unit === "g" || unit === "ml" ? next : item.qty,
+    qty,
     calories: Math.max(0, Math.round(item.calories * ratio)),
     protein: Math.max(0, Math.round(item.protein * ratio)),
     carbs: Math.max(0, Math.round((item.carbs ?? 0) * ratio)),
@@ -325,7 +465,7 @@ export function formatIngredientLine(raw: string): { line: string } & Macros {
   const chunk = raw.trim();
   const food = matchFood(chunk);
   const parsed = parseLogLine(chunk, food);
-  const macros = macrosAt(food, parsed.grams);
+  const macros = macrosAt(food, parsed.grams, parsed.name);
   return {
     line: formatLogLine(parsed.name, parsed.qty, parsed.unit, parsed.grams),
     ...macros,
@@ -382,20 +522,31 @@ export function mergeFoodLogResult(
   local: DetectedIngredient[],
   text: string,
 ): DetectedIngredient[] {
-  if (ai.length === 0) return local;
+  if (ai.length === 0) return local.map(applyTrustedNutrition);
+  if (local.length > ai.length && local.length >= 2) {
+    return local.map(applyTrustedNutrition);
+  }
   const hasExplicitG = /(\d+(?:[.,]\d+)?)\s*(g|gr\.?|grammes?)\b/i.test(text);
   const hasVisualQty =
-    /(\d+(?:[.,]\d+)?|une?)\s*(carreaux?|carr[eé]s?|tranches?|pi[eè]ces?|cs|cc)\b/i.test(text);
+    /(\d+(?:[.,]\d+)?|une?|demi(?:e)?)\s*(carreaux?|carr[eé]s?|tranches?|pi[eè]ces?|cs|cc)\b/i.test(
+      text,
+    ) || /(?:demi(?:e)?|1\s*\/\s*2|½)/i.test(text);
   return ai.map((item, index) => {
     const loc = local[index];
-    if (!loc) return item;
+    const base = { ...item, name: item.name || loc?.name || item.name };
+    if (!loc) return applyTrustedNutrition(base);
     const preferLocalGrams =
       loc.grams !== item.grams &&
       (hasExplicitG ||
-        (hasVisualQty && Boolean(loc.unit && loc.unit !== "g" && loc.unit !== "ml")));
-    const base = { ...item, name: item.name || loc.name };
-    if (!preferLocalGrams) return base;
-    return { ...scaleDetected(base, loc.grams), qty: loc.qty, unit: loc.unit };
+        hasVisualQty ||
+        Boolean(loc.unit && loc.unit !== "g" && loc.unit !== "ml"));
+    if (!preferLocalGrams) return applyTrustedNutrition(base);
+    return applyTrustedNutrition({
+      ...base,
+      grams: loc.grams,
+      qty: loc.qty,
+      unit: loc.unit,
+    });
   });
 }
 
@@ -426,33 +577,33 @@ function mapGeminiIngredients(raw: unknown): DetectedIngredient[] {
 }
 
 export function foodLogPrompt(text: string, diet: DietType) {
-  return `Tu estimes la nutrition d'une saisie libre en français.
+  return `Tu identifies et sépares les aliments d'une saisie libre en français. Tu n'inventes PAS les calories.
 Régime : ${diet === "vegan" ? "vegan (aucun produit animal)" : "omnivore"}.
 
 Texte : """${text}"""
 
 Règles :
-- Découpe en ingrédients distincts SEULEMENT s'ils sont clairement séparés (avec, et, +, virgule).
+- Découpe CHAQUE aliment séparé par avec, et, +, virgule, tartiné de, nappé de.
+- Exemple : "1 tranche de pain bûcheron avec margarine végétale et 1 tranche de bacon VG"
+  → 3 ingrédients : Pain bûcheron (1 tranche, 40 g) + Margarine végétale (1 cs, 10 g) + Bacon végétal (1 tranche, 20 g).
 - N'ajoute JAMAIS un aliment absent du texte.
-- "lait d'avoine", "lait végétal d'avoine", "café au lait d'avoine" = BOISSON (lait d'avoine / café), PAS des flocons d'avoine.
-- Une phrase courte = UN seul ingrédient. Garde un nom proche de la saisie utilisateur.
-- "tranche de pain bûcheron avec de la margarine" = 2 ingrédients (pain + margarine).
-- Si un poids est écrit (20 g, 20gr, 20 grammes), UTILISE exactement ce gramme.
-- Si une quantité visuelle est écrite (1 carreau, 2 tranches, 1 cs, 1 pièce), garde qty + unit et estime les grammes de CETTE quantité (1 carreau de chocolat ≈ 10 g, 1 tranche de pain ≈ 40 g, 1 cs ≈ 10 g).
-- Sinon estime une portion réaliste (café au lait d'avoine ≈ 200 ml de lait, pas 50 g de flocons).
-- Donne calories / protéines / glucides / lipides pour CETTE quantité, pas pour 100 g.
-- Noms propres, sans le poids dans le nom.
+- "lait d'avoine" / "café au lait d'avoine" = BOISSON. "flocon(s) d'avoine" = flocons (solide), nom exact « Flocons d'avoine ».
+- Noms catalogue, sans répétition : « Flocons d'avoine » (pas « Flocons d'avoine flocon »), « Pain bûcheron », « Margarine végétale », « Bacon végétal », « Banane ».
+- Fruit : qty 1 = 1 fruit, qty 0.5 = une demi, unit "piece".
+- Si un poids est écrit (50 g), UTILISE exactement ce gramme.
+- Portions si rien n'est pesé : banane 1 pièce ≈ 110 g (demi ≈ 55 g), pain 1 tranche ≈ 40 g, margarine 1 cs ≈ 10 g, bacon VG 1 tranche ≈ 20 g, flocons d'avoine ≈ 50 g, œuf ≈ 55 g, chocolat 1 carreau ≈ 10 g.
+- calories / protein / carbs / fat = 0 (table CIQUAL côté serveur).
 
 JSON strict :
-{ "ingredients": [{ "name": "Chocolat noir", "qty": 1, "unit": "carreau", "grams": 10, "calories": 58, "protein": 1, "carbs": 5, "fat": 4 }] }`;
+{ "ingredients": [{ "name": "Pain bûcheron", "qty": 1, "unit": "tranche", "grams": 40, "calories": 0, "protein": 0, "carbs": 0, "fat": 0 }] }`;
 }
 
 export async function analyzeFoodText(text: string, diet: DietType): Promise<DetectedIngredient[]> {
-  const fallback = parseFoodTextLocal(text);
+  const fallback = parseFoodTextLocal(text).map(applyTrustedNutrition);
   try {
     const raw = await generateGeminiFlash({
       parts: [{ text: foodLogPrompt(text, diet) }],
-      temperature: 0.2,
+      temperature: 0.1,
     });
     const parsed = mapGeminiIngredients(parseGeminiJson(raw));
     return mergeFoodLogResult(parsed, fallback, text);
@@ -468,13 +619,14 @@ Régime : ${diet === "vegan" ? "vegan (aucun produit animal — si tu vois froma
 Règles :
 - Liste CHAQUE aliment visible (pain, margarine, fruit, plat, boisson).
 - Estime un poids réaliste en grammes pour la portion SUR L'ASSIETTE / dans la main.
-- Donne calories / protéines / glucides / lipides pour CETTE quantité, pas pour 100 g.
-- Noms en français, propres, sans le poids dans le name.
+- Portions : banane 1 pièce ≈ 110 g, demi ≈ 55 g (jamais 200 g+ pour une demi).
+- calories / protein / carbs / fat = 0 (le serveur calcule via table CIQUAL).
+- Noms en français, génériques (Banane, Pain, Tofu), sans le poids dans le name.
 - Si la photo est floue, donne quand même les aliments les plus probables.
 - Ne sors pas de JSON.
 
 JSON strict :
-{ "ingredients": [{ "name": "Pain bûcheron", "grams": 40, "calories": 102, "protein": 4, "carbs": 19, "fat": 1 }] }`;
+{ "ingredients": [{ "name": "Pain bûcheron", "grams": 40, "calories": 0, "protein": 0, "carbs": 0, "fat": 0 }] }`;
 }
 
 export async function analyzeFoodPhoto(
@@ -489,7 +641,7 @@ export async function analyzeFoodPhoto(
     ],
     temperature: 0.2,
   });
-  const parsed = mapGeminiIngredients(parseGeminiJson(raw));
+  const parsed = mapGeminiIngredients(parseGeminiJson(raw)).map(applyTrustedNutrition);
   if (parsed.length === 0) {
     throw new Error("Aucun aliment reconnu sur la photo.");
   }

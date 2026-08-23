@@ -11,7 +11,8 @@ import {
   emptyExercise,
   toggleWeekday,
 } from "@/lib/sport-routine";
-import type { SportActivity, SportExercise, SportSession } from "@/lib/types";
+import { ExerciseListEditor } from "@/components/sport/ExerciseListEditor";
+import type { SportActivity, SportSession } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 export function SportSessionSheet({
@@ -41,13 +42,6 @@ export function SportSessionSheet({
         activity === "muscu" && current.exercises.length === 0
           ? [emptyExercise()]
           : current.exercises,
-    }));
-  }
-
-  function patchExercise(id: string, patch: Partial<SportExercise>) {
-    setDraft((current) => ({
-      ...current,
-      exercises: current.exercises.map((item) => (item.id === id ? { ...item, ...patch } : item)),
     }));
   }
 
@@ -186,36 +180,16 @@ export function SportSessionSheet({
           )}
         </div>
 
-        <p className="mb-1 mt-4 text-[12px] font-medium text-health-muted">Découpage des exercices</p>
-        <p className="mb-2 text-[11px] leading-relaxed text-health-muted">
-          {isMuscu
-            ? "Répétitions, ou temps / isométrie pour le HIIT et le gainage."
-            : "Optionnel pour le cardio."}
-        </p>
-        <div className="space-y-2">
-          {draft.exercises.map((exercise) => (
-            <ExerciseEditor
-              key={exercise.id}
-              exercise={exercise}
-              onChange={(patch) => patchExercise(exercise.id, patch)}
-              onRemove={() =>
-                setDraft((current) => ({
-                  ...current,
-                  exercises: current.exercises.filter((item) => item.id !== exercise.id),
-                }))
-              }
-            />
-          ))}
-        </div>
-        <button
-          type="button"
-          onClick={() =>
-            setDraft((current) => ({ ...current, exercises: [...current.exercises, emptyExercise()] }))
+        <p className="mb-1 mt-4 text-[12px] font-medium text-health-muted">Exercices</p>
+        <ExerciseListEditor
+          exercises={draft.exercises}
+          onChange={(exercises) => setDraft((current) => ({ ...current, exercises }))}
+          hint={
+            isMuscu
+              ? "Nomme ce que tu fais vraiment. Répétitions, ou temps / isométrie pour le HIIT et le gainage."
+              : "Optionnel pour le cardio."
           }
-          className="mt-2 w-full rounded-card bg-health-bg py-2.5 text-[13px] font-semibold"
-        >
-          Ajouter un exercice
-        </button>
+        />
 
         <button
           type="button"
@@ -227,110 +201,6 @@ export function SportSessionSheet({
         </button>
       </div>
     </div>
-  );
-}
-
-function ExerciseEditor({
-  exercise,
-  onChange,
-  onRemove,
-}: {
-  exercise: SportExercise;
-  onChange: (patch: Partial<SportExercise>) => void;
-  onRemove: () => void;
-}) {
-  const target = exercise.target ?? "reps";
-  return (
-    <div className="rounded-2xl bg-health-bg px-3 py-2.5">
-      <input
-        value={exercise.name}
-        onChange={(e) => onChange({ name: e.target.value })}
-        placeholder="Nom de l’exercice"
-        className="w-full bg-transparent text-[14px] outline-none"
-      />
-      <p className="mb-1.5 mt-2 text-[11px] font-medium text-health-muted">Répétitions / Durée</p>
-      <div className="grid grid-cols-2 gap-1.5">
-        <TargetChip
-          active={target === "reps"}
-          label="Répétitions"
-          onClick={() => onChange({ target: "reps" })}
-        />
-        <TargetChip
-          active={target === "temps"}
-          label="Temps / Isométrie"
-          onClick={() => onChange({ target: "temps" })}
-        />
-      </div>
-      <div className="mt-2 space-y-1.5">
-        <MiniStepper
-          label="Séries"
-          value={exercise.sets}
-          onChange={(sets) => onChange({ sets })}
-          min={1}
-          max={12}
-        />
-        {target === "reps" ? (
-          <MiniStepper
-            label="Répétitions"
-            value={exercise.reps}
-            onChange={(reps) => onChange({ reps })}
-            min={1}
-            max={50}
-          />
-        ) : (
-          <>
-            <MiniStepper
-              label="Effort"
-              value={exercise.workSec}
-              onChange={(workSec) => onChange({ workSec })}
-              min={5}
-              max={300}
-              step={5}
-              suffix=" s"
-            />
-            <MiniStepper
-              label="Repos"
-              value={exercise.restSec}
-              onChange={(restSec) => onChange({ restSec })}
-              min={0}
-              max={180}
-              step={5}
-              suffix=" s"
-            />
-          </>
-        )}
-      </div>
-      <button
-        type="button"
-        onClick={onRemove}
-        className="mt-2 text-[12px] font-semibold text-health-muted"
-      >
-        Retirer l’exercice
-      </button>
-    </div>
-  );
-}
-
-function TargetChip({
-  active,
-  label,
-  onClick,
-}: {
-  active: boolean;
-  label: string;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn(
-        "rounded-full px-2 py-1.5 text-[11px] font-semibold",
-        active ? "bg-health-ink text-white" : "bg-white text-health-muted",
-      )}
-    >
-      {label}
-    </button>
   );
 }
 
@@ -370,50 +240,6 @@ function Stepper({
           type="button"
           onClick={() => onChange(Math.min(max, value + step))}
           className="h-8 w-8 rounded-full bg-white text-lg leading-none"
-        >
-          +
-        </button>
-      </div>
-    </div>
-  );
-}
-
-function MiniStepper({
-  label,
-  value,
-  onChange,
-  min = 1,
-  max,
-  step = 1,
-  suffix = "",
-}: {
-  label: string;
-  value: number;
-  onChange: (value: number) => void;
-  min?: number;
-  max: number;
-  step?: number;
-  suffix?: string;
-}) {
-  return (
-    <div className="flex items-center justify-between">
-      <span className="text-[12px] text-health-muted">{label}</span>
-      <div className="flex items-center gap-1.5">
-        <button
-          type="button"
-          onClick={() => onChange(Math.max(min, value - step))}
-          className="h-7 w-7 rounded-full bg-white text-[15px] leading-none"
-        >
-          −
-        </button>
-        <span className="min-w-[2.25rem] text-center text-[13px] font-semibold tabular-nums">
-          {value}
-          {suffix}
-        </span>
-        <button
-          type="button"
-          onClick={() => onChange(Math.min(max, value + step))}
-          className="h-7 w-7 rounded-full bg-white text-[15px] leading-none"
         >
           +
         </button>

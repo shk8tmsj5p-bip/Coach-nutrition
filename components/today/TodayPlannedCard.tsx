@@ -16,7 +16,7 @@ import { isoWeekday, todayISO } from "@/lib/dates";
 import {
   activityLabel,
   effortLabel,
-  formatExercises,
+  formatExerciseLine,
   formatHoursMinutes,
   parseSportRoutine,
   sessionsForWeekday,
@@ -176,7 +176,7 @@ function PlannedRow({
   onDismissCoach: () => void;
 }) {
   const Icon = ACTIVITY_ICON[session.activity as SportActivity];
-  const breakdown = formatExercises(session.exercises);
+  const named = session.exercises.filter((exercise) => exercise.name.trim());
   const tags = coachDiff ? sportDiffTags(coachDiff) : [];
   const highlighted = Boolean(coachDiff);
   return (
@@ -209,7 +209,15 @@ function PlannedRow({
         )}
       </div>
       {highlighted && <CoachDiffTags tags={tags} />}
-      {breakdown && <p className="mt-1.5 text-[12px] leading-relaxed text-health-muted">{breakdown}</p>}
+      {named.length > 0 ? (
+        <ul className="mt-1.5 space-y-0.5">
+          {named.map((exercise) => (
+            <li key={exercise.id} className="text-[12px] leading-snug text-health-muted">
+              {formatExerciseLine(exercise)}
+            </li>
+          ))}
+        </ul>
+      ) : null}
       {validated && stravaName && (
         <p className="mt-1 text-[11px] text-health-muted">{stravaName}</p>
       )}
