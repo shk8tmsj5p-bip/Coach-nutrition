@@ -8,6 +8,7 @@ import {
   parseMealItems,
   scaleItem,
   scaleItemQty,
+  scaleItemKcal,
   serializeItems,
   sumEditableMacros,
   type EditableItem,
@@ -128,7 +129,7 @@ export function EditMealSheet({
           ))}
         </div>
 
-        <div className="max-h-[36vh] space-y-3 overflow-y-auto">
+        <div className="max-h-[36vh] space-y-1 overflow-y-auto">
           {showDessert ? (
             <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-health-muted">Plat</p>
           ) : null}
@@ -234,10 +235,12 @@ function ItemRow({
       qty={item.qty ?? item.grams}
       unit={item.unit ?? "g"}
       grams={item.grams}
+      calories={item.calories}
       dessert={dessert}
-      detail={`${item.calories} kcal · ${Math.round(item.protein)}g P`}
+      detail={`${Math.round(item.protein)}g P`}
       onQty={(qty) => onChange(scaleItemQty(item, qty))}
       onGrams={(grams) => onChange(scaleItem(item, grams))}
+      onKcal={(kcal) => onChange(scaleItemKcal(item, kcal))}
       onRemove={onRemove}
     />
   );

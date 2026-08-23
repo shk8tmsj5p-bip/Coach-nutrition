@@ -1,5 +1,12 @@
 import type { DetectedIngredient, Macros, MealEntry, MealType, QtyUnit } from "@/lib/types";
-import { formatLogLine, parseLogLine, applyTrustedNutrition, scaleDetected, scaleDetectedQty } from "@/lib/food-log";
+import {
+  formatLogLine,
+  parseLogLine,
+  applyTrustedNutrition,
+  scaleDetected,
+  scaleDetectedQty,
+  scaleDetectedKcal,
+} from "@/lib/food-log";
 import {
   isDessertItemLine,
   isEmptyDessertMarker,
@@ -67,6 +74,10 @@ export function scaleItem(item: EditableItem, grams: number): EditableItem {
 
 export function scaleItemQty(item: EditableItem, qty: number): EditableItem {
   return asEditable(scaleDetectedQty(item, qty), item.dessert);
+}
+
+export function scaleItemKcal(item: EditableItem, kcal: number): EditableItem {
+  return asEditable(scaleDetectedKcal(item, kcal), item.dessert);
 }
 
 export function sumEditableMacros(items: EditableItem[]): Macros {

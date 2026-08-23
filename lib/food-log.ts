@@ -121,16 +121,27 @@ export function gramsPerUnit(unit: QtyUnit, food?: FoodRef) {
   return food?.defaultG ?? 10;
 }
 
+/** 1 décimale. Pas de plancher 1 g / 75 g — 1,5 g est valide. */
+export function clampGrams(n: number) {
+  if (!Number.isFinite(n) || n <= 0) return 0.1;
+  return Math.round(n * 10) / 10;
+}
+
+export function formatQtyNumber(n: number) {
+  const value = clampGrams(n);
+  return Number.isInteger(value) ? String(value) : String(value).replace(".", ",");
+}
+
 export function qtyLabel(qty: number, unit: QtyUnit) {
-  const n = Number.isInteger(qty) ? String(qty) : String(qty).replace(".", ",");
+  const n = formatQtyNumber(qty);
   const plural = qty > 1;
   if (unit === "tranche") return `${n} tranche${plural ? "s" : ""}`;
   if (unit === "carreau") return `${n} carreau${plural ? "x" : ""}`;
   if (unit === "piece") return `${n} pièce${plural ? "s" : ""}`;
-  if (unit === "ml") return `${Math.round(qty)} ml`;
+  if (unit === "ml") return `${n} ml`;
   if (unit === "cs") return `${n} cs`;
   if (unit === "cc") return `${n} cc`;
-  return `${Math.round(qty)} g`;
+  return `${n} g`;
 }
 
 export function unitShortLabel(unit: QtyUnit) {
@@ -141,7 +152,7 @@ export function unitShortLabel(unit: QtyUnit) {
 }
 
 export function qtyStep(unit: QtyUnit) {
-  if (unit === "g" || unit === "ml") return 5;
+  if (unit === "g" || unit === "ml") return 1;
   if (unit === "piece" || unit === "tranche") return 0.5;
   return 1;
 }
@@ -182,17 +193,16 @@ function isWholeItem(food: FoodRef) {
 }
 
 function portionOf(food: FoodRef | undefined, qty: number, unit: QtyUnit, gramsHint?: number) {
-  const typical = Math.max(1, Math.round(qty * gramsPerUnit(unit, food)));
+  const typical = clampGrams(qty * gramsPerUnit(unit, food));
   if (!gramsHint || !food) return typical;
-  if (gramsHint > typical * 2.2 || gramsHint < Math.max(1, typical * 0.35)) return typical;
-  return Math.max(1, Math.round(gramsHint));
+  return clampGrams(gramsHint);
 }
 
 function parseGramsFromChunk(chunk: string, unit: QtyUnit, qty: number, food?: FoodRef) {
   const paren = chunk.match(/\((\d+(?:[.,]\d+)?)\s*g\)/i);
-  if (paren) return Math.max(1, Math.round(num(paren[1])));
-  if (unit === "g" || unit === "ml") return Math.max(1, Math.round(qty));
-  return Math.max(1, Math.round(qty * gramsPerUnit(unit, food)));
+  if (paren) return clampGrams(num(paren[1]));
+  if (unit === "g" || unit === "ml") return clampGrams(qty);
+  return clampGrams(qty * gramsPerUnit(unit, food));
 }
 
 function parseGrams(chunk: string, food?: FoodRef) {
@@ -213,7 +223,7 @@ export function parseLogLine(line: string, foodHint?: FoodRef): ParsedLogLine {
     const unit = parseQtyUnit(colon[3]) ?? "g";
     const qty = countFromWord(colon[2]);
     const grams = colon[4]
-      ? Math.max(1, Math.round(num(colon[4])))
+      ? clampGrams(num(colon[4]))
       : parseGramsFromChunk(trimmed, unit, qty, food);
     return { name: titleName(colon[1].trim()) || foodName(food, trimmed), qty, unit, grams };
   }
@@ -228,7 +238,7 @@ export function parseLogLine(line: string, foodHint?: FoodRef): ParsedLogLine {
     const unit = parseQtyUnit(trailing[3]) ?? "g";
     const qty = countFromWord(trailing[2]);
     const grams = trailing[4]
-      ? Math.max(1, Math.round(num(trailing[4])))
+      ? clampGrams(num(trailing[4]))
       : parseGramsFromChunk(trimmed, unit, qty, food);
     const name = leftoverName(trailing[1]) || foodName(food, trimmed);
     return { name, qty, unit, grams };
@@ -281,11 +291,13 @@ export function parseLogLine(line: string, foodHint?: FoodRef): ParsedLogLine {
 
 export function formatLogLine(name: string, qty: number, unit: QtyUnit, grams: number) {
   const clean = name.trim() || "Aliment";
-  const g = Math.max(1, Math.round(grams));
-  const q = Math.max(unit === "g" || unit === "ml" ? 1 : 0.5, qty);
-  if (unit === "g") return `${clean} : ${g}g`;
-  if (unit === "ml") return `${clean} : ${Math.round(q)}ml`;
-  return `${clean} : ${qtyLabel(q, unit)} (${g}g)`;
+  const g = clampGrams(grams);
+  const q = clampGrams(qty);
+  if (unit === "ml") return `${clean} : ${formatQtyNumber(q)}ml`;
+  if (unit === "cs") return `${clean} : ${formatQtyNumber(q)} cs (${formatQtyNumber(g)}g)`;
+  if (unit === "cc") return `${clean} : ${formatQtyNumber(q)} cc (${formatQtyNumber(g)}g)`;
+  if (unit === "carreau") return `${clean} : ${qtyLabel(q, "carreau")} (${formatQtyNumber(g)}g)`;
+  return `${clean} : ${formatQtyNumber(g)}g`;
 }
 
 export function formatDetectedLine(item: DetectedIngredient) {
@@ -377,23 +389,18 @@ export function applyTrustedNutrition(item: DetectedIngredient): DetectedIngredi
   const food = matchFood(item.name);
   const name = food ? catalogName(food) : item.name;
   let unit = item.unit ?? defaultUnitOf(food);
-  let qty = item.qty ?? (unit === "g" || unit === "ml" ? item.grams : 1);
-  let grams = Math.max(1, Math.round(item.grams));
+  let grams = clampGrams(item.grams);
+  let qty = item.qty ?? (unit === "g" || unit === "ml" ? grams : 1);
 
-  if (food && isWholeItem(food)) {
-    if (unit === "g" || unit === "ml") {
-      if (grams > food.defaultG * 1.8) grams = food.defaultG;
-      qty = grams < food.defaultG * 0.75 ? 0.5 : grams < food.defaultG * 1.5 ? 1 : Math.max(1, Math.round(grams / food.defaultG));
-      unit = "piece";
-    } else {
-      grams = portionOf(food, qty, "piece", item.grams);
-      unit = "piece";
-    }
-    return { ...item, name, grams, qty, unit, ...macrosAt(food, grams, name) };
+  // Pièce / tranche → grammes. Le poulet n'est pas un fruit.
+  if (unit === "piece" || unit === "tranche") {
+    if (!grams && food) grams = clampGrams((item.qty ?? 1) * gramsPerUnit(unit, food));
+    unit = "g";
+    qty = grams;
   }
 
   if (food && (unit === "g" || unit === "ml")) {
-    return { ...item, name, grams, qty: grams, unit, ...macrosAt(food, grams, name) };
+    return { ...item, name, grams, qty: unit === "g" ? grams : qty, unit, ...macrosAt(food, grams, name) };
   }
 
   if (food) {
@@ -404,7 +411,7 @@ export function applyTrustedNutrition(item: DetectedIngredient): DetectedIngredi
   const table = macrosAt(undefined, grams, name);
   const density = item.grams > 0 ? (item.calories * 100) / item.grams : 0;
   if (density >= 20 && density <= 900 && item.calories > 0) {
-    if (grams === item.grams) return { ...item, name, grams, qty, unit };
+    if (grams === clampGrams(item.grams)) return { ...item, name, grams, qty, unit };
     const ratio = grams / item.grams;
     return {
       ...item,
@@ -422,8 +429,8 @@ export function applyTrustedNutrition(item: DetectedIngredient): DetectedIngredi
 }
 
 export function scaleDetected(item: DetectedIngredient, grams: number): DetectedIngredient {
-  const next = Math.max(1, Math.round(grams));
-  const unit = item.unit ?? "g";
+  const next = clampGrams(grams);
+  const unit = item.unit === "ml" ? "ml" : item.unit === "cs" || item.unit === "cc" || item.unit === "carreau" ? item.unit : "g";
   const qty = unit === "g" || unit === "ml" ? next : item.qty;
   const food = matchFood(item.name);
   if (food) {
@@ -434,6 +441,7 @@ export function scaleDetected(item: DetectedIngredient, grams: number): Detected
     ...item,
     grams: next,
     qty,
+    unit,
     calories: Math.max(0, Math.round(item.calories * ratio)),
     protein: Math.max(0, Math.round(item.protein * ratio)),
     carbs: Math.max(0, Math.round((item.carbs ?? 0) * ratio)),
@@ -444,9 +452,33 @@ export function scaleDetected(item: DetectedIngredient, grams: number): Detected
 export function scaleDetectedQty(item: DetectedIngredient, qty: number): DetectedIngredient {
   const unit = item.unit ?? "g";
   const from = Math.max(0.01, item.qty ?? (unit === "g" || unit === "ml" ? item.grams : 1));
-  const nextQty = Math.max(unit === "g" || unit === "ml" ? 1 : 0.5, qty);
-  const grams = Math.max(1, Math.round((item.grams / from) * nextQty));
-  return { ...scaleDetected(item, grams), qty: nextQty, unit };
+  const nextQty = clampGrams(qty);
+  const grams = clampGrams((item.grams / from) * nextQty);
+  return { ...scaleDetected(item, grams), qty: nextQty, unit: unit === "piece" || unit === "tranche" ? "g" : unit };
+}
+
+/** Reverse from kcal → grams (density of the current portion), then qty. */
+export function scaleDetectedKcal(item: DetectedIngredient, kcal: number): DetectedIngredient {
+  const target = Math.max(1, Math.round(kcal));
+  const density = item.grams > 0 && item.calories > 0 ? item.calories / item.grams : 0;
+  if (density <= 0) {
+    const ratio = item.calories > 0 ? target / item.calories : 1;
+    return {
+      ...item,
+      calories: target,
+      protein: Math.max(0, Math.round(item.protein * ratio)),
+      carbs: Math.max(0, Math.round((item.carbs ?? 0) * ratio)),
+      fat: Math.max(0, Math.round((item.fat ?? 0) * ratio)),
+    };
+  }
+  const grams = clampGrams(target / density);
+  const next = scaleDetected(item, grams);
+  const unit = next.unit ?? "g";
+  if (unit === "g" || unit === "ml") return next;
+  const fromG = Math.max(0.1, item.grams);
+  const fromQ = Math.max(0.01, item.qty ?? 1);
+  const qty = clampGrams((fromQ / fromG) * grams);
+  return { ...next, qty };
 }
 
 export function macrosFromIngredients(ingredients: DetectedIngredient[]) {
@@ -559,14 +591,16 @@ function mapGeminiIngredients(raw: unknown): DetectedIngredient[] {
     if (!item || typeof item !== "object") return;
     const row = item as Record<string, unknown>;
     const name = String(row.name ?? "").trim();
-    const grams = Math.max(1, Math.round(Number(row.grams) || 0));
+    const grams = clampGrams(Number(row.grams) || 0);
     if (!name || grams <= 0) return;
+    const parsedUnit = parseQtyUnit(String(row.unit ?? "g")) ?? "g";
+    const unit = parsedUnit === "piece" || parsedUnit === "tranche" ? "g" : parsedUnit;
     out.push({
       id: `ai-${Date.now()}-${index}`,
       name,
       grams,
-      qty: Number(row.qty) > 0 ? Number(row.qty) : grams,
-      unit: parseQtyUnit(String(row.unit ?? "g")) ?? "g",
+      qty: unit === "g" || unit === "ml" ? grams : Number(row.qty) > 0 ? Number(row.qty) : 1,
+      unit,
       calories: Math.max(0, Math.round(Number(row.calories) || 0)),
       protein: Math.max(0, Math.round(Number(row.protein) || 0)),
       carbs: Math.max(0, Math.round(Number(row.carbs) || 0)),
@@ -589,13 +623,14 @@ Règles :
 - N'ajoute JAMAIS un aliment absent du texte.
 - "lait d'avoine" / "café au lait d'avoine" = BOISSON. "flocon(s) d'avoine" = flocons (solide), nom exact « Flocons d'avoine ».
 - Noms catalogue, sans répétition : « Flocons d'avoine » (pas « Flocons d'avoine flocon »), « Pain bûcheron », « Margarine végétale », « Bacon végétal », « Banane ».
-- Fruit : qty 1 = 1 fruit, qty 0.5 = une demi, unit "piece".
-- Si un poids est écrit (50 g), UTILISE exactement ce gramme.
-- Portions si rien n'est pesé : banane 1 pièce ≈ 110 g (demi ≈ 55 g), pain 1 tranche ≈ 40 g, margarine 1 cs ≈ 10 g, bacon VG 1 tranche ≈ 20 g, flocons d'avoine ≈ 50 g, œuf ≈ 55 g, chocolat 1 carreau ≈ 10 g.
+- Viande, poisson, tofu, fromage, riz, pâtes, pain : unit "g" uniquement. JAMAIS pièce, tranche, ni fruit.
+- Fruit / œuf : convertis en grammes (banane ≈ 110 g, demi ≈ 55 g, œuf ≈ 55 g). unit "g".
+- Si un poids est écrit (1,5 g / 50 g), UTILISE exactement ce gramme, même tout petit.
+- Portions si rien n'est pesé : banane ≈ 110 g, pain ≈ 40 g, margarine 1 cs ≈ 10 g, bacon VG ≈ 20 g, flocons d'avoine ≈ 50 g, œuf ≈ 55 g, chocolat 1 carreau ≈ 10 g, poulet selon le texte en grammes (pas de minimum).
 - calories / protein / carbs / fat = 0 (table CIQUAL côté serveur).
 
 JSON strict :
-{ "ingredients": [{ "name": "Pain bûcheron", "qty": 1, "unit": "tranche", "grams": 40, "calories": 0, "protein": 0, "carbs": 0, "fat": 0 }] }`;
+{ "ingredients": [{ "name": "Pain bûcheron", "qty": 40, "unit": "g", "grams": 40, "calories": 0, "protein": 0, "carbs": 0, "fat": 0 }] }`;
 }
 
 export async function analyzeFoodText(text: string, diet: DietType): Promise<DetectedIngredient[]> {
@@ -618,15 +653,16 @@ Régime : ${diet === "vegan" ? "vegan (aucun produit animal — si tu vois froma
 
 Règles :
 - Liste CHAQUE aliment visible (pain, margarine, fruit, plat, boisson).
-- Estime un poids réaliste en grammes pour la portion SUR L'ASSIETTE / dans la main.
-- Portions : banane 1 pièce ≈ 110 g, demi ≈ 55 g (jamais 200 g+ pour une demi).
+- Poids en grammes UNIQUEMENT (unit "g"). Poulet, tofu, viande : jamais pièce / tranche / fruit.
+- Estime un poids réaliste pour la portion SUR L'ASSIETTE — aucun minimum (40 g de poulet est valide).
+- Banane entière ≈ 110 g, demi ≈ 55 g (jamais 200 g+ pour une demi).
 - calories / protein / carbs / fat = 0 (le serveur calcule via table CIQUAL).
-- Noms en français, génériques (Banane, Pain, Tofu), sans le poids dans le name.
+- Noms en français, génériques (Banane, Pain, Tofu, Poulet), sans le poids dans le name.
 - Si la photo est floue, donne quand même les aliments les plus probables.
 - Ne sors pas de JSON.
 
 JSON strict :
-{ "ingredients": [{ "name": "Pain bûcheron", "grams": 40, "calories": 0, "protein": 0, "carbs": 0, "fat": 0 }] }`;
+{ "ingredients": [{ "name": "Poulet", "qty": 40, "unit": "g", "grams": 40, "calories": 0, "protein": 0, "carbs": 0, "fat": 0 }] }`;
 }
 
 export async function analyzeFoodPhoto(

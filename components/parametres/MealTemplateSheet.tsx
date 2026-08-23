@@ -1,85 +1,82 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { Minus, Plus, Trash2, X } from "lucide-react";
-import { TagInput } from "@/components/parametres/TagInput";
+import { useEffect, useMemo, useState } from "react";
+import { Camera, Clock, ScanBarcode, Sparkles, X } from "lucide-react";
 import { ChipSelector } from "@/components/parametres/ChipSelector";
+import { LogSheet, type FoodLogMode } from "@/components/today/LogSheet";
+import { QtyEditRow } from "@/components/today/QtyEditRow";
+import { RecentsSheet } from "@/components/today/RecentsSheet";
 import {
+  applyTrustedNutrition,
   formatDetectedLine,
-  parseIngredientQty,
+  macrosFromIngredients,
+  parseFoodTextLocal,
   parseLogLine,
-  qtyStep,
-  setLineQuantity,
+  scaleDetected,
+  scaleDetectedKcal,
+  scaleDetectedQty,
 } from "@/lib/food-log";
 import { requestLogText } from "@/lib/gemini/client";
-import { WEEKDAYS, toggleWeekday } from "@/lib/sport-routine";
+import { todayISO } from "@/lib/dates";
+import { recentFoodsFromMeals, recentFoodToDetected, type DatedMeal } from "@/lib/recent-foods";
+import { mockBarcodeProduct } from "@/lib/mock-data";
 import { SLOT_TEMPLATE_KINDS } from "@/lib/meal-templates";
-import type { DetectedIngredient, DietType, Macros, SlotTemplate, SlotTemplateKind } from "@/lib/types";
+import { WEEKDAYS, toggleWeekday } from "@/lib/sport-routine";
+import { createBrowserSupabaseClient } from "@/lib/supabase/client";
+import { fetchRecentLoggedMeals, fetchTodayMeals } from "@/lib/supabase/today-data";
+import type {
+  DetectedIngredient,
+  DietType,
+  Macros,
+  MealType,
+  ProfileId,
+  SlotTemplate,
+  SlotTemplateKind,
+} from "@/lib/types";
 import { cn } from "@/lib/utils";
 
-type DraftLine = {
-  line: string;
-  calories: number;
-  protein: number;
-  carbs: number;
-  fat: number;
-};
+type DraftLine = DetectedIngredient;
 
 function sumLines(items: DraftLine[]): Macros {
-  return items.reduce(
-    (acc, item) => ({
-      calories: acc.calories + item.calories,
-      protein: acc.protein + item.protein,
-      carbs: acc.carbs + item.carbs,
-      fat: acc.fat + item.fat,
-    }),
-    { calories: 0, protein: 0, carbs: 0, fat: 0 },
-  );
+  return macrosFromIngredients(items);
 }
 
 function linesFromTemplate(template: SlotTemplate): DraftLine[] {
   const items = template.items.filter((line) => line.trim());
   if (!items.length) return [];
-  const parsed = items.map((line) => parseLogLine(line));
-  const totalG = parsed.reduce((sum, item) => sum + item.grams, 0);
-  return parsed.map((item, index) => {
-    const share = totalG > 0 ? item.grams / totalG : 1 / parsed.length;
-    return {
-      line: items[index],
-      calories: Math.round(template.macros.calories * share),
-      protein: Math.round(template.macros.protein * share),
-      carbs: Math.round(template.macros.carbs * share),
-      fat: Math.round(template.macros.fat * share),
-    };
+  return items.map((line, index) => {
+    const parsed = parseLogLine(line);
+    return applyTrustedNutrition({
+      id: `${template.id}-${index}`,
+      name: parsed.name,
+      grams: parsed.grams,
+      qty: parsed.qty,
+      unit: parsed.unit,
+      calories: 0,
+      protein: 0,
+      carbs: 0,
+      fat: 0,
+    });
   });
 }
 
-function fromDetected(item: DetectedIngredient): DraftLine {
-  return {
-    line: formatDetectedLine(item),
-    calories: item.calories,
-    protein: item.protein,
-    carbs: item.carbs ?? 0,
-    fat: item.fat ?? 0,
-  };
+function slotMealType(slot: SlotTemplateKind): MealType {
+  return slot === "collation" ? "collation" : "petit-dejeuner";
 }
 
-function scaleLine(item: DraftLine, qty: number): DraftLine {
-  const parsed = parseLogLine(item.line);
-  const nextLine = setLineQuantity(item.line, qty);
-  const next = parseLogLine(nextLine);
-  const ratio = parsed.grams > 0 ? next.grams / parsed.grams : 1;
+function scaleMacros(base: Macros, fromG: number, toG: number): Macros {
+  const ratio = fromG > 0 ? toG / fromG : 1;
   return {
-    line: nextLine,
-    calories: Math.max(0, Math.round(item.calories * ratio)),
-    protein: Math.max(0, Math.round(item.protein * ratio)),
-    carbs: Math.max(0, Math.round(item.carbs * ratio)),
-    fat: Math.max(0, Math.round(item.fat * ratio)),
+    calories: Math.round(base.calories * ratio),
+    protein: Math.round(base.protein * ratio),
+    carbs: Math.round(base.carbs * ratio),
+    fat: Math.round(base.fat * ratio),
   };
 }
 
 export function MealTemplateSheet({
   template,
+  profileId,
   accent,
   diet,
   isNew,
@@ -88,6 +85,7 @@ export function MealTemplateSheet({
   onDelete,
 }: {
   template: SlotTemplate;
+  profileId: ProfileId;
   accent: "coral" | "violet";
   diet: DietType;
   isNew?: boolean;
@@ -97,32 +95,52 @@ export function MealTemplateSheet({
 }) {
   const [draft, setDraft] = useState<SlotTemplate>(template);
   const [lines, setLines] = useState<DraftLine[]>(() => linesFromTemplate(template));
-  const [adding, setAdding] = useState(false);
+  const [logMode, setLogMode] = useState<FoodLogMode | null>(null);
+  const [textInput, setTextInput] = useState("");
+  const [ingredients, setIngredients] = useState<DetectedIngredient[]>([]);
+  const [recentsOpen, setRecentsOpen] = useState(false);
+  const [recentMeals, setRecentMeals] = useState<DatedMeal[]>([]);
+  const [busy, setBusy] = useState(false);
   const canSave = useMemo(() => draft.name.trim().length > 0, [draft.name]);
+  const quickLog = draft.slot === "petit-dejeuner" || draft.slot === "collation";
+
+  useEffect(() => {
+    void (async () => {
+      const supabase = createBrowserSupabaseClient();
+      if (!supabase) return;
+      const [today, recents] = await Promise.all([
+        fetchTodayMeals(supabase, [profileId]),
+        fetchRecentLoggedMeals(supabase, [profileId]),
+      ]);
+      setRecentMeals([
+        ...(today.meals ?? []).map((meal) => ({ ...meal, date: todayISO() })),
+        ...(recents.meals ?? []),
+      ]);
+    })();
+  }, [profileId]);
 
   function commitLines(next: DraftLine[]) {
     setLines(next);
     setDraft((current) => ({
       ...current,
-      items: next.map((item) => item.line),
+      items: next.map((item) => formatDetectedLine(item)),
       macros: sumLines(next),
     }));
   }
 
-  async function addTexts(raws: string[]) {
-    const extra = raws.map((raw) => raw.trim()).filter(Boolean);
-    if (!extra.length || adding) return;
-    setAdding(true);
-    try {
-      const detected: DetectedIngredient[] = [];
-      for (const raw of extra) {
-        detected.push(...(await requestLogText(raw, diet)));
-      }
-      if (!detected.length) return;
-      commitLines([...lines, ...detected.map(fromDetected)]);
-    } finally {
-      setAdding(false);
-    }
+  function appendDetected(extra: DetectedIngredient[]) {
+    if (!extra.length) return;
+    commitLines([
+      ...lines,
+      ...extra.map((item, index) => ({ ...item, id: `${item.id}-${Date.now()}-${index}` })),
+    ]);
+  }
+
+  function closeLog() {
+    setLogMode(null);
+    setRecentsOpen(false);
+    setTextInput("");
+    setIngredients([]);
   }
 
   function patchMacros(patch: Partial<Macros>) {
@@ -166,34 +184,59 @@ export function MealTemplateSheet({
         </label>
 
         <p className="mb-1 mt-3 text-[12px] font-medium text-health-muted">Ingrédients</p>
-        <div className="space-y-1.5">
-          {lines.map((item, index) => (
-            <IngredientQtyRow
-              key={`${item.line}-${index}`}
-              line={item.line}
-              onQty={(qty) => {
-                const next = [...lines];
-                next[index] = scaleLine(item, qty);
-                commitLines(next);
-              }}
-              onRemove={() => commitLines(lines.filter((_, i) => i !== index))}
+        <div className="space-y-1">
+          {lines.map((item) => (
+            <QtyEditRow
+              key={item.id}
+              name={item.name}
+              qty={item.qty ?? item.grams}
+              unit={item.unit ?? "g"}
+              grams={item.grams}
+              calories={item.calories}
+              detail={`${Math.round(item.protein)}g P`}
+              onQty={(qty) =>
+                commitLines(lines.map((row) => (row.id === item.id ? scaleDetectedQty(row, qty) : row)))
+              }
+              onGrams={(grams) =>
+                commitLines(lines.map((row) => (row.id === item.id ? scaleDetected(row, grams) : row)))
+              }
+              onKcal={(kcal) =>
+                commitLines(lines.map((row) => (row.id === item.id ? scaleDetectedKcal(row, kcal) : row)))
+              }
+              onRemove={() => commitLines(lines.filter((row) => row.id !== item.id))}
             />
           ))}
         </div>
-        <div className={cn("mt-1.5", adding && "pointer-events-none opacity-50")}>
-          <TagInput
-            tags={[]}
-            onChange={(added) => void addTexts(added)}
-            placeholder="Café au lait végétal d'avoine"
-            accent={accent}
-            addLabel="+"
-            commitOnComma={false}
+
+        {quickLog ? (
+          <div className="mt-2 grid grid-cols-2 gap-2">
+            <LogTile
+              icon={Sparkles}
+              label="Texte / IA"
+              accent={accent}
+              onClick={() => {
+                setIngredients([]);
+                setTextInput("");
+                setLogMode("text");
+              }}
+            />
+            <LogTile
+              icon={ScanBarcode}
+              label="Code-barres"
+              accent={accent}
+              onClick={() => setLogMode("barcode")}
+            />
+            <LogTile icon={Camera} label="Photo" accent={accent} onClick={() => setLogMode("photo")} />
+            <LogTile icon={Clock} label="Récents" accent={accent} onClick={() => setRecentsOpen(true)} />
+          </div>
+        ) : (
+          <QuickTextAdd
+            diet={diet}
+            onAdd={(extra) => appendDetected(extra)}
           />
-        </div>
-        <p className="mt-1 text-[11px] leading-snug text-health-muted">
-          {adding
-            ? "Gemini estime les kcal d’après ta phrase…"
-            : "L’IA estime les kcal à l’ajout. − / + change la quantité, le poids et les kcal suivent."}
+        )}
+        <p className="mt-1.5 text-[11px] leading-snug text-health-muted">
+          Quantité, grammes ou kcal : l’un recalcule les autres.
         </p>
 
         <p className="mb-1.5 mt-3 text-[12px] font-medium text-health-muted">Macros</p>
@@ -252,12 +295,12 @@ export function MealTemplateSheet({
 
         <button
           type="button"
-          disabled={!canSave || adding}
+          disabled={!canSave}
           onClick={() => {
             onSave({
               ...draft,
               name: draft.name.trim(),
-              items: lines.map((item) => item.line),
+              items: lines.map((item) => formatDetectedLine(item)),
               macros: draft.macros,
             });
           }}
@@ -275,66 +318,139 @@ export function MealTemplateSheet({
           </button>
         ) : null}
       </div>
+
+      {logMode ? (
+        <LogSheet
+          mode={logMode}
+          mealType={slotMealType(draft.slot)}
+          profileId={profileId}
+          confirmLabel="Ajouter au modèle"
+          textInput={textInput}
+          setTextInput={setTextInput}
+          ingredients={ingredients}
+          setIngredients={setIngredients}
+          onClose={closeLog}
+          onSaveText={() => {
+            appendDetected(ingredients);
+            closeLog();
+          }}
+          onSaveBarcode={(grams) => {
+            const macros = scaleMacros(
+              mockBarcodeProduct.macros,
+              mockBarcodeProduct.servingG,
+              grams,
+            );
+            appendDetected([
+              applyTrustedNutrition({
+                id: `barcode-${Date.now()}`,
+                name: mockBarcodeProduct.name,
+                grams,
+                qty: grams,
+                unit: "g",
+                ...macros,
+              }),
+            ]);
+            closeLog();
+          }}
+          onSavePhoto={() => {
+            appendDetected(ingredients);
+            closeLog();
+          }}
+        />
+      ) : null}
+
+      {recentsOpen ? (
+        <RecentsSheet
+          foods={recentFoodsFromMeals(recentMeals, profileId)}
+          confirming={busy}
+          onClose={() => setRecentsOpen(false)}
+          onPick={(food) => {
+            if (busy) return;
+            setBusy(true);
+            try {
+              appendDetected([recentFoodToDetected(food)]);
+              setRecentsOpen(false);
+            } finally {
+              setBusy(false);
+            }
+          }}
+        />
+      ) : null}
     </div>
   );
 }
 
-function IngredientQtyRow({
-  line,
-  onQty,
-  onRemove,
+function LogTile({
+  icon: Icon,
+  label,
+  accent,
+  onClick,
 }: {
-  line: string;
-  onQty: (qty: number) => void;
-  onRemove: () => void;
+  icon: typeof Camera;
+  label: string;
+  accent: "coral" | "violet";
+  onClick: () => void;
 }) {
-  const parsed = parseIngredientQty(line);
-  const step = qtyStep(parsed.unit);
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "flex flex-col items-center gap-1.5 rounded-card bg-health-bg py-2.5",
+        accent === "coral" ? "text-coral-dark" : "text-violet-dark",
+      )}
+    >
+      <Icon size={18} />
+      <span className="text-[11px] font-semibold text-health-ink">{label}</span>
+    </button>
+  );
+}
+
+function QuickTextAdd({
+  diet,
+  onAdd,
+}: {
+  diet: DietType;
+  onAdd: (items: DetectedIngredient[]) => void;
+}) {
+  const [draft, setDraft] = useState("");
+  const [adding, setAdding] = useState(false);
+
+  async function add() {
+    const raw = draft.trim();
+    if (!raw || adding) return;
+    setAdding(true);
+    try {
+      const parsed = await requestLogText(raw, diet);
+      onAdd(parsed.length ? parsed : parseFoodTextLocal(raw));
+      setDraft("");
+    } finally {
+      setAdding(false);
+    }
+  }
 
   return (
-    <div className="flex items-center gap-1.5 rounded-xl bg-health-bg px-2 py-1.5">
-      <p className="min-w-0 flex-1 truncate text-[13px] font-medium">{parsed.name}</p>
-      <button
-        type="button"
-        aria-label="Moins"
-        onClick={() => onQty(parsed.qty - step)}
-        className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-health-card text-health-ink"
-      >
-        <Minus size={12} />
-      </button>
+    <form
+      className="mt-1.5 flex gap-1.5"
+      onSubmit={(event) => {
+        event.preventDefault();
+        void add();
+      }}
+    >
       <input
-        inputMode="numeric"
-        aria-label={`Quantité ${parsed.name}`}
-        value={parsed.qty}
-        onChange={(event) => {
-          const next = Number(event.target.value.replace(/[^\d]/g, ""));
-          if (Number.isFinite(next) && next > 0) onQty(next);
-        }}
-        className="w-[3.4rem] shrink-0 rounded-lg bg-health-card px-1 py-1 text-center text-[11px] font-semibold tabular-nums outline-none"
+        value={draft}
+        onChange={(event) => setDraft(event.target.value)}
+        placeholder="Ex. 1 carreau de chocolat"
+        className="min-w-0 flex-1 rounded-lg bg-health-bg px-2.5 py-1.5 text-[13px] outline-none"
       />
-      <span className="w-10 shrink-0 text-[10px] font-semibold text-health-muted">
-        {parsed.unit === "tranche" ? "tr." : parsed.unit === "carreau" ? "car." : parsed.unit === "piece" ? "pce" : parsed.unit}
-      </span>
-      <span className="w-10 shrink-0 text-[10px] tabular-nums text-health-muted">
-        {parsed.unit === "g" || parsed.unit === "ml" ? "" : `${parsed.grams}g`}
-      </span>
       <button
-        type="button"
-        aria-label="Plus"
-        onClick={() => onQty(parsed.qty + step)}
-        className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-health-card text-health-ink"
+        type="submit"
+        disabled={adding || !draft.trim()}
+        className="shrink-0 rounded-lg bg-health-bg px-2.5 py-1.5 text-[12px] font-semibold disabled:opacity-40"
       >
-        <Plus size={12} />
+        {adding ? "…" : "+"}
       </button>
-      <button
-        type="button"
-        aria-label={`Retirer ${parsed.name}`}
-        onClick={onRemove}
-        className="shrink-0 p-1 text-health-muted"
-      >
-        <Trash2 size={14} />
-      </button>
-    </div>
+    </form>
   );
 }
 

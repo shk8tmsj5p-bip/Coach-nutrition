@@ -53,13 +53,38 @@ export function isDressingIngredient(ing: RecipeIngredient, meal: PlannedMeal) {
   const label = dressingLabel(meal);
   if (!label) return false;
   if (/^eau$/i.test(ing.name.trim())) return false;
-  if (isEmulsionPart(ing)) return true;
   const dressingSteps = meal.steps.filter((line) =>
-    /sauce|vinaigrette|marinade|pesto|pistou|houmous|satay|nuoc|thermomix|sec\s*\/\s*v/i.test(line),
+    /sauce|vinaigrette|marinade|pesto|pistou|houmous|satay|nuoc|thermomix|sec\s*\/\s*v|fouetter/i.test(line),
   );
-  const hay = dressingSteps.join(" ");
-  if (!hay || !mentionedIn(ing, hay)) return false;
+  const cookSteps = meal.steps.filter((line) =>
+    /airfryer|plaque|four|rôti|rotir|poêle|poele|saisir/i.test(line),
+  );
+  const dressingHay = dressingSteps.join(" ");
+  const cookHay = cookSteps.join(" ");
+  if (/huile/i.test(ing.name) && cookHay && mentionedIn(ing, cookHay) && !mentionedIn(ing, dressingHay)) {
+    return false;
+  }
+  if (isEmulsionPart(ing)) return true;
+  if (!dressingHay || !mentionedIn(ing, dressingHay)) return false;
   return /citron|ail|gingembre|basilic|cumin|sésame|sesame|raifort/i.test(ing.name);
+}
+
+/** Un seul dosage foyer : sauce / vinaigrette / marinade jamais split Alexis vs Élodie. */
+export function sharedSauceGrams(a: number, e: number) {
+  if (a > 0 && e > 0) return Math.round((a + e) / 2);
+  return Math.max(0, Math.round(a || e));
+}
+
+export function equalizeSharedSauce(meal: PlannedMeal): PlannedMeal {
+  if (!meal.ingredients.length || meal.baseName === "Aucun repas") return meal;
+  const ingredients = meal.ingredients.map((ing) => {
+    if (ing.role !== "shared") return ing;
+    if (!isDressingIngredient(ing, meal)) return ing;
+    const g = sharedSauceGrams(ing.gramsAlexis, ing.gramsElodie);
+    if (g <= 0 || (ing.gramsAlexis === g && ing.gramsElodie === g)) return ing;
+    return { ...ing, gramsAlexis: g, gramsElodie: g };
+  });
+  return { ...meal, ingredients };
 }
 
 export function groupMealIngredients(ingredients: RecipeIngredient[], meal: PlannedMeal) {

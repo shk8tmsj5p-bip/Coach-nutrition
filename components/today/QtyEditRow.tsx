@@ -1,119 +1,133 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { Trash2 } from "lucide-react";
-import { qtyStep, unitShortLabel } from "@/lib/food-log";
+import { formatQtyNumber, qtyStep, unitShortLabel } from "@/lib/food-log";
 import type { QtyUnit } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
-const FRUIT_QTY = [0.5, 1, 2] as const;
+function parseDecimal(raw: string) {
+  const next = Number(raw.trim().replace(",", "."));
+  return Number.isFinite(next) && next > 0 ? next : null;
+}
+
+function NumberField({
+  value,
+  suffix,
+  width = "w-12",
+  onCommit,
+}: {
+  value: number;
+  suffix: string;
+  width?: string;
+  onCommit: (next: number) => void;
+}) {
+  const [text, setText] = useState(formatQtyNumber(value));
+  const [focused, setFocused] = useState(false);
+
+  useEffect(() => {
+    if (!focused) setText(formatQtyNumber(value));
+  }, [value, focused]);
+
+  function commitIfReady(raw: string) {
+    if (/[.,]$/.test(raw.trim())) return;
+    const next = parseDecimal(raw);
+    if (next != null) onCommit(next);
+  }
+
+  return (
+    <label className="flex shrink-0 items-center gap-0.5">
+      <input
+        inputMode="decimal"
+        value={text}
+        onFocus={() => setFocused(true)}
+        onBlur={() => {
+          setFocused(false);
+          const next = parseDecimal(text);
+          if (next != null) onCommit(next);
+          else setText(formatQtyNumber(value));
+        }}
+        onChange={(e) => {
+          const raw = e.target.value;
+          setText(raw);
+          commitIfReady(raw);
+        }}
+        className={cn(
+          "rounded-md bg-white px-0.5 py-1 text-center text-[13px] tabular-nums leading-none dark:bg-health-card",
+          width,
+        )}
+      />
+      <span className="text-[10px] font-semibold text-health-muted">{suffix}</span>
+    </label>
+  );
+}
 
 export function QtyEditRow({
   name,
   qty,
   unit,
   grams,
+  calories,
   detail,
   dessert,
   onQty,
   onGrams,
+  onKcal,
   onRemove,
 }: {
   name: string;
   qty: number;
   unit: QtyUnit;
   grams: number;
+  calories?: number;
   detail?: string;
   dessert?: boolean;
   onQty: (qty: number) => void;
   onGrams?: (grams: number) => void;
+  onKcal?: (kcal: number) => void;
   onRemove: () => void;
 }) {
   const step = qtyStep(unit);
-  const visual = unit !== "g" && unit !== "ml";
-  const fruit = unit === "piece";
-  const fruitLabel = fruit && !/oeuf|œuf/i.test(name) ? "fruit" : null;
+  const spoon = unit === "cs" || unit === "cc" || unit === "carreau" || unit === "ml";
+  const setGrams = onGrams ?? onQty;
 
   return (
     <div
       className={cn(
-        "mb-1.5 rounded-card p-3",
+        "flex items-center gap-1.5 rounded-xl px-2 py-1.5",
         dessert ? "bg-amber-50 dark:bg-amber-950/40" : "bg-health-bg",
       )}
     >
-      <div className="flex items-start gap-2">
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-[14px] font-medium">{name}</p>
-          {detail ? <p className="text-[11px] text-health-muted">{detail}</p> : null}
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-[13px] font-medium leading-tight">{name}</p>
+        {detail ? <p className="text-[10px] leading-tight text-health-muted">{detail}</p> : null}
+      </div>
+      {spoon ? (
+        <div className="flex items-center gap-0.5">
+          <button
+            type="button"
+            className="flex h-7 w-7 items-center justify-center rounded-full bg-white text-[15px] leading-none dark:bg-health-card"
+            onClick={() => onQty(Math.max(0.1, qty - step))}
+          >
+            −
+          </button>
+          <NumberField value={qty} suffix={unitShortLabel(unit)} width="w-10" onCommit={onQty} />
+          <button
+            type="button"
+            className="flex h-7 w-7 items-center justify-center rounded-full bg-white text-[15px] leading-none dark:bg-health-card"
+            onClick={() => onQty(qty + step)}
+          >
+            +
+          </button>
         </div>
-        <button type="button" className="mt-0.5 shrink-0 text-health-muted" onClick={onRemove}>
-          <Trash2 size={16} />
-        </button>
-      </div>
-      <div className="mt-2 flex flex-wrap items-center gap-2">
-        {fruit ? (
-          <div className="flex items-center gap-1">
-            {FRUIT_QTY.map((n) => (
-              <button
-                key={n}
-                type="button"
-                onClick={() => onQty(n)}
-                className={cn(
-                  "h-8 min-w-8 rounded-full px-2.5 text-[12px] font-semibold",
-                  qty === n
-                    ? "bg-health-ink text-white"
-                    : "bg-white text-health-muted dark:bg-health-card",
-                )}
-              >
-                {n === 0.5 ? "½" : n}
-              </button>
-            ))}
-            <span className="pl-0.5 text-[11px] font-semibold text-health-muted">
-              {fruitLabel ?? "pce"}
-            </span>
-          </div>
-        ) : (
-          <div className="flex items-center gap-1">
-            <button
-              type="button"
-              className="h-8 w-8 rounded-full bg-white text-lg leading-none dark:bg-health-card"
-              onClick={() => onQty(qty - step)}
-            >
-              −
-            </button>
-            <input
-              inputMode="decimal"
-              value={qty}
-              onChange={(e) => {
-                const next = Number(e.target.value.replace(",", "."));
-                if (Number.isFinite(next) && next > 0) onQty(next);
-              }}
-              className="w-12 rounded-md bg-white text-center text-[13px] tabular-nums dark:bg-health-card"
-            />
-            <span className="w-8 text-[11px] font-semibold text-health-muted">{unitShortLabel(unit)}</span>
-            <button
-              type="button"
-              className="h-8 w-8 rounded-full bg-white text-lg leading-none dark:bg-health-card"
-              onClick={() => onQty(qty + step)}
-            >
-              +
-            </button>
-          </div>
-        )}
-        {visual && onGrams ? (
-          <label className="ml-auto flex items-center gap-1">
-            <input
-              inputMode="numeric"
-              value={Math.round(grams)}
-              onChange={(e) => {
-                const next = Number(e.target.value.replace(",", "."));
-                if (Number.isFinite(next) && next > 0) onGrams(next);
-              }}
-              className="w-14 rounded-md bg-white py-1.5 text-center text-[13px] tabular-nums dark:bg-health-card"
-            />
-            <span className="text-[11px] font-semibold text-health-muted">g</span>
-          </label>
-        ) : null}
-      </div>
+      ) : null}
+      <NumberField value={grams} suffix="g" onCommit={setGrams} />
+      {onKcal && calories != null ? (
+        <NumberField value={calories} suffix="kcal" width="w-[2.75rem]" onCommit={onKcal} />
+      ) : null}
+      <button type="button" className="shrink-0 p-0.5 text-health-muted" onClick={onRemove}>
+        <Trash2 size={14} />
+      </button>
     </div>
   );
 }

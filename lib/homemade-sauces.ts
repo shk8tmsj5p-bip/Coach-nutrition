@@ -1,5 +1,6 @@
 import type { PlannedMeal, RecipeIngredient } from "@/lib/types";
 import { isRealTmWork } from "@/lib/recipe-copy";
+import { equalizeSharedSauce, sharedSauceGrams } from "@/lib/ingredient-groups";
 
 type SaucePart = { name: string; frac: number; notes?: string; visual?: string };
 
@@ -145,17 +146,15 @@ export function expandPreparedSauces(meal: PlannedMeal): PlannedMeal {
     }
     if (sauce.alreadyHas(meal)) continue;
     expanded = true;
-    const baseA = item.gramsAlexis > 0 ? item.gramsAlexis : 30;
-    const baseE = item.gramsElodie > 0 ? item.gramsElodie : 25;
+    const base = sharedSauceGrams(item.gramsAlexis, item.gramsElodie) || 30;
     sauce.parts.forEach((part, index) => {
-      const gramsAlexis = Math.max(1, Math.round(baseA * part.frac));
-      const gramsElodie = Math.max(1, Math.round(baseE * part.frac));
+      const grams = Math.max(1, Math.round(base * part.frac));
       next.push({
         id: slug(item.id, part.name, index),
         name: part.name,
         role: item.role,
-        gramsAlexis,
-        gramsElodie,
+        gramsAlexis: grams,
+        gramsElodie: grams,
         visualQuantity: part.visual,
         notes: part.notes,
       });
@@ -176,19 +175,21 @@ export function expandPreparedSauces(meal: PlannedMeal): PlannedMeal {
       }
     : meal;
 
-  return ensureNamedSauce(
-    injectMissingSauceFromSteps({
-      ...withParts,
-      steps:
-        extraSteps.length === 0
-          ? withParts.steps
-          : withParts.steps.some((line) => /^§\s*thermomix/i.test(line))
-            ? [...withParts.steps, ...extraSteps]
-            : [...withParts.steps, "§ Thermomix", ...extraSteps],
-      appliances: extraSteps.length
-        ? [...new Set([...withParts.appliances, "Thermomix" as const])]
-        : withParts.appliances,
-    }),
+  return equalizeSharedSauce(
+    ensureNamedSauce(
+      injectMissingSauceFromSteps({
+        ...withParts,
+        steps:
+          extraSteps.length === 0
+            ? withParts.steps
+            : withParts.steps.some((line) => /^§\s*thermomix/i.test(line))
+              ? [...withParts.steps, ...extraSteps]
+              : [...withParts.steps, "§ Thermomix", ...extraSteps],
+        appliances: extraSteps.length
+          ? [...new Set([...withParts.appliances, "Thermomix" as const])]
+          : withParts.appliances,
+      }),
+    ),
   );
 }
 
@@ -196,7 +197,7 @@ type StepSauce = {
   detect: RegExp;
   mixLine: string;
   tm: boolean;
-  parts: Array<{ name: string; gramsAlexis: number; gramsElodie: number; visual?: string; notes?: string }>;
+  parts: Array<{ name: string; grams: number; visual?: string; notes?: string }>;
 };
 
 const STEP_SAUCES: StepSauce[] = [
@@ -205,9 +206,9 @@ const STEP_SAUCES: StepSauce[] = [
     mixLine: "Vinaigrette maison : moutarde, citron, huile. Fouetter dans un pot hermétique.",
     tm: false,
     parts: [
-      { name: "Moutarde", gramsAlexis: 8, gramsElodie: 6, visual: "1 cc" },
-      { name: "Citron", gramsAlexis: 20, gramsElodie: 16, visual: "1/2 pièce", notes: "jus" },
-      { name: "Huile d'olive", gramsAlexis: 10, gramsElodie: 8, visual: "1 cs" },
+      { name: "Moutarde", grams: 8, visual: "1 cc" },
+      { name: "Citron", grams: 18, visual: "1/2 pièce", notes: "jus" },
+      { name: "Huile d'olive", grams: 10, visual: "1 cs" },
     ],
   },
   {
@@ -215,9 +216,9 @@ const STEP_SAUCES: StepSauce[] = [
     mixLine: "Pistou : basilic, ail, huile d'olive. 15 sec / V6. Racler. 10 sec / V6. Pots hermétiques.",
     tm: true,
     parts: [
-      { name: "Basilic", gramsAlexis: 15, gramsElodie: 12, visual: "1/2 botte" },
-      { name: "Ail", gramsAlexis: 6, gramsElodie: 5, visual: "1 gousse" },
-      { name: "Huile d'olive", gramsAlexis: 12, gramsElodie: 10, visual: "1 cs" },
+      { name: "Basilic", grams: 14, visual: "1/2 botte" },
+      { name: "Ail", grams: 6, visual: "1 gousse" },
+      { name: "Huile d'olive", grams: 11, visual: "1 cs" },
     ],
   },
   {
@@ -226,12 +227,12 @@ const STEP_SAUCES: StepSauce[] = [
       "Sauce satay maison : beurre de sésame 1 cs, sauce soja 1 cs, jus de citron, gingembre 1 cm, agave 1 cc, ail. 15 sec / V6. Racler. 10 sec / V6. Pots hermétiques.",
     tm: true,
     parts: [
-      { name: "Beurre de sésame", gramsAlexis: 18, gramsElodie: 15, visual: "1 cs" },
-      { name: "Sauce soja", gramsAlexis: 12, gramsElodie: 10, visual: "1 cs" },
-      { name: "Citron", gramsAlexis: 12, gramsElodie: 10, visual: "1/2 pièce", notes: "jus" },
-      { name: "Gingembre frais", gramsAlexis: 8, gramsElodie: 6, visual: "1 cm" },
-      { name: "Sirop d'agave", gramsAlexis: 5, gramsElodie: 4, visual: "1 cc" },
-      { name: "Ail", gramsAlexis: 5, gramsElodie: 4, visual: "1 gousse" },
+      { name: "Beurre de sésame", grams: 16, visual: "1 cs" },
+      { name: "Sauce soja", grams: 11, visual: "1 cs" },
+      { name: "Citron", grams: 11, visual: "1/2 pièce", notes: "jus" },
+      { name: "Gingembre frais", grams: 7, visual: "1 cm" },
+      { name: "Sirop d'agave", grams: 5, visual: "1 cc" },
+      { name: "Ail", grams: 4, visual: "1 gousse" },
     ],
   },
   {
@@ -239,10 +240,10 @@ const STEP_SAUCES: StepSauce[] = [
     mixLine: "Pesto maison : basilic, ail, huile d'olive, noix. 15 sec / V6. Racler. 10 sec / V6. Pots hermétiques.",
     tm: true,
     parts: [
-      { name: "Basilic", gramsAlexis: 16, gramsElodie: 14, visual: "1/2 botte" },
-      { name: "Ail", gramsAlexis: 6, gramsElodie: 5, visual: "1 gousse" },
-      { name: "Huile d'olive", gramsAlexis: 12, gramsElodie: 10, visual: "1 cs" },
-      { name: "Noix", gramsAlexis: 8, gramsElodie: 6, visual: "1 cs" },
+      { name: "Basilic", grams: 15, visual: "1/2 botte" },
+      { name: "Ail", grams: 6, visual: "1 gousse" },
+      { name: "Huile d'olive", grams: 11, visual: "1 cs" },
+      { name: "Noix", grams: 7, visual: "1 cs" },
     ],
   },
 ];
@@ -264,8 +265,8 @@ export function injectMissingSauceFromSteps(meal: PlannedMeal): PlannedMeal {
         id: slug("sauce", part.name, extra.length),
         name: part.name,
         role: "shared",
-        gramsAlexis: part.gramsAlexis,
-        gramsElodie: part.gramsElodie,
+        gramsAlexis: part.grams,
+        gramsElodie: part.grams,
         visualQuantity: part.visual,
         notes: part.notes,
       });
@@ -319,8 +320,8 @@ export function ensureNamedSauce(meal: PlannedMeal): PlannedMeal {
     id: slug("binder", part.name, index),
     name: part.name,
     role: "shared" as const,
-    gramsAlexis: part.gramsAlexis,
-    gramsElodie: part.gramsElodie,
+    gramsAlexis: part.grams,
+    gramsElodie: part.grams,
     visualQuantity: part.visual,
     notes: part.notes,
   }));

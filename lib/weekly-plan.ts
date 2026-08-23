@@ -2,6 +2,7 @@ import { extraRecipes, WEEK_DAYS, weeklyPlan as seedPlan } from "@/lib/weekly-pl
 import { sanitizeCopy, stripAversionPhrases, isAversionMention, isFluffLine, isStepSection, stepSectionLabel, isRealTmWork, isWorthTmMix, rewriteTmAsHandMix, isKitchenAidCut, isLogisticsTip } from "@/lib/recipe-copy";
 import { visualForIngredient } from "@/lib/visual-quantity";
 import { expandPreparedSauces } from "@/lib/homemade-sauces";
+import { declinationFromIngredients } from "@/lib/recipe-macros";
 import { adaptMealToTheme, conflictsWithTheme, matchKit, mealMatchesTheme, stripThemeSticker } from "@/lib/theme-kits";
 import { mockSuggestSwap as coherentSuggestSwap } from "@/lib/swap-coherence";
 import { pickUnused } from "@/lib/recipe-diversity";
@@ -109,9 +110,14 @@ function sanitizeMeal(meal: PlannedMeal): PlannedMeal {
       .filter((line): line is string => Boolean(line) && isLogisticsTip(line)),
     cautions: [],
   });
-  return deriveAppliances(
+  const clean = deriveAppliances(
     dropColdAirfryer(rewriteRiceCooker(scrubForcedRobots(scrubWeekdayTofuAirfryer(expanded)))),
   );
+  return {
+    ...clean,
+    alexis: { ...clean.alexis, ...declinationFromIngredients(clean.ingredients, "alexis"), protein: clean.alexis.protein },
+    elodie: { ...clean.elodie, ...declinationFromIngredients(clean.ingredients, "elodie"), protein: clean.elodie.protein },
+  };
 }
 
 function isTofuCookSentence(line: string) {

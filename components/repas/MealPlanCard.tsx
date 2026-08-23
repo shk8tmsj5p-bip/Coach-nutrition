@@ -7,7 +7,7 @@ import { RecipeTag } from "@/components/repas/RecipeTag";
 import { HoldTip } from "@/components/ui/HoldTip";
 import { isFluffLine, isLogisticsTip, isStepSection, sanitizeCopy, stepSectionLabel } from "@/lib/recipe-copy";
 import { stripCoachNote } from "@/lib/coach-ingredients";
-import { groupMealIngredients } from "@/lib/ingredient-groups";
+import { groupMealIngredients, isDressingIngredient } from "@/lib/ingredient-groups";
 import { aisleStyle } from "@/lib/plan-colors";
 import { aisleFor, isUnlistedShoppingIng } from "@/lib/shopping-from-plan";
 import { formatIngredientLine, scaleVisualQuantity, formatVisualAndWeight } from "@/lib/visual-quantity";
@@ -107,7 +107,7 @@ export function MealPlanCard({
                 ) : null}
                 <div className="space-y-0.5">
                   {group.items.map((item) => (
-                    <IngredientRow key={item.id} item={item} view={view} scale={scale} />
+                    <IngredientRow key={item.id} item={item} meal={meal} view={view} scale={scale} />
                   ))}
                 </div>
               </div>
@@ -188,10 +188,12 @@ export function MealPlanCard({
 
 function IngredientRow({
   item,
+  meal,
   view,
   scale,
 }: {
   item: RecipeIngredient;
+  meal: PlannedMeal;
   view: ViewMode;
   scale: number;
 }) {
@@ -204,13 +206,13 @@ function IngredientRow({
         : stripCoachNote(sanitizeCopy(item.notes))
       : "";
   const who = item.role === "alexis" ? "Alexis" : item.role === "elodie" ? "Élodie" : "";
-  const qty = ingredientQtyText(item, view, scale);
+  const qty = ingredientQtyText(item, meal, view, scale);
   const full = [qty, who, notes].filter(Boolean).join(" · ");
   return (
     <div className="flex items-center gap-1.5 text-[13px] leading-tight">
       <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: aisle.hex }} />
       <HoldTip label={full} className={cn("font-medium", coachBoost && "text-coral-dark")}>
-        <IngredientQty item={item} view={view} scale={scale} />
+        <IngredientQty item={item} meal={meal} view={view} scale={scale} />
         {who ? (
           <span
             className={cn(
@@ -233,7 +235,8 @@ function IngredientRow({
 }
 
 function ingredientQtyText(
-  item: Parameters<typeof gramsFor>[0] & { visualQuantity?: string; name: string },
+  item: Parameters<typeof gramsFor>[0] & { visualQuantity?: string; name: string; role?: RecipeIngredient["role"] },
+  meal: PlannedMeal,
   view: ViewMode,
   scale: number,
 ) {
@@ -242,7 +245,7 @@ function ingredientQtyText(
     const gramsA = Math.round(item.gramsAlexis * scale);
     const gramsE = Math.round(item.gramsElodie * scale);
     if (gramsA > 0 && gramsE > 0) {
-      if (portionsDiffer(gramsA, gramsE)) {
+      if (!isDressingIngredient(item as RecipeIngredient, meal) && portionsDiffer(gramsA, gramsE)) {
         const maxG = Math.max(item.gramsAlexis, item.gramsElodie, 1);
         const visualA = scaleVisualQuantity(item.visualQuantity, scale * (item.gramsAlexis / maxG));
         const visualE = scaleVisualQuantity(item.visualQuantity, scale * (item.gramsElodie / maxG));
@@ -262,14 +265,16 @@ function ingredientQtyText(
 
 function IngredientQty({
   item,
+  meal,
   view,
   scale,
 }: {
-  item: Parameters<typeof gramsFor>[0] & { visualQuantity?: string; name: string };
+  item: Parameters<typeof gramsFor>[0] & { visualQuantity?: string; name: string; role?: RecipeIngredient["role"] };
+  meal: PlannedMeal;
   view: ViewMode;
   scale: number;
 }) {
-  return <>{ingredientQtyText(item, view, scale)}</>;
+  return <>{ingredientQtyText(item, meal, view, scale)}</>;
 }
 
 function RecipeSteps({ steps }: { steps: string[] }) {

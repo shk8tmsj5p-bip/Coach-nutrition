@@ -315,7 +315,7 @@ export interface BatchStep {
   appliance?: Appliance;
   setting?: string;
   recipes?: BatchStepRecipeBlock[];
-  rowMode?: "per-item";
+  rowMode?: "per-item" | "sauce";
 }
 
 export interface MetabolicPoint {

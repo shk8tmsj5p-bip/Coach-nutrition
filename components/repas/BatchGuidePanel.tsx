@@ -7,7 +7,7 @@ import { SectionTitle } from "@/components/ui/Card";
 import { buildBatchSession, vegFamilyLabel } from "@/lib/batch-from-plan";
 import { exportElementToPdf } from "@/lib/export-batch-pdf";
 import { formatWeekRange } from "@/lib/dates";
-import { groupedCellIngredients, cellSetting, blockHowto, shortCoverDays, itemQuantityLine, packingLists, assemblyHowto } from "@/lib/s34-copy";
+import { groupedCellIngredients, cellSetting, blockHowto, shortCoverDays, itemQuantityLine, packingLists, assemblyHowto, stackedSauceLines } from "@/lib/s34-copy";
 import type { QtyMode } from "@/lib/qty-scale";
 import type { BatchStep, BatchStepRecipeBlock, PlannedMeal } from "@/lib/types";
 import { cn, mealTypeLabel } from "@/lib/utils";
@@ -135,6 +135,51 @@ function PackBox({
   );
 }
 
+function SauceList({
+  rows,
+  onOpenRecipe,
+}: {
+  rows: BatchStepRecipeBlock[];
+  onOpenRecipe?: (recipeNo: string) => void;
+}) {
+  return (
+    <div className="mt-2 overflow-hidden rounded-xl bg-health-bg">
+      {rows.map((block, index) => {
+        const lines = stackedSauceLines(block.ingredients);
+        return (
+          <div
+            key={`${block.recipeNo}-${block.recipeTitle}`}
+            className={cn(
+              "flex items-start gap-2 px-2 py-2",
+              index % 2 === 1 ? "bg-health-card/80" : "bg-transparent",
+            )}
+          >
+            <RecipeTag
+              recipeNo={block.recipeNo}
+              onClick={onOpenRecipe ? () => onOpenRecipe(block.recipeNo) : undefined}
+            />
+            <div className="min-w-0 flex-1 space-y-0.5">
+              {lines.length === 0 ? (
+                <p className="text-[12px] text-health-muted">—</p>
+              ) : (
+                lines.map((line, lineIndex) => (
+                  <p
+                    key={`${block.recipeNo}-${line.name}-${lineIndex}`}
+                    className="flex justify-between gap-3 text-[12px] leading-snug"
+                  >
+                    <span className="min-w-0 truncate font-medium text-health-ink">{line.name}</span>
+                    <span className="shrink-0 tabular-nums text-health-muted">{line.qty}</span>
+                  </p>
+                ))
+              )}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function CookbookTable({
   headers,
   rows,
@@ -215,12 +260,11 @@ function CookbookTable({
 function sectionTone(step: BatchStep): "coral" | "sky" | "violet" | "cream" {
   if (step.time === "1" || /airfryer/i.test(step.title)) return "coral";
   if (step.time === "2" || /eau|féculent/i.test(step.title)) return "sky";
-  if (step.time === "3" || /thermomix/i.test(step.title)) return "violet";
+  if (step.time === "3" || /sauce/i.test(step.title)) return "violet";
   return "cream";
 }
 
 function sectionHeaders(step: BatchStep): [string, string, string] {
-  if (step.time === "3" || /thermomix/i.test(step.title)) return ["Px", "Ingrédients", "TM"];
   if (step.time === "1" || /airfryer/i.test(step.title)) return ["Px", "Protéines", "Réglage"];
   if (step.time === "2" || /eau|féculent/i.test(step.title)) return ["Px", "Ingrédient", "Cuisson"];
   if (step.time === "4" || /découpe/i.test(step.title)) return ["Px", "Légume", "Découpe"];
@@ -340,6 +384,8 @@ export function BatchGuidePanel({
                   />
                 ))}
               </div>
+            ) : step.rowMode === "sauce" || step.time === "3" ? (
+              <SauceList rows={rows} onOpenRecipe={onOpenRecipe} />
             ) : (
               <CookbookTable
                 headers={sectionHeaders(step)}

@@ -51,7 +51,7 @@ export function visualPhrase(ing: RecipeIngredient, scale: number) {
     return `${prep} (${visual} ${name.toLowerCase()})`;
   }
   if (prep) return `${visual} ${name.toLowerCase()} (${prep})`;
-  if (ing.role === "shared" && portionsDiffer(ing.gramsAlexis, ing.gramsElodie)) {
+  if (ing.role === "shared" && !isSauceIngredient(ing) && portionsDiffer(ing.gramsAlexis, ing.gramsElodie)) {
     const a = Math.round(ing.gramsAlexis * scale);
     const e = Math.round(ing.gramsElodie * scale);
     return `${visual} ${name.toLowerCase()} (Alexis ${a}g · Élodie ${e}g)`;
@@ -172,6 +172,18 @@ export function itemQuantityLine(ing: BatchStepIngredient) {
     .trim();
 }
 
+/** Une ligne par ingrédient de sauce : nom à gauche, quantité à droite. */
+export function stackedSauceLines(ings: BatchStepIngredient[]) {
+  return ings.map((ing) => {
+    const qty = itemQuantityLine(ing);
+    const split = qty.match(/^(.+?)\s*:\s*(.+)$/);
+    return {
+      name: (split?.[1] ?? ing.name).trim(),
+      qty: (split?.[2] ?? qty).trim(),
+    };
+  });
+}
+
 export function groupedCellIngredients(ings: BatchStepIngredient[]) {
   const format = (ing: BatchStepIngredient) => {
     const qty = itemQuantityLine(ing);
@@ -204,11 +216,10 @@ export function packingLists(block: BatchStepRecipeBlock) {
     const e = Math.round(ing.gramsElodie ?? 0);
     if (a <= 0 && e <= 0) continue;
     if (ing.sauce) {
-      const qty =
-        a > 0 && e > 0 && Math.abs(a - e) / Math.max(a, e) >= 0.12
-          ? `Alexis ${packingQty(a)} · Élodie ${packingQty(e)}`
-          : packingQty(a || e);
-      pot.push({ name: ing.name, qty });
+      pot.push({
+        name: ing.name,
+        qty: packingQty(a > 0 && e > 0 ? Math.round((a + e) / 2) : a || e),
+      });
       continue;
     }
     if (a > 0) boxA.push({ name: ing.name, qty: packingQty(a) });

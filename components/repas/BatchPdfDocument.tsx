@@ -16,6 +16,7 @@ import {
   visualPhrase,
   packingLists,
   assemblyHowto,
+  stackedSauceLines,
 } from "@/lib/s34-copy";
 import type { BatchStepRecipeBlock } from "@/lib/types";
 
@@ -189,6 +190,52 @@ function PdfTable({
   );
 }
 
+function PdfSauceList({ rows }: { rows: BatchStepRecipeBlock[] }) {
+  return (
+    <div style={{ marginTop: 4, borderRadius: 10, overflow: "hidden" }}>
+      {rows.map((block, index) => {
+        const lines = stackedSauceLines(block.ingredients);
+        return (
+          <div
+            key={`${block.recipeNo}-${index}`}
+            style={{
+              display: "flex",
+              gap: 8,
+              padding: "8px 10px",
+              background: index % 2 === 1 ? "rgba(255,255,255,0.7)" : "transparent",
+              alignItems: "flex-start",
+            }}
+          >
+            <PdfTag recipeNo={block.recipeNo} />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              {lines.length === 0 ? (
+                <span style={{ fontSize: 12, color: "#6E6E73" }}>—</span>
+              ) : (
+                lines.map((line, lineIndex) => (
+                  <div
+                    key={`${block.recipeNo}-${line.name}-${lineIndex}`}
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      gap: 12,
+                      fontSize: 12,
+                      lineHeight: 1.4,
+                      marginTop: 1,
+                    }}
+                  >
+                    <span>{line.name}</span>
+                    <span style={{ fontWeight: 650, color: "#6E6E73", flexShrink: 0 }}>{line.qty}</span>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function PdfPage({ children, footer }: { children: ReactNode; footer: string }) {
   return (
     <div data-pdf-page style={page}>
@@ -348,13 +395,8 @@ function MasterFinish({ session }: { session: BatchSession }) {
     <>
       {tm?.recipes?.length ? (
         <div>
-          <p style={{ ...h2, marginTop: 0 }}>3. Thermomix (sauces)</p>
-          <PdfTable
-            headers={["Px", "Ingrédients", "TM"]}
-            rows={tm.recipes}
-            headBg="#E8EBFF"
-            headColor="#4F5FE0"
-          />
+          <p style={{ ...h2, marginTop: 0 }}>3. Sauces</p>
+          <PdfSauceList rows={tm.recipes} />
         </div>
       ) : null}
 

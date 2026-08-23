@@ -10,6 +10,7 @@ import {
   STEP_SECTION_PREFIX,
 } from "@/lib/recipe-copy";
 import { expandPreparedSauces, isPreparedSauceName } from "@/lib/homemade-sauces";
+import { equalizeSharedSauce } from "@/lib/ingredient-groups";
 import { stripThemeSticker, themeConstraintLine } from "@/lib/theme-kits";
 import { culinaryRole, describeIngredientUse } from "@/lib/swap-coherence";
 import { visualForIngredient } from "@/lib/visual-quantity";
@@ -93,7 +94,8 @@ LOIS CUISINE
 PORTIONS COACH (PAS UNE MOYENNE FOYER)
 ════════════════════════════════
 Le bloc COACH NUTRITION plus bas donne les kcal / P / G / L midi et soir de CHAQUE profil.
-MÊME plat, grammes différents : grams_alexis + grams_elodie sur féculents, huile, légumes, légumineuses.
+MÊME plat, grammes différents : grams_alexis + grams_elodie sur féculents, légumes, légumineuses.
+SAUCES / VINAIGRETTES / MARINADES / PESTO / HOUMOUS : UN seul dosage foyer. weight_g unique ou grams_alexis = grams_elodie. INTERDIT de splitter l'huile, le soja, la moutarde, le citron ou le tahini de la sauce. L'huile de CUISSON du plat (hors sauce) peut rester split.
 INTERDIT deux recettes. INTERDIT des assiettes identiques si les cibles divergent.
 Perte = volume légumes + umami (soja, agrume, moutarde, herbes). Prise = densité (riz, tofu/protéine, tahini).
 Protéine plancher : ne jamais alléger tofu / poulet / poisson pour « faire light ».
@@ -128,7 +130,7 @@ export const MEAL_JSON_SHAPE = `{
     { "name": "Menthe fraîche", "weight_g": 15, "visual_unit": "1/2 botte", "prep": "ciselée" },
     { "name": "Sauce soja", "weight_g": 18, "visual_unit": "1 cs" },
     { "name": "Citron vert", "weight_g": 30, "visual_unit": "1/2 pièce", "prep": "jus" },
-    { "name": "Huile de sésame", "grams_alexis": 10, "grams_elodie": 6, "visual_unit": "1/2 cs" },
+    { "name": "Huile de sésame", "weight_g": 8, "visual_unit": "1/2 cs" },
     { "name": "Riz cuit", "grams_alexis": 180, "grams_elodie": 100, "visual_unit": "1 bol" },
     { "name": "Gingembre frais", "weight_g": 8, "visual_unit": "1 cm" },
     { "name": "Sirop d'agave", "weight_g": 5, "visual_unit": "1 cc" }
@@ -430,7 +432,7 @@ export function geminiToPlannedMeal(json: GeminiMealJson, slot: PlannedMeal, the
     alexis: macrosFromIngredients(ingredients, "alexis"),
     elodie: macrosFromIngredients(ingredients, "elodie"),
   };
-  const expanded = expandPreparedSauces(planned);
+  const expanded = equalizeSharedSauce(expandPreparedSauces(planned));
   return {
     ...expanded,
     alexis: macrosFromIngredients(expanded.ingredients, "alexis"),
@@ -466,7 +468,7 @@ export function weekdaysPrompt(
   return culinaryPrompt(
     `Génère EXACTEMENT 5 recettes BATCH Lundi–Vendredi, niveau S34 (détaillées, sauces maison, herbes, épices, légumes en nombre de pièces).
 Règle portions : JSON = 1 repas / personne. L'utilisateur cuisinera ×2 (4 assiettes foyer).
-grams_alexis / grams_elodie obligatoires sur féculents, huile, légumes, légumineuses (voir COACH NUTRITION).
+grams_alexis / grams_elodie obligatoires sur féculents, légumes, légumineuses. Sauces = weight_g unique (voir COACH NUTRITION).
 Batch ×2 : jours ALTERNÉS (Lun+Mer, Mar+Jeu). Vendredi déj+dîner = même base, dîner plaqué plus léger.
 Tofu : presser, mariner, servir frais.
 visual_unit OBLIGATOIRE sur chaque légume / herbe / agrume.
@@ -502,7 +504,7 @@ export function weekendPrompt(
   return culinaryPrompt(
     `Génère EXACTEMENT 4 repas FRAIS week-end, niveau S34.
 Règle : 1 recette = 1 seul repas / personne (pas de double batch).
-Portions : grams_alexis / grams_elodie selon COACH NUTRITION (pas une moyenne foyer).
+Portions : grams_alexis / grams_elodie selon COACH NUTRITION (sauf sauces / vinaigrettes : dosage foyer unique).
 Week-end : tofu poêlé / four / airfryer OK. Simili-carnés OK.
 Houmous = sous-recette pois chiches + tahini + citron + ail + cumin (jamais un pot).
 ${themeConstraintLine(theme, 4)}
@@ -535,7 +537,7 @@ export function singlePrompt(
     return culinaryPrompt(
       `Génère 1 recette BATCH pour : ${pair.label}, niveau S34 (détaillée, sauces maison).
 Règle : JSON = 1 repas / personne. L'utilisateur cuisinera ×2 (4 assiettes foyer).
-grams_alexis / grams_elodie selon COACH NUTRITION.
+grams_alexis / grams_elodie selon COACH NUTRITION (sauf sauces : dosage foyer unique).
 Les 2 portions sont sur des jours ALTERNÉS, jamais consécutifs.
 Tofu : presser, mariner, servir frais (cuisson seulement si dessert).
 Type : ${pair.mealType}${pair.lowCalorie ? ", DÎNER LOW CAL (cibles soir, huile serrée, féculent allégé, protéine gardée)" : " (déjeuner, cibles midi par profil)"}.
@@ -553,7 +555,7 @@ JSON : un objet ${MEAL_JSON_SHAPE} ou { "recipes": [objet] }.`,
   return culinaryPrompt(
     `Génère 1 repas frais (${slot.day} ${slot.mealType}), niveau S34.
 Règle week-end : 1 recette = 1 seul repas / personne. Tofu cuit et simili-carnés autorisés.
-Portions grams_alexis / grams_elodie selon COACH NUTRITION.
+Portions grams_alexis / grams_elodie selon COACH NUTRITION (sauf sauces : dosage foyer unique).
 ${slot.lowCalorie || slot.mealType === "diner" ? "Dîner low calorie (cibles soir, huile serrée, féculent allégé, protéine gardée)." : "Déjeuner : cibles midi par profil."}
 Houmous = sous-recette pois chiches + tahini + citron + ail + cumin.
 ${themeLine}
@@ -637,7 +639,7 @@ export function todaySwapPrompt(
   return culinaryPrompt(
     `Génère 1 SEUL repas FRAIS pour AUJOURD'HUI — pas un batch de la semaine, pas un couple Lun+Mer.
 Règle : 1 recette = 1 portion / personne (comme un repas week-end). INTERDIT de doubler.
-MÊME plat pour Alexis et Élodie. grams_alexis / grams_elodie selon COACH NUTRITION. INTERDIT deux recettes.
+MÊME plat pour Alexis et Élodie. grams_alexis / grams_elodie selon COACH NUTRITION (sauf sauces : un seul dosage foyer). INTERDIT deux recettes.
 PAS de dessert, yaourt sucré, granola dessert (déjà sur la carte Aujourd'hui).
 ${todaySlotBrief(mealType)}
 Repas du jour (pas une session batch Lun–Ven) : tofu cuit et simili-carnés OK si le plat le demande.

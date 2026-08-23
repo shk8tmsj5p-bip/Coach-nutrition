@@ -7,12 +7,13 @@ import type {
   RecipeIngredient,
 } from "@/lib/types";
 import { uniqueWeekdayBatches, weekendFreshMeals, WEEKEND_INDEXES } from "@/lib/weekly-plan";
-import { isAversionMention, isFluffLine, isLogisticsTip, isRealTmWork, isWorthTmMix, isStepSection, stepSectionLabel } from "@/lib/recipe-copy";
+import { isAversionMention, isFluffLine, isLogisticsTip, isRealTmWork, isStepSection, stepSectionLabel } from "@/lib/recipe-copy";
 import { planTagByMealId } from "@/lib/meal-tags";
 import { formatIngredientLine, scaleVisualQuantity, visualForIngredient } from "@/lib/visual-quantity";
 import { groupShoppingItems, isUnlistedShoppingIng, shoppingItemsFromPlan } from "@/lib/shopping-from-plan";
 import { cookScale, type QtyMode } from "@/lib/qty-scale";
 import { portionsDiffer } from "@/lib/meal-coach";
+import { isDressingIngredient } from "@/lib/ingredient-groups";
 
 export type AppliancePlan = {
   appliance: Appliance;
@@ -92,7 +93,7 @@ function lineFor(
   const gramsA = Math.round(ing.gramsAlexis * scale);
   const gramsE = Math.round(ing.gramsElodie * scale);
   const who = ing.role === "alexis" ? "Alexis" : ing.role === "elodie" ? "Élodie" : undefined;
-  if (ing.role === "shared" && portionsDiffer(gramsA, gramsE)) {
+  if (ing.role === "shared" && !isPotSauceIng(ing) && portionsDiffer(gramsA, gramsE)) {
     const maxG = Math.max(ing.gramsAlexis, ing.gramsElodie, 1);
     const visualA = scaleVisualQuantity(
       visualForIngredient(ing.name, ing.gramsAlexis, ing.visualQuantity),
@@ -595,7 +596,7 @@ function mealUsesSection(meal: PlannedMeal, key: SectionKey) {
     return cook.length > 0 && meal.ingredients.some((ing) => isAirfryProtein(ing, meal));
   }
   if (key === "tm") {
-    return useful.some(isRealTmWork) && isWorthTmMix(useful.join(" "));
+    return sauceIngsFor(meal).length > 0;
   }
   if (key === "water") {
     return waterCookIngs(meal).length > 0;
@@ -832,6 +833,14 @@ function classifyIng(ing: RecipeIngredient, meal: PlannedMeal): SectionKey {
   return "assembly";
 }
 
+function sauceIngsFor(meal: PlannedMeal) {
+  const dressing = meal.ingredients.filter(
+    (ing) => isDressingIngredient(ing, meal) && !isUnlistedShoppingIng(ing.name),
+  );
+  if (dressing.length) return dressing;
+  return meal.ingredients.filter((ing) => isPotSauceIng(ing) && !isUnlistedShoppingIng(ing.name));
+}
+
 function ingsFor(meal: PlannedMeal, key: SectionKey) {
   if (key === "airfryer") {
     return meal.ingredients.filter((ing) => isAirfryProtein(ing, meal));
@@ -992,12 +1001,11 @@ const SECTIONS: Array<{
   },
   {
     key: "tm",
-    title: "3. Thermomix (Sauces maison)",
-    detail:
-      "Rincez le bol entre chaque sauce. Versez dans des pots hermétiques. Ne mélangez qu'au moment de servir.",
+    title: "3. Sauces",
+    detail: "",
     appliance: "Thermomix",
     fallbackSetting: "",
-    fallbackAction: () => "Mixer la vinaigrette / sauce. Pots hermétiques.",
+    fallbackAction: () => "",
   },
   {
     key: "cuts",
@@ -1052,6 +1060,11 @@ export function buildBatchSession(plan: PlannedMeal[], qtyMode: QtyMode = "batch
         const scale = cookScale(meal, qtyMode);
         return vegs.map((ing) => blockFor(meal, [ing], "", cutTypeOf(ing, meal), scale));
       }
+      if (section.key === "tm") {
+        const sauceIngs = sauceIngsFor(meal);
+        if (sauceIngs.length === 0) return [];
+        return [blockFor(meal, sauceIngs, "", undefined, cookScale(meal, qtyMode))];
+      }
       const montageLines = lines.filter(
         (line) => isAssemblySentence(line) && !isCutSentence(line) && !isCookWaterSentence(line),
       );
@@ -1068,15 +1081,6 @@ export function buildBatchSession(plan: PlannedMeal[], qtyMode: QtyMode = "batch
         ];
       }
       if (ings.length === 0) return [];
-      if (
-        section.key === "tm" &&
-        !isWorthTmMix(
-          [...lines, actionFor(meal, section.key, "")].join(" "),
-          ings.map((ing) => ing.name),
-        )
-      ) {
-        return [];
-      }
       const scale = cookScale(meal, qtyMode);
       return [
         blockFor(
@@ -1106,7 +1110,7 @@ export function buildBatchSession(plan: PlannedMeal[], qtyMode: QtyMode = "batch
         appliance: section.appliance,
         setting: unique(ordered.map((block) => block.setting ?? "").filter(Boolean)).slice(0, 3).join(" · "),
         recipes: ordered,
-        rowMode: section.key === "cuts" ? "per-item" : undefined,
+        rowMode: section.key === "cuts" ? "per-item" : section.key === "tm" ? "sauce" : undefined,
       },
     ];
   });

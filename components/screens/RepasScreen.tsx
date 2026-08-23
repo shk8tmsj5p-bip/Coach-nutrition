@@ -453,7 +453,7 @@ export default function RepasScreen() {
             onThemeChange={setTheme}
             busy={busy}
             canClear={plan.some((meal) => !isEmptyMeal(meal))}
-            coachHint={`Portions selon Suivi : Alexis ${goalLabel(catalog.alexis.primaryGoal)} · Élodie ${goalLabel(catalog.elodie.primaryGoal)}. Même plat, grammes différents.`}
+            coachHint={`Portions selon Suivi : Alexis ${goalLabel(catalog.alexis.primaryGoal)} · Élodie ${goalLabel(catalog.elodie.primaryGoal)}. Même plat, grammes différents (sauf sauces).`}
             onGenerateWeekdays={() => void generate("weekdays")}
             onGenerateWeekend={() => void generate("weekend")}
             onGenerateSingle={() => setPickSlot(true)}

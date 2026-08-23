@@ -6,6 +6,7 @@ import {
   estimateIngredientMacros,
   type IngredientKind,
 } from "@/lib/recipe-macros";
+import { equalizeSharedSauce, isDressingIngredient, sharedSauceGrams } from "@/lib/ingredient-groups";
 import type {
   DietType,
   Macros,
@@ -157,8 +158,8 @@ function slotFor(person: PersonMealCoach, mealType: PlannedMeal["mealType"]): Ma
 function leversFor(person: PersonMealCoach) {
   if (person.goal === "prise") {
     return person.diet === "vegan"
-      ? "densité : + tofu / edamame / riz / tahini (jamais cacahuète). Extra sauce = ligne Alexis seule."
-      : "densité : + féculent + protéine, un filet d'huile extra OK le midi. Extra sauce = ligne profil seule.";
+      ? "densité : + tofu / edamame / riz (jamais cacahuète). Extra kcal = féculent / protéine, pas une 2e sauce."
+      : "densité : + féculent + protéine, un filet d'huile extra OK le midi. Extra kcal = plat, pas une 2e sauce.";
   }
   if (person.goal === "perte") {
     return "volume : + crudités / herbes / agrumes / soja / moutarde. Huile serrée. JAMAIS couper la protéine.";
@@ -187,15 +188,16 @@ ${personBlock(coach.elodie)}
 
 RÈGLES PORTIONS
 - UN seul plat pour les deux. Double déclinaison = protéine vegan / omni + GRAMMES différents. INTERDIT deux recettes, INTERDIT « bowl Alexis » vs « assiette Élodie ».
-- shared_ingredients : grams_alexis ET grams_elodie OBLIGATOIRES sur féculents, huile, légumes, légumineuses. Herbes / épices / ail : grammes identiques OK.
+- shared_ingredients : grams_alexis ET grams_elodie OBLIGATOIRES sur féculents, légumes, légumineuses. Herbes / épices / ail : grammes identiques OK.
+- SAUCES COMMUNES : vinaigrette, sauce, marinade, pesto, houmous, satay, nuoc, tahini — UN seul dosage foyer (grams_alexis = grams_elodie, ou un seul weight_g). INTERDIT de splitter huile / soja / moutarde / citron / tahini de la sauce. L'huile de CUISSON du plat (hors sauce) peut rester split.
 - Perte = volume (légumes, herbes, agrume, soja, moutarde), densité calorique basse. Prise = densité (féculent + protéine + tahini / huile).
 - Protéine plancher : ne JAMAIS réduire tofu / poulet / poisson / œufs / edamame pour « faire light ». Le dîner light coupe le riz et l'huile, pas la protéine.
 - Dîner : light pour les deux, mais la prise garde sa protéine ; seule la perte coupe vraiment le féculent (≈ −45 %).
-- Écart kcal > 250 : ajouter une ligne profil-only (riz cuit, tofu extra, 1 cs tahini) — jamais de beurre de cacahuète (aversion Élodie) ni fromage pour Alexis.
+- Écart kcal > 250 : ajouter une ligne profil-only (riz cuit, tofu extra) — jamais de 2e sauce, jamais de beurre de cacahuète (aversion Élodie) ni fromage pour Alexis.
 - Umami sans calories : soja, agrume, moutarde, herbes, gingembre, ail — surtout sur les dîners perte.
 - N'inclus PAS de dessert, yaourt sucré, granola dessert (géré par les templates Paramètres).
 - Satiété vegan prise : tofu + légumineuse + riz, pas un filet d'huile tout seul.
-- Assemblage : même boîte / même ordre, justes portions différentes (ex. « riz : Alexis 180g · Élodie 100g »). Pas de discours diététique dans les étapes.
+- Assemblage : même boîte / même ordre, justes portions différentes (ex. « riz : Alexis 180g · Élodie 100g »). Sauce / vinaigrette = UN dosage commun, jamais split. Pas de discours diététique dans les étapes.
 - Week-end : légèrement plus généreux, toujours split selon les cibles ci-dessus.`;
 }
 
@@ -232,6 +234,10 @@ function scaleSharedItem(
 ): RecipeIngredient {
   const kind = classifyIngredient(item.name);
   if (kind === "herb") return item;
+  if (isDressingIngredient(item, meal)) {
+    const g = sharedSauceGrams(item.gramsAlexis, item.gramsElodie);
+    return { ...item, gramsAlexis: g, gramsElodie: g };
+  }
 
   const alreadySplit = portionsDiffer(item.gramsAlexis, item.gramsElodie);
   const aSlot = slotFor(coach.alexis, meal.mealType);
@@ -303,9 +309,11 @@ function scaleKinds(
   profile: ProfileId,
   kinds: IngredientKind[],
   factor: number,
+  meal: PlannedMeal,
 ) {
   return ingredients.map((item) => {
     if (item.role !== "shared" && item.role !== profile) return item;
+    if (isDressingIngredient(item, meal)) return item;
     const kind = classifyIngredient(item.name);
     if (!kinds.includes(kind)) return item;
     const grams = gramsOf(item, profile);
@@ -318,22 +326,23 @@ function fitProfile(
   ingredients: RecipeIngredient[],
   profile: ProfileId,
   person: PersonMealCoach,
-  mealType: PlannedMeal["mealType"],
+  meal: PlannedMeal,
 ) {
-  const target = slotFor(person, mealType);
+  const target = slotFor(person, meal.mealType);
   const decl = declinationFromIngredients(ingredients, profile);
   const kcalRatio = decl.calories / Math.max(target.calories, 1);
   let next = ingredients;
   if (person.goal === "prise" && kcalRatio < 0.88) {
-    next = scaleKinds(next, profile, ["starch", "oil", "legume"], clamp(target.calories / Math.max(decl.calories, 1), 1.05, 1.4));
+    next = scaleKinds(next, profile, ["starch", "oil", "legume"], clamp(target.calories / Math.max(decl.calories, 1), 1.05, 1.4), meal);
   } else if (person.goal === "perte" && kcalRatio > 1.12) {
-    next = scaleKinds(next, profile, ["starch", "oil"], clamp(target.calories / Math.max(decl.calories, 1), 0.55, 0.95));
+    next = scaleKinds(next, profile, ["starch", "oil"], clamp(target.calories / Math.max(decl.calories, 1), 0.55, 0.95), meal);
   } else if (person.goal === "maintien" && (kcalRatio < 0.85 || kcalRatio > 1.15)) {
     next = scaleKinds(
       next,
       profile,
       ["starch", "oil"],
       clamp(target.calories / Math.max(decl.calories, 1), 0.7, 1.25),
+      meal,
     );
   }
   const proteinNow = declinationFromIngredients(next, profile).proteinG;
@@ -343,6 +352,7 @@ function fitProfile(
       profile,
       ["protein", "legume"],
       clamp((target.protein * 0.9) / Math.max(proteinNow, 1), 1.05, 1.45),
+      meal,
     );
   }
   return next;
@@ -364,9 +374,10 @@ export function scaleMealToGoals(meal: PlannedMeal, coach: MealCoachHousehold): 
     if (item.role === "alexis" || item.role === "elodie") return scaleSoloProtein(item, meal, coach);
     return item;
   });
-  ingredients = fitProfile(ingredients, "alexis", coach.alexis, meal.mealType);
-  ingredients = fitProfile(ingredients, "elodie", coach.elodie, meal.mealType);
-  return withMacros(meal, ingredients);
+  ingredients = fitProfile(ingredients, "alexis", coach.alexis, meal);
+  ingredients = fitProfile(ingredients, "elodie", coach.elodie, meal);
+  const equalized = equalizeSharedSauce({ ...meal, ingredients });
+  return withMacros(equalized, equalized.ingredients);
 }
 
 export function scalePlanToGoals(plan: PlannedMeal[], coach: MealCoachHousehold | null | undefined) {

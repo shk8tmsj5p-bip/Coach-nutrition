@@ -80,6 +80,7 @@ export function MealTemplatesEditor({
       {editing ? (
         <MealTemplateSheet
           template={editing}
+          profileId={profileId}
           accent={accent}
           diet={profileId === "elodie" ? "omnivore" : "vegan"}
           isNew={!templates.some((item) => item.id === editing.id)}
