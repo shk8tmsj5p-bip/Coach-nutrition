@@ -166,9 +166,8 @@
 - Photo picker: two buttons — **Appareil photo** (`ImagePickButton` + `capture="environment"`) vs **Photothèque** (no capture). The file input must cover the tile (`opacity-0`, never `display:none` / `hidden`) so iOS PWA opens the camera. Never auto-open the camera without a choice.
 
 ### Barcode (OpenFoodFacts)
-- After a product is recognized, the user MUST be able to change the quantity before save (they do not always eat the whole pack).
-- Show serving vs pack presets (¼ / ½ / 1 portion / 1 paquet) plus ± grams / manual input.
-- Scale calories and macros from the label serving. Save the chosen grams, not the default pack.
+- Same picker as Photo: two buttons — **Appareil photo** (`ImagePickButton` + `capture="environment"`) vs **Photothèque** (no capture). Never auto-open the camera. Decode the still with ZXing (`lib/barcode-scan.ts` `decodeBarcodeFromFile`). Manual numeric entry as fallback.
+- Lookup `GET /api/barcode?code=` → Open Food Facts v2 (`lib/barcode.ts`). Then the quantity sheet: serving vs pack presets (¼ / ½ / 1 portion / 1 paquet) plus ± grams / kcal. Scale from **per 100 g** label (`macrosAtGrams`). Save the chosen grams, not the default pack.
 
 ### Copy Yesterday
 - NEVER copy the whole day blindly.

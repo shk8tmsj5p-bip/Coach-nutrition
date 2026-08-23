@@ -17,6 +17,7 @@ import { CopyYesterdaySheet } from "@/components/today/CopyYesterdaySheet";
 import { RecentsSheet } from "@/components/today/RecentsSheet";
 import { EditMealSheet } from "@/components/today/EditMealSheet";
 import { LogSheet } from "@/components/today/LogSheet";
+import { macrosAtGrams } from "@/lib/barcode";
 import { SwapProposalSheet } from "@/components/today/SwapProposalSheet";
 import { TodayPlannedCard } from "@/components/today/TodayPlannedCard";
 import { TodayDayCoach } from "@/components/today/TodayDayCoach";
@@ -29,7 +30,6 @@ import { Card, SectionTitle } from "@/components/ui/Card";
 import { GoalBadge } from "@/components/ui/MacroProgress";
 import { formatLongDate, isoWeekday, mondayOf, todayISO, yesterdayISO } from "@/lib/dates";
 import {
-  mockBarcodeProduct,
   suggestedSnacks,
   todayMeals,
   todayMovement,
@@ -217,16 +217,6 @@ function defaultMealTime(type: MealType) {
     default:
       return "16:30";
   }
-}
-
-function scaleMacros(base: Macros, fromG: number, toG: number): Macros {
-  const ratio = fromG > 0 ? toG / fromG : 1;
-  return {
-    calories: Math.round(base.calories * ratio),
-    protein: Math.round(base.protein * ratio),
-    carbs: Math.round(base.carbs * ratio),
-    fat: Math.round(base.fat * ratio),
-  };
 }
 
 function emptyMacros(): Macros {
@@ -1033,16 +1023,12 @@ export default function AujourdhuiScreen() {
             closeLog();
             flash("Aliment ajouté");
           }}
-          onSaveBarcode={(grams) => {
-            const macros = scaleMacros(
-              mockBarcodeProduct.macros,
-              mockBarcodeProduct.servingG,
-              grams,
-            );
+          onSaveBarcode={(product, grams) => {
+            const macros = macrosAtGrams(product.per100, grams);
             void persistLoggedFood("barcode", {
-              name: mockBarcodeProduct.name,
+              name: product.name,
               macros,
-              items: [`${mockBarcodeProduct.name} ${grams}g`],
+              items: [`${product.name} : ${grams}g`],
             });
             closeLog();
             flash("Produit ajouté");

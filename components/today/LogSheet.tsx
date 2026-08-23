@@ -5,6 +5,7 @@ import { Camera, Images, Plus, X } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { ImagePickButton } from "@/components/today/ImagePickButton";
 import { QtyEditRow } from "@/components/today/QtyEditRow";
+import { BarcodeScanPanel } from "@/components/today/BarcodeScanPanel";
 import {
   macrosFromIngredients,
   parseFoodTextLocal,
@@ -13,23 +14,13 @@ import {
   scaleDetectedQty,
   clampGrams,
 } from "@/lib/food-log";
+import { macrosAtGrams, type BarcodeProduct } from "@/lib/barcode";
 import { requestLogText } from "@/lib/gemini/client";
 import { withGeminiWait } from "@/lib/gemini/wait";
-import { mockBarcodeProduct } from "@/lib/mock-data";
-import type { DetectedIngredient, DietType, Macros, MealType, ProfileId } from "@/lib/types";
+import type { DetectedIngredient, DietType, MealType, ProfileId } from "@/lib/types";
 import { cn, mealTypeLabel } from "@/lib/utils";
 
 export type FoodLogMode = "text" | "barcode" | "photo";
-
-function scaleMacros(base: Macros, fromG: number, toG: number): Macros {
-  const ratio = fromG > 0 ? toG / fromG : 1;
-  return {
-    calories: Math.round(base.calories * ratio),
-    protein: Math.round(base.protein * ratio),
-    carbs: Math.round(base.carbs * ratio),
-    fat: Math.round(base.fat * ratio),
-  };
-}
 
 export function LogSheet({
   mode,
@@ -57,7 +48,7 @@ export function LogSheet({
   onClose: () => void;
   onAnalyzeText?: () => void | Promise<void>;
   onSaveText: () => void;
-  onSaveBarcode: (grams: number) => void;
+  onSaveBarcode: (product: BarcodeProduct, grams: number) => void;
   onSavePhoto: () => void;
 }) {
   const [newName, setNewName] = useState("");
@@ -66,7 +57,8 @@ export function LogSheet({
   const [photoReady, setPhotoReady] = useState(false);
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
   const [photoError, setPhotoError] = useState<string | null>(null);
-  const [barcodeGrams, setBarcodeGrams] = useState(mockBarcodeProduct.servingG);
+  const [barcodeGrams, setBarcodeGrams] = useState(100);
+  const [barcodeProduct, setBarcodeProduct] = useState<BarcodeProduct | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
 
   useEffect(() => {
@@ -77,7 +69,8 @@ export function LogSheet({
       if (prev) URL.revokeObjectURL(prev);
       return null;
     });
-    setBarcodeGrams(mockBarcodeProduct.servingG);
+    setBarcodeGrams(100);
+    setBarcodeProduct(null);
   }, [mode]);
 
   async function analyzePhoto(file: File) {
@@ -133,7 +126,7 @@ export function LogSheet({
         <div className="mb-3 flex items-center justify-between">
           <h3 className="text-[17px] font-semibold">
             {mode === "text" && (textReview ? "Relecture texte / IA" : "Saisie texte / IA")}
-            {mode === "barcode" && "Produit reconnu"}
+            {mode === "barcode" && (barcodeProduct ? "Produit reconnu" : "Scanner le code-barres")}
             {mode === "photo" && (photoReady ? "Relecture photo" : "Photo du repas")}
           </h3>
           <button type="button" onClick={onClose} className="rounded-full bg-health-bg p-1.5">
@@ -180,13 +173,27 @@ export function LogSheet({
           />
         )}
 
-        {mode === "barcode" && (
+        {mode === "barcode" && !barcodeProduct && (
+          <BarcodeScanPanel
+            onProduct={(product) => {
+              setBarcodeProduct(product);
+              setBarcodeGrams(product.servingG);
+            }}
+          />
+        )}
+
+        {mode === "barcode" && barcodeProduct && (
           <BarcodeQuantityEditor
+            product={barcodeProduct}
             grams={barcodeGrams}
             onChange={setBarcodeGrams}
             mealType={mealType}
             confirmLabel={confirmLabel}
-            onSave={() => onSaveBarcode(barcodeGrams)}
+            onRescan={() => {
+              setBarcodeProduct(null);
+              setBarcodeGrams(100);
+            }}
+            onSave={() => onSaveBarcode(barcodeProduct, barcodeGrams)}
           />
         )}
 
@@ -253,20 +260,24 @@ export function LogSheet({
 }
 
 function BarcodeQuantityEditor({
+  product,
   grams,
   onChange,
   mealType,
   confirmLabel,
+  onRescan,
   onSave,
 }: {
+  product: BarcodeProduct;
   grams: number;
   onChange: (grams: number) => void;
   mealType: MealType;
   confirmLabel?: string;
+  onRescan: () => void;
   onSave: () => void;
 }) {
-  const product = mockBarcodeProduct;
-  const macros = scaleMacros(product.macros, product.servingG, grams);
+  const macros = macrosAtGrams(product.per100, grams);
+  const servingMacros = macrosAtGrams(product.per100, product.servingG);
   const presets = [
     { label: "¼ portion", value: Math.max(1, Math.round(product.servingG / 4)) },
     { label: "½ portion", value: Math.max(1, Math.round(product.servingG / 2)) },
@@ -279,9 +290,9 @@ function BarcodeQuantityEditor({
   }
 
   function setKcal(kcal: number) {
-    const density = product.servingG > 0 ? product.macros.calories / product.servingG : 0;
+    const density = product.per100.calories;
     if (density <= 0) return;
-    setGrams(kcal / density);
+    setGrams((kcal * 100) / density);
   }
 
   return (
@@ -290,7 +301,7 @@ function BarcodeQuantityEditor({
         <p className="text-[11px] text-health-muted">{product.barcode}</p>
         <p className="text-[16px] font-semibold">{product.name}</p>
         <p className="text-[13px] text-health-muted">
-          {product.brand} · étiquette {product.servingG}g · paquet {product.packG}g
+          {product.brand ? `${product.brand} · ` : ""}étiquette {product.servingG}g · paquet {product.packG}g
         </p>
       </Card>
 
@@ -359,7 +370,7 @@ function BarcodeQuantityEditor({
           {macros.calories} kcal · {macros.protein}g P · {macros.carbs}g G · {macros.fat}g L
         </p>
         <p className="mt-1 text-[11px] text-health-muted">
-          Recalculé depuis {product.servingG}g ({product.macros.calories} kcal)
+          Recalculé depuis {product.servingG}g ({servingMacros.calories} kcal)
         </p>
       </Card>
 
@@ -369,6 +380,9 @@ function BarcodeQuantityEditor({
         className="mt-3 w-full rounded-card bg-health-ink py-3 text-[15px] font-semibold text-white"
       >
         {confirmLabel ?? `Ajouter ${grams}g au ${mealTypeLabel(mealType).toLowerCase()}`}
+      </button>
+      <button type="button" onClick={onRescan} className="mt-2 w-full py-2 text-[12px] font-semibold text-health-muted">
+        Scanner un autre code
       </button>
     </>
   );

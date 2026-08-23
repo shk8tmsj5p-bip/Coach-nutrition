@@ -19,7 +19,7 @@ import {
 import { requestLogText } from "@/lib/gemini/client";
 import { todayISO } from "@/lib/dates";
 import { recentFoodsFromMeals, recentFoodToDetected, type DatedMeal } from "@/lib/recent-foods";
-import { mockBarcodeProduct } from "@/lib/mock-data";
+import { macrosAtGrams } from "@/lib/barcode";
 import { SLOT_TEMPLATE_KINDS } from "@/lib/meal-templates";
 import { WEEKDAYS, toggleWeekday } from "@/lib/sport-routine";
 import { createBrowserSupabaseClient } from "@/lib/supabase/client";
@@ -62,16 +62,6 @@ function linesFromTemplate(template: SlotTemplate): DraftLine[] {
 
 function slotMealType(slot: SlotTemplateKind): MealType {
   return slot === "collation" ? "collation" : "petit-dejeuner";
-}
-
-function scaleMacros(base: Macros, fromG: number, toG: number): Macros {
-  const ratio = fromG > 0 ? toG / fromG : 1;
-  return {
-    calories: Math.round(base.calories * ratio),
-    protein: Math.round(base.protein * ratio),
-    carbs: Math.round(base.carbs * ratio),
-    fat: Math.round(base.fat * ratio),
-  };
 }
 
 export function MealTemplateSheet({
@@ -334,22 +324,17 @@ export function MealTemplateSheet({
             appendDetected(ingredients);
             closeLog();
           }}
-          onSaveBarcode={(grams) => {
-            const macros = scaleMacros(
-              mockBarcodeProduct.macros,
-              mockBarcodeProduct.servingG,
+          onSaveBarcode={(product, grams) => {
+            const macros = macrosAtGrams(product.per100, grams);
+            const line = {
+              id: `barcode-${Date.now()}`,
+              name: product.name,
               grams,
-            );
-            appendDetected([
-              applyTrustedNutrition({
-                id: `barcode-${Date.now()}`,
-                name: mockBarcodeProduct.name,
-                grams,
-                qty: grams,
-                unit: "g",
-                ...macros,
-              }),
-            ]);
+              qty: grams,
+              unit: "g" as const,
+              ...macros,
+            };
+            appendDetected([macros.calories > 0 ? line : applyTrustedNutrition(line)]);
             closeLog();
           }}
           onSavePhoto={() => {
