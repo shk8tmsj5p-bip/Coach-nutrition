@@ -44,6 +44,18 @@ export function formatLongDate(iso: string) {
   });
 }
 
+export function formatShortDate(iso: string) {
+  return new Date(`${iso}T12:00:00`).toLocaleDateString("fr-FR", {
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+  });
+}
+
+export function isIsoDate(value: string | undefined | null): value is string {
+  return Boolean(value && /^\d{4}-\d{2}-\d{2}$/.test(value));
+}
+
 /** 1 = lundi … 7 = dimanche */
 export function isoWeekday(iso = todayISO()): 1 | 2 | 3 | 4 | 5 | 6 | 7 {
   const day = new Date(`${iso}T12:00:00`).getDay();

@@ -10,6 +10,7 @@ export const RECIPE_TAG_TONES = [
 ] as const;
 
 export function recipeTagClass(tag: string) {
+  if (/^d$/i.test(String(tag).replace(/\W/g, ""))) return "bg-amber-100 text-amber-800";
   const n = Number(String(tag).replace(/\D/g, "")) || 1;
   return RECIPE_TAG_TONES[(n - 1) % RECIPE_TAG_TONES.length];
 }

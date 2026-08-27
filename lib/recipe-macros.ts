@@ -30,6 +30,7 @@ const NAMED: Array<{ keys: string[]; macros: Per100 }> = [
   { keys: ["boulgour", "semoule"], macros: { kcal: 110, protein: 4, carbs: 23, fat: 0.4 } },
   { keys: ["pomme de terre", "patate douce", "patate"], macros: { kcal: 86, protein: 1.7, carbs: 20, fat: 0.1 } },
   { keys: ["pain", "naan", "galette", "wrap", "pita", "tortilla"], macros: { kcal: 260, protein: 8, carbs: 48, fat: 4 } },
+  { keys: ["tofu soyeux"], macros: { kcal: 55, protein: 5.3, carbs: 2.3, fat: 2.7 } },
   { keys: ["tofu ferme", "tofu"], macros: { kcal: 145, protein: 16, carbs: 2, fat: 9 } },
   { keys: ["edamame"], macros: { kcal: 120, protein: 11, carbs: 9, fat: 5 } },
   { keys: ["lentille", "pois chiche", "haricot blanc", "haricot rouge"], macros: { kcal: 115, protein: 8, carbs: 18, fat: 1 } },

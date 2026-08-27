@@ -71,6 +71,7 @@ import {
   upsertMeal,
 } from "@/lib/supabase/today-data";
 import { loadWeekPlan } from "@/lib/supabase/week-plans";
+import { loadWeekLunchDessert, type WeekLunchDessert } from "@/lib/week-dessert";
 import { clearDailyFeel, fetchTodayFeels, upsertDailyFeel } from "@/lib/supabase/daily-feel";
 import { emptyFeel, hasCompleteFeel, hasFeelScore, type DailyFeelScores } from "@/lib/daily-feel";
 import { todayCoachRemark, buildTodayCoachSnapshot } from "@/lib/today-coach";
@@ -266,6 +267,7 @@ export default function AujourdhuiScreen() {
   const [workouts, setWorkouts] = useState<Workout[]>([]);
   const [movement, setMovement] = useState<Record<ProfileId, DailyMovement>>(emptyMovement);
   const [weekPlan, setWeekPlan] = useState<PlannedMeal[]>([]);
+  const [lunchDessert, setLunchDessert] = useState<WeekLunchDessert | null>(null);
   const [favorites, setFavorites] = useState<FavoriteRecipe[]>([]);
   const [rejected, setRejected] = useState<RejectedRecipe[]>([]);
 
@@ -348,8 +350,12 @@ export default function AujourdhuiScreen() {
     const supabase = createBrowserSupabaseClient();
     const ids = profileIdsForView(view);
     const date = todayISO();
-    const { plan } = await loadWeekPlan(mondayOf(date));
+    const [{ plan }, dessert] = await Promise.all([
+      loadWeekPlan(mondayOf(date)),
+      loadWeekLunchDessert(mondayOf(date)),
+    ]);
     setWeekPlan(plan);
+    setLunchDessert(dessert);
     const feels = await fetchTodayFeels(supabase, ids);
     setRatings({
       alexis: feels.alexis,
@@ -360,6 +366,7 @@ export default function AujourdhuiScreen() {
       fillMissingPlatsFromWeekPlan(
         fillMissingSlotsFromTemplates(rows, HOUSEHOLD_IDS, date, householdTemplates, {
           createMissing,
+          lunchDessert: dessert,
         }),
         plan,
         HOUSEHOLD_IDS,
@@ -848,7 +855,7 @@ export default function AujourdhuiScreen() {
           [profileId],
           date,
           householdTemplates,
-          { createMissing: true },
+          { createMissing: true, lunchDessert },
         );
       });
       flash(types.length > 1 ? "Journée réinitialisée" : "Repas réinitialisé");
@@ -867,15 +874,15 @@ export default function AujourdhuiScreen() {
 
   return (
     <div>
-      <p className="text-[13px] capitalize text-health-muted">{formatLongDate(todayISO())}</p>
-      <h1 className="mt-0.5 text-[28px] font-bold tracking-tight">Aujourd&apos;hui</h1>
-      <p className="mt-1 text-[12px] text-health-muted">
-        {status === "loading" && "Connexion Supabase…"}
-        {status === "seeded" && "Supabase · seed OK — jauge alimentée"}
-        {status === "ready" && "Supabase · lecture par profile_id"}
-        {status === "offline" && statusDetail}
-        {status === "error" && `Supabase · ${statusDetail}`}
-      </p>
+      <h1 className="text-[28px] font-bold tracking-tight">Aujourd&apos;hui</h1>
+      <p className="mt-0.5 text-[13px] capitalize text-health-muted">{formatLongDate(todayISO())}</p>
+      {status === "loading" || status === "offline" || status === "error" ? (
+        <p className="mt-1 text-[12px] text-health-muted">
+          {status === "loading" && "Connexion…"}
+          {status === "offline" && statusDetail}
+          {status === "error" && statusDetail}
+        </p>
+      ) : null}
 
       <div className="mt-3 flex gap-2">
         <QuickBtn icon={RefreshCw} label="Remplacement" onClick={() => void onSwap()} disabled={busy} />
@@ -1324,7 +1331,6 @@ function ProfileToday({
           current={current}
           targets={profile.targets}
           goal={goal}
-          accent={profile.accent}
           movement={movement}
           profile={profile}
           coachTags={nutritionAdj ? dayIngredientTags : undefined}

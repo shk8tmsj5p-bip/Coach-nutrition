@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { isoWeekday, mondayOf, todayISO, yesterdayISO, addDaysISO } from "@/lib/dates";
+import { isoWeekday, isIsoDate, mondayOf, todayISO, yesterdayISO, addDaysISO } from "@/lib/dates";
 import { mapProfil, mapRepas } from "@/lib/mappers";
 import type { SwapProposal } from "@/lib/swap-proposals";
 import type { Database } from "@/lib/supabase/database.types";
@@ -22,6 +22,11 @@ import {
   todayPlatFromPlanned,
 } from "@/lib/serve-week-plan";
 import { loadWeekPlan } from "@/lib/supabase/week-plans";
+import {
+  lunchDessertTemplateForDay,
+  loadWeekLunchDessert,
+  type WeekLunchDessert,
+} from "@/lib/week-dessert";
 
 export async function fetchProfils(
   supabase: SupabaseClient<Database>,
@@ -76,6 +81,26 @@ export async function fetchRecentLoggedMeals(
   };
 }
 
+export async function fetchMealsRange(
+  supabase: SupabaseClient<Database>,
+  profileIds: ProfileId[],
+  from: string,
+  to: string,
+): Promise<{ meals: Array<MealEntry & { date: string }>; error?: string }> {
+  const { data, error } = await supabase
+    .from("repas")
+    .select("*")
+    .in("profile_id", profileIds)
+    .gte("date", from)
+    .lte("date", to)
+    .order("date", { ascending: true })
+    .order("heure", { ascending: true });
+  if (error) return { meals: [], error: error.message };
+  return {
+    meals: (data ?? []).map((row) => ({ ...mapRepas(row), date: row.date })),
+  };
+}
+
 export function pickCanonicalMeals(meals: MealEntry[]): { keep: MealEntry[]; extraIds: string[] } {
   const groups = new Map<string, MealEntry[]>();
   for (const meal of meals) {
@@ -111,7 +136,7 @@ export async function insertMeal(
 ) {
   const { error } = await supabase.from("repas").insert({
     profile_id: meal.profileId,
-    date: todayISO(),
+    date: isIsoDate(meal.date) ? meal.date : todayISO(),
     heure: meal.time || null,
     type: meal.type,
     nom: meal.name,
@@ -299,7 +324,7 @@ export function fillMissingSlotsFromTemplates(
   profileIds: ProfileId[],
   date = todayISO(),
   household: Record<ProfileId, SlotTemplate[]> = loadHouseholdMealTemplates(),
-  opts: { createMissing?: boolean } = {},
+  opts: { createMissing?: boolean; lunchDessert?: WeekLunchDessert | null } = {},
 ): MealEntry[] {
   const weekday = isoWeekday(date);
   const createMissing = opts.createMissing !== false;
@@ -319,7 +344,10 @@ export function fillMissingSlotsFromTemplates(
       next.push(mealFromTemplate(id, template, `${id}-${slot}-${date}`));
     }
     for (const slot of ["dessert-midi", "dessert-soir"] as const) {
-      const template = templateForSlot(household[id], slot, weekday);
+      const template =
+        slot === "dessert-midi"
+          ? lunchDessertTemplateForDay(household, id, date, opts.lunchDessert ?? null, templateForSlot)
+          : templateForSlot(household[id], slot, weekday);
       if (!template || !template.items.length) continue;
       const mealType = mealTypeForTemplate(slot);
       const index = next.findIndex((meal) => meal.profileId === id && meal.type === mealType);
@@ -366,6 +394,7 @@ export async function applyTodaySlotTemplates(
 ): Promise<boolean> {
   const weekday = isoWeekday(date);
   const household = await householdTemplatesFromDb(supabase);
+  const weekDessert = await loadWeekLunchDessert(mondayOf(date));
   const existing = await supabase
     .from("repas")
     .select("id, profile_id, type, source, is_skipped, nom, items, calories, proteines_g, glucides_g, lipides_g, heure")
@@ -417,7 +446,10 @@ export async function applyTodaySlotTemplates(
     }
     for (const slot of ["dessert-midi", "dessert-soir"] as const) {
       if (!wantSlot(slot)) continue;
-      const template = templateForSlot(household[id], slot, weekday);
+      const template =
+        slot === "dessert-midi"
+          ? lunchDessertTemplateForDay(household, id, date, weekDessert, templateForSlot)
+          : templateForSlot(household[id], slot, weekday);
       const mealType = mealTypeForTemplate(slot);
       const current = byKey.get(`${id}:${mealType}`);
       if (!template || !template.items.length) {

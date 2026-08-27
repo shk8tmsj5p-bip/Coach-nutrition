@@ -56,7 +56,6 @@ export function MacroRing({
   const circ = 2 * Math.PI * r;
   const pct = Math.min(1, current / Math.max(target, 1));
   const offset = circ * (1 - pct);
-  const remaining = Math.round(target - current);
   const status = macroStatus("calories", current, target, goal);
 
   return (
@@ -90,25 +89,48 @@ export function MacroRing({
           >
             {Math.round(current)}
           </span>
-          <span className="mt-0.5 text-[11px] text-health-muted">kcal</span>
+          <span className="mt-0.5 text-[11px] text-health-muted">kcal mangées</span>
         </div>
       </div>
-      <p className="mt-2 text-center text-[12px] text-health-muted">
-        {status.label}
-        {remaining > 0 ? (
-          <>
-            {" "}
-            · <span className="tabular-nums">{remaining} rest.</span>
-          </>
-        ) : remaining === 0 ? (
-          <span style={{ color: status.color }}> · objectif</span>
-        ) : (
-          <span className="tabular-nums" style={{ color: status.color }}>
-            {" "}
-            · +{Math.abs(remaining)}
-          </span>
-        )}
+      <p className="mt-2 text-center text-[12px] font-medium" style={{ color: status.color }}>
+        {status.label || "En cours"}
       </p>
+    </div>
+  );
+}
+
+export function CompactMacrosRow({
+  current,
+  target,
+  goal,
+}: {
+  current: Macros;
+  target: Macros;
+  goal: PrimaryGoal;
+}) {
+  const rows: Array<{ label: string; kind: "carbs" | "protein" | "fat"; value: number; mark: number }> = [
+    { label: "Glucides", kind: "carbs", value: current.carbs, mark: target.carbs },
+    { label: "Protéines", kind: "protein", value: current.protein, mark: target.protein },
+    { label: "Lipides", kind: "fat", value: current.fat, mark: target.fat },
+  ];
+  return (
+    <div className="mt-4 grid grid-cols-3 gap-3">
+      {rows.map((row) => {
+        const pct = percentOf(row.value, row.mark);
+        const status = macroStatus(row.kind, row.value, row.mark, goal);
+        return (
+          <div key={row.kind}>
+            <p className="text-[11px] font-medium text-health-muted">{row.label}</p>
+            <p className="mt-0.5 text-[15px] font-semibold tabular-nums leading-none" style={{ color: status.color }}>
+              {Math.round(row.value)}
+              <span className="text-[11px] font-normal text-health-muted">/{Math.round(row.mark)}g</span>
+            </p>
+            <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-health-bg">
+              <div className="h-full rounded-full" style={{ width: `${pct}%`, background: status.color }} />
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }

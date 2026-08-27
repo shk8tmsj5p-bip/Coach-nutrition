@@ -140,6 +140,8 @@ export interface MealEntry {
   items?: string[];
   isSkipped?: boolean;
   notes?: string;
+  /** ISO YYYY-MM-DD. Present on loaded rows; inserts fall back to today. */
+  date?: string;
 }
 
 export type QtyUnit = "g" | "ml" | "tranche" | "carreau" | "piece" | "cs" | "cc";

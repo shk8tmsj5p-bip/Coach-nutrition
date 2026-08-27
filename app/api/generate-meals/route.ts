@@ -6,6 +6,7 @@ import {
   extractSuggestions,
   geminiToPlannedMeal,
   parseGeminiJson,
+  dessertBatchPrompt,
   singlePrompt,
   suggestSwapPrompt,
   todaySwapPrompt,
@@ -13,9 +14,10 @@ import {
   weekdaysPrompt,
   type GenerateMealsMode,
 } from "@/lib/gemini/meals";
-import type { MealType, PlannedMeal } from "@/lib/types";
+import type { MealType, PlannedMeal, Weekday } from "@/lib/types";
 import type { HouseholdCoachBias } from "@/lib/coach-apply";
 import { parseMealCoach, scalePlanToGoals, type MealCoachHousehold } from "@/lib/meal-coach";
+import { dummyDessertSlot, scaleDessertToGoals, stampDessertMeal } from "@/lib/week-dessert";
 import { diversityProblems } from "@/lib/recipe-diversity";
 import { themeMismatchProblems } from "@/lib/theme-kits";
 import { suggestionsFitRecipe } from "@/lib/swap-coherence";
@@ -46,6 +48,7 @@ type Body = {
   kitchenContext?: string;
   nutritionCoach?: MealCoachHousehold;
   mealType?: MealType;
+  weekdays?: Weekday[];
 };
 
 function applyRecipes(
@@ -130,6 +133,58 @@ export async function POST(request: Request) {
         { error: friendlyGeminiError("Réponse Gemini incomplète"), mock: false },
         { status: 502 },
       );
+    }
+
+    if (body.mode === "dessert-batch") {
+      const kitchenContext = body.kitchenContext;
+      const prompt = dessertBatchPrompt(theme, body.coachBias, body.pastMeals, kitchenContext);
+      try {
+        const first = await callGeminiPro(prompt);
+        let used = first;
+        let recipes: ReturnType<typeof extractRecipes> = [];
+        try {
+          recipes = extractRecipes(parseGeminiJson(first.text));
+        } catch {
+          /* retry */
+        }
+        if (recipes.length === 0) {
+          const again = await callGeminiPro(
+            `${prompt}
+
+CORRECTION : ta réponse précédente n'était pas du JSON utilisable. Renvoie UNIQUEMENT le JSON demandé, complet.`,
+          );
+          try {
+            recipes = extractRecipes(parseGeminiJson(again.text));
+            used = again;
+          } catch {
+            /* fall through */
+          }
+        }
+        if (!recipes[0]) {
+          return NextResponse.json(
+            { error: friendlyGeminiError("Réponse Gemini incomplète"), mock: false },
+            { status: 502 },
+          );
+        }
+        const slot = dummyDessertSlot();
+        let planned = stampDessertMeal(
+          geminiToPlannedMeal(recipes[0], slot, theme),
+          body.weekdays ?? [1, 2, 3, 4, 5],
+          theme,
+        );
+        planned = scaleDessertToGoals(planned, parseMealCoach(body.nutritionCoach));
+        console.log("[MEAL GEN] using", used.tier, used.model, "dessert-batch", planned.baseName);
+        return NextResponse.json({
+          dessert: planned,
+          mock: false,
+          model: used.model,
+          warning: used.warning,
+        });
+      } catch (error) {
+        const raw = error instanceof Error ? error.message : "Gemini indisponible";
+        console.error("[MEAL GEN] dessert-batch —", raw);
+        return NextResponse.json({ error: friendlyGeminiError(raw), mock: false }, { status: 502 });
+      }
     }
 
     if (body.mode === "today-swap") {

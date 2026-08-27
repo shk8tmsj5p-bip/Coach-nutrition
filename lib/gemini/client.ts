@@ -1,5 +1,5 @@
 import { parseFoodTextLocal } from "@/lib/food-log";
-import type { DetectedIngredient, DietType, MealType, PlannedMeal, ProfileId } from "@/lib/types";
+import type { DetectedIngredient, DietType, MealType, PlannedMeal, ProfileId, Weekday } from "@/lib/types";
 import type { GenerateMealsMode } from "@/lib/gemini/meals";
 import type { HouseholdCoachBias } from "@/lib/coach-apply";
 import type { MealCoachHousehold } from "@/lib/meal-coach";
@@ -11,6 +11,7 @@ import { withGeminiWait } from "@/lib/gemini/wait";
 
 export type GenerateMealsResponse = {
   plan?: PlannedMeal[];
+  dessert?: PlannedMeal;
   proposals?: Partial<Record<ProfileId, SwapProposal>>;
   suggestions?: string[];
   mock?: boolean;
@@ -32,6 +33,7 @@ export async function requestGenerateMeals(body: {
   kitchenContext?: string;
   nutritionCoach?: MealCoachHousehold;
   mealType?: MealType;
+  weekdays?: Weekday[];
 }): Promise<GenerateMealsResponse> {
   const label =
     body.mode === "weekdays"
@@ -44,7 +46,9 @@ export async function requestGenerateMeals(body: {
             ? "Gem Chef réadapte la recette…"
             : body.mode === "today-swap"
               ? "Gem Chef propose un plat…"
-              : "Gem Chef prépare un repas…";
+              : body.mode === "dessert-batch"
+                ? "Gem Chef prépare un dessert midi…"
+                : "Gem Chef prépare un repas…";
   return withGeminiWait(label, async () => {
     const response = await fetch("/api/generate-meals", {
       method: "POST",
@@ -53,7 +57,7 @@ export async function requestGenerateMeals(body: {
       body: JSON.stringify(body),
     });
     const payload = (await response.json()) as GenerateMealsResponse;
-    if (!response.ok && !payload.plan && !payload.proposals) {
+    if (!response.ok && !payload.plan && !payload.proposals && !payload.dessert) {
       throw new Error(payload.error ?? "Génération impossible");
     }
     return payload;

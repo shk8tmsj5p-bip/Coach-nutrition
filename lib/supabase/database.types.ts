@@ -240,12 +240,14 @@ export interface Database {
           week_start: string;
           theme: string | null;
           meals: Json;
+          lunch_dessert?: Json | null;
           updated_at: string;
         };
         Insert: {
           week_start: string;
           theme?: string | null;
           meals?: Json;
+          lunch_dessert?: Json | null;
           updated_at?: string;
         };
         Update: Partial<Database["public"]["Tables"]["plans_semaine"]["Insert"]>;

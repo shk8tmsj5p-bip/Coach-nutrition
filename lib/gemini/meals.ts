@@ -24,7 +24,8 @@ export type GenerateMealsMode =
   | "single"
   | "suggest-swap"
   | "apply-swap"
-  | "today-swap";
+  | "today-swap"
+  | "dessert-batch";
 
 export type GeminiMealJson = {
   title: string;
@@ -49,21 +50,24 @@ Chaleur autorisée par défaut (sauf si les prefs disent doux) : paprika fumé, 
 Herbes fraîches : menthe, basilic, persil, ciboulette. JAMAIS de coriandre.
 
 ════════════════════════════════
-SAUCE NOMMÉE OBLIGATOIRE (GOÛT GARANTI)
+UNE SAUCE — CELLE DU PLAT (PAS UN FILET PAR DÉFAUT)
 ════════════════════════════════
 INTERDIT : plat sec, bowl fade, riz + légume + protéine nature, sauce du commerce, « Assembler. » tout seul.
-CHAQUE repas A une sauce, vinaigrette ou marinade NOMMÉE dans le titre (ex. « Vinaigrette raifort-noix », « Sauce tahini-citron », « Marinade soja-gingembre-sésame »).
-Tous les composants de cette sauce sont des lignes d'ingrédients séparées, CHACUNE avec weight_g ET visual_unit (cc / cs / gousse / cm / pièce) — exactement comme le reste du plat.
+CHAQUE plat salé A UNE seule sauce / marinade / condiment NOMMÉ dans le titre, CHOISI POUR CE PLAT (ex. « Sauce tahini-citron », « Marinade soja-gingembre-sésame », « Sauce satay », « Pesto basilic », « Yassa moutarde-citron » si c'est vraiment un yassa).
+Le mot « vinaigrette » n'est PAS obligatoire. INTERDIT d'ajouter en plus une vinaigrette moutarde + citron + huile d'olive « pour marquer une sauce ».
+INTERDIT vinaigrette moutarde-citron-huile sur un plat asiatique / satay / tahini / soja / sésame / pesto.
+Tous les composants de CETTE sauce (une seule) sont des lignes séparées, chacune avec weight_g ET visual_unit.
 INTERDIT : une seule ligne « Sauce satay 40g » ou « pesto du commerce » avec les ingrédients seulement en note. INTERDIT sauce du rayon.
 Satay maison (beurre de sésame, jamais cacahuète) : beurre de sésame + sauce soja + citron + gingembre + agave + ail, chacun en ligne dosée.
-Houmous / pesto / nuoc / vinaigrette : même règle, sous-recette maison dosée.
-Épices complexes + agrumes + herbe fraîche sur presque chaque plat.
+Houmous / pesto / nuoc : même règle, sous-recette maison dosée. Vinaigrette moutarde : UNIQUEMENT si le plat EST une salade / niçoise / lentilles froides dont la sauce EST cette vinaigrette.
+Épices complexes + agrumes + herbe fraîche sur presque chaque plat salé.
+DESSERTS : aucune sauce salée. INTERDIT moutarde, vinaigrette, huile d'olive, satay, nuoc, marinade soja, « fouetter dans un pot » salé.
 
 ════════════════════════════════
 APPAREILS — VALEUR AJOUTÉE UNIQUEMENT
 ════════════════════════════════
 N'invente JAMAIS une étape robot si un geste manuel suffit.
-Thermomix : UNIQUEMENT mixer / émulsionner / hacher (houmous, pesto, gazpacho, vinaigrette complexe 3+ ingrédients). INTERDIT : TM pour la moutarde seule, « ajouter le cumin au TM », « mélanger les épices au TM ». Vinaigrette simple (moutarde + citron + huile) : fouetter dans un pot, pas de TM.
+Thermomix : UNIQUEMENT mixer / émulsionner / hacher (houmous, pesto, gazpacho, vinaigrette moutarde complexe 3+ ingrédients). INTERDIT : TM pour la moutarde seule, « ajouter le cumin au TM », « mélanger les épices au TM ». Vinaigrette moutarde (salade seulement) : fouetter dans un pot, pas de TM.
 Airfryer : UNIQUEMENT vraie cuisson parallèle vegan/omni, avec °C + min. INTERDIT pour tofu semaine, gazpacho, toast, salade.
 KitchenAid : UNIQUEMENT si râpé fin / lamelles / spaghettis. Ciseler la menthe = couteau.
 Omettre le step_group entier s'il ne sert à rien. Ne jamais remplir un bloc vide avec du remplissage.
@@ -480,7 +484,7 @@ recipes[2] et recipes[3] = SOIRS uniquement, vraiment low cal selon les cibles s
 recipes[4] = même base Ven midi + soir ; le soir sera dressé plus léger.
 Les 5 titres doivent être nettement distincts (féculent + sauce + légume star différents).
 Tofu Lun–Ven : hors Airfryer, mariné cru au frais, dressé à l'assemblage.
-Chaque titre NOMME la sauce (vinaigrette / marinade / sauce X).
+Chaque titre NOMME LA sauce du plat (UNE seule : satay / tahini / soja-gingembre / pesto / yassa…). INTERDIT d'ajouter une vinaigrette moutarde-citron-huile en plus.
 
 step_groups : n'inclure un robot QUE s'il apporte quelque chose. Omettre un bloc vide.
 Airfryer seulement si vraie cuisson (jamais le tofu en semaine). Jamais de gazpacho à l'airfryer.
@@ -513,7 +517,7 @@ ORDRE JSON STRICT — les 4 dans le thème, sans exception :
 2. recipes[1] = Samedi DÎNER LOW CAL (cibles soir, huile serrée, féculent allégé, protéine gardée)
 3. recipes[2] = Dimanche DÉJEUNER (cibles midi COACH NUTRITION)
 4. recipes[3] = Dimanche DÎNER LOW CAL (cibles soir, huile serrée, féculent allégé, protéine gardée)
-Chaque titre NOMME la sauce. step_groups : n'inclure un robot QUE s'il apporte quelque chose ; omettre un bloc vide.
+Chaque titre NOMME LA sauce du plat (UNE seule). INTERDIT d'ajouter une vinaigrette moutarde-citron-huile en plus. step_groups : n'inclure un robot QUE s'il apporte quelque chose ; omettre un bloc vide.
 Airfryer seulement si vraie cuisson. Thermomix seulement pour mixer / émulsionner.
 
 JSON :
@@ -543,7 +547,7 @@ Tofu : presser, mariner, servir frais (cuisson seulement si dessert).
 Type : ${pair.mealType}${pair.lowCalorie ? ", DÎNER LOW CAL (cibles soir, huile serrée, féculent allégé, protéine gardée)" : " (déjeuner, cibles midi par profil)"}.
 Houmous = sous-recette pois chiches + tahini + citron + ail + cumin (jamais un pot).
 ${themeLine}
-Chaque titre NOMME la sauce. step_groups : robot seulement si valeur ajoutée ; omettre un bloc vide.
+Chaque titre NOMME LA sauce du plat (UNE seule). INTERDIT d'ajouter une vinaigrette moutarde-citron-huile en plus. step_groups : robot seulement si valeur ajoutée ; omettre un bloc vide.
 Thermomix seulement pour mixer / émulsionner.
 
 JSON : un objet ${MEAL_JSON_SHAPE} ou { "recipes": [objet] }.`,
@@ -560,7 +564,7 @@ ${slot.lowCalorie || slot.mealType === "diner" ? "Dîner low calorie (cibles soi
 Houmous = sous-recette pois chiches + tahini + citron + ail + cumin.
 ${themeLine}
 Sous-recettes + weight_g + visual_unit + réglages appareils : obligatoires.
-Chaque titre NOMME la sauce. step_groups : robot seulement si valeur ajoutée ; omettre un bloc vide.
+Chaque titre NOMME LA sauce du plat (UNE seule). INTERDIT d'ajouter une vinaigrette moutarde-citron-huile en plus. step_groups : robot seulement si valeur ajoutée ; omettre un bloc vide.
 
 JSON : un objet ${MEAL_JSON_SHAPE} ou { "recipes": [objet] }.`,
     coachBias,
@@ -629,6 +633,36 @@ function todaySlotBrief(mealType: MealType) {
   }
 }
 
+export function dessertBatchPrompt(
+  theme: string,
+  coachBias?: HouseholdCoachBias | null,
+  pastMeals?: string[],
+  kitchenContext?: string,
+) {
+  return culinaryPrompt(
+    `MODE DESSERT MIDI BATCH — ces règles ANNULENT « n'inclus PAS de dessert », « tofu semaine cru » ET « sauce nommée / vinaigrette obligatoire ».
+
+Génère 1 SEUL dessert maison pour PLUSIEURS déjeuners (clafoutis, fondant, tarte, liégeois, crème, moelleux…).
+JSON = 1 part / personne. L'utilisateur multiplie par le nombre de midis.
+MÊME dessert foyer. grams_alexis / grams_elodie selon les CIBLES DESSERT MIDI du bloc COACH (pas les kcal du plat).
+Alexis vegan : tofu soyeux bienvenu (cuit / mixé / au four OK) mais pas obligatoire. INTERDIT lait, beurre, œufs, fromage, gélatine, miel.
+Élodie omnivore : même base si le dessert est déjà vegan ; sinon déclinaison (œufs, skyr, fromage blanc) UNIQUEMENT sur profile_2_ingredients.
+Tofu soyeux : CUISSON autorisée (four, TM, bain-marie). C'est un dessert, pas un plat salé.
+Tient 3 à 5 jours au frigo. Une fournée, portions individuelles.
+Four / TM / KitchenAid seulement s'ils servent. visual_unit sur chaque ingrédient.
+Goût sucré S34 : vanille, cacao, agrume dessert, fruits, caramel de dattes, tahini sucré — pas un yaourt nature posé dans un bol.
+Titre = le dessert seulement. INTERDIT « , vinaigrette … » dans le titre.
+INTERDIT : vinaigrette, moutarde, huile d'olive, satay, nuoc, pesto, marinade, sauce soja, plat salé, riz, tofu ferme, bowl, dîner.
+${themeConstraintLine(theme, 1)}
+tips_and_cautions : conservation (frigo, jours) seulement.
+
+JSON : un objet ${MEAL_JSON_SHAPE} ou { "recipes": [objet] }.`,
+    coachBias,
+    pastMeals,
+    kitchenContext,
+  );
+}
+
 export function todaySwapPrompt(
   mealType: MealType,
   theme: string,
@@ -645,7 +679,7 @@ ${todaySlotBrief(mealType)}
 Repas du jour (pas une session batch Lun–Ven) : tofu cuit et simili-carnés OK si le plat le demande.
 Houmous / satay / pesto / vinaigrette = sous-recette maison dosée.
 ${themeConstraintLine(theme, 1)}
-Chaque titre NOMME la sauce. step_groups : robot seulement si valeur ajoutée ; omettre un bloc vide.
+Chaque titre NOMME LA sauce du plat (UNE seule). INTERDIT d'ajouter une vinaigrette moutarde-citron-huile en plus. step_groups : robot seulement si valeur ajoutée ; omettre un bloc vide.
 tips_and_cautions : logistique du repas du jour seulement.
 
 JSON : un objet ${MEAL_JSON_SHAPE} ou { "recipes": [objet] }.`,

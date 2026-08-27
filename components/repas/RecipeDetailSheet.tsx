@@ -37,9 +37,9 @@ export function RecipeDetailSheet({
   currentTheme: string;
   onClose: () => void;
   onRegenerate: (theme: string) => void;
-  onSwapIngredient: () => void;
-  onDelete: () => void;
-  onMove: () => void;
+  onSwapIngredient?: () => void;
+  onDelete?: () => void;
+  onMove?: () => void;
   favoriteOn?: boolean;
   onToggleFavorite?: () => void;
   rejectedOn?: boolean;

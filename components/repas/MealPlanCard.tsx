@@ -12,6 +12,7 @@ import { aisleStyle } from "@/lib/plan-colors";
 import { aisleFor, isUnlistedShoppingIng } from "@/lib/shopping-from-plan";
 import { formatIngredientLine, scaleVisualQuantity, formatVisualAndWeight } from "@/lib/visual-quantity";
 import { gramsFor, ingredientsForView, isEmptyMeal } from "@/lib/weekly-plan";
+import { isWeekLunchDessert } from "@/lib/week-dessert";
 import { portionsDiffer } from "@/lib/meal-coach";
 import { cookQtyCaption, cookScale, type QtyMode } from "@/lib/qty-scale";
 import type { PlannedMeal, RecipeDeclination, RecipeIngredient, ViewMode } from "@/lib/types";
@@ -53,7 +54,7 @@ export function MealPlanCard({
       <button type="button" onClick={() => setOpen((value) => !value)} className="w-full text-left">
         <div className="flex items-start justify-between gap-2">
           <p className="text-[11px] font-semibold uppercase tracking-wide text-health-muted">
-            {mealTypeLabel(meal.mealType)}
+            {isWeekLunchDessert(meal) ? "Dessert midi" : mealTypeLabel(meal.mealType)}
             {meal.lowCalorie ? " · low cal" : ""}
             {!empty && meal.theme && meal.theme !== "Base" ? ` · ${meal.theme}` : ""}
           </p>

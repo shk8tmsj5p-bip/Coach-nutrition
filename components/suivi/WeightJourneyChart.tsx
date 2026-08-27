@@ -1,4 +1,5 @@
 import { progressPct } from "@/lib/goals";
+import { openBottomArc } from "@/lib/open-bottom-arc";
 import type { PrimaryGoal } from "@/lib/types";
 
 function kgShort(value: number) {
@@ -42,18 +43,8 @@ export function WeightJourneyChart({
   const pct = progressPct(start, current, target, goal);
   const size = 176;
   const stroke = 10;
-  const cx = size / 2;
-  const cy = size / 2;
-  const r = (size - stroke) / 2 - 4;
-  const toPt = (deg: number) => {
-    const rad = (deg * Math.PI) / 180;
-    return { x: cx + r * Math.cos(rad), y: cy + r * Math.sin(rad) };
-  };
-  const from = toPt(135);
-  const to = toPt(45);
-  const arc = `M ${from.x} ${from.y} A ${r} ${r} 0 1 1 ${to.x} ${to.y}`;
+  const { from, to, d: arc, cropH } = openBottomArc(size, stroke);
   const gid = `weight-arc-${gradientId}`;
-  const cropH = Math.ceil(to.y + stroke * 0.75);
 
   const moved = goal === "maintien" ? current - target : current - start;
   const remainAbs = Math.abs(target - current);

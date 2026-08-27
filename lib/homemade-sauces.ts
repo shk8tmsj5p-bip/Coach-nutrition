@@ -1,6 +1,7 @@
 import type { PlannedMeal, RecipeIngredient } from "@/lib/types";
 import { isRealTmWork } from "@/lib/recipe-copy";
 import { equalizeSharedSauce, sharedSauceGrams } from "@/lib/ingredient-groups";
+import { isDessertRecipe } from "@/lib/recipe-kind";
 
 type SaucePart = { name: string; frac: number; notes?: string; visual?: string };
 
@@ -24,6 +25,19 @@ export function isPreparedSauceName(name: string) {
 function hasIng(meal: PlannedMeal, pattern: RegExp) {
   return meal.ingredients.some(
     (item) => pattern.test(item.name) && !isPreparedSauceName(item.name),
+  );
+}
+
+/** Jar « vinaigrette » moutarde only — never explode « vinaigrette soja-gingembre » into mustard. */
+export function isClassicMustardVinaigretteName(name: string) {
+  const n = name.trim();
+  if (!/vinaigrette/i.test(n)) return false;
+  if (/soja|tahini|tahin|sésame|sesame|satay|nuoc|miso|gingembre|yuzu|ponzu|raifort|tamari|agave/i.test(n)) {
+    return false;
+  }
+  return (
+    /moutarde|classique|citron-huile|huile.?citron|vinaigre/i.test(n) ||
+    /^(vinaigrette|vinaigrette maison)$/i.test(n)
   );
 }
 
@@ -56,7 +70,7 @@ const SAUCES: SauceDef[] = [
     step: "Nuoc mam vegan maison : soja, citron vert, ail, agave, eau, gingembre. 10 sec / V6, racler, 5 sec / V6.",
   },
   {
-    test: (name) => /vinaigrette/i.test(name.trim()),
+    test: (name) => isClassicMustardVinaigretteName(name),
     alreadyHas: (meal) =>
       hasIng(meal, /moutarde/i) && hasIng(meal, /citron|vinaigre/i) && hasIng(meal, /huile/i),
     parts: [
@@ -175,21 +189,25 @@ export function expandPreparedSauces(meal: PlannedMeal): PlannedMeal {
       }
     : meal;
 
+  if (isDessertRecipe(meal)) {
+    return equalizeSharedSauce(stripMustardVinaigretteFallback(withParts, { force: true }));
+  }
+
+  const assembled = {
+    ...withParts,
+    steps:
+      extraSteps.length === 0
+        ? withParts.steps
+        : withParts.steps.some((line) => /^§\s*thermomix/i.test(line))
+          ? [...withParts.steps, ...extraSteps]
+          : [...withParts.steps, "§ Thermomix", ...extraSteps],
+    appliances: extraSteps.length
+      ? [...new Set([...withParts.appliances, "Thermomix" as const])]
+      : withParts.appliances,
+  };
+
   return equalizeSharedSauce(
-    ensureNamedSauce(
-      injectMissingSauceFromSteps({
-        ...withParts,
-        steps:
-          extraSteps.length === 0
-            ? withParts.steps
-            : withParts.steps.some((line) => /^§\s*thermomix/i.test(line))
-              ? [...withParts.steps, ...extraSteps]
-              : [...withParts.steps, "§ Thermomix", ...extraSteps],
-        appliances: extraSteps.length
-          ? [...new Set([...withParts.appliances, "Thermomix" as const])]
-          : withParts.appliances,
-      }),
-    ),
+    stripMustardVinaigretteFallback(injectMissingSauceFromSteps(assembled)),
   );
 }
 
@@ -202,7 +220,8 @@ type StepSauce = {
 
 const STEP_SAUCES: StepSauce[] = [
   {
-    detect: /vinaigrette|moutarde-citron|moutarde citron|moutarde-vinaigre/i,
+    detect:
+      /vinaigrette[^\n]{0,40}moutarde|moutarde[^\n]{0,30}vinaigrette|vinaigrette citron-moutarde|moutarde-citron|moutarde citron|moutarde-vinaigre|vinaigrette maison : moutarde/i,
     mixLine: "Vinaigrette maison : moutarde, citron, huile. Fouetter dans un pot hermétique.",
     tm: false,
     parts: [
@@ -250,12 +269,15 @@ const STEP_SAUCES: StepSauce[] = [
 
 /** Si l'étape cite une sauce mais les composants n'y sont pas, on les ajoute. */
 export function injectMissingSauceFromSteps(meal: PlannedMeal): PlannedMeal {
+  if (isDessertRecipe(meal)) return meal;
   const blob = `${meal.baseName} ${meal.sharedBase} ${meal.steps.join(" ")}`;
+  const skipMustard = hasOwnNonMustardSauce(meal);
   const extra: RecipeIngredient[] = [];
   let mixLine = "";
   let needsTm = false;
   for (const sauce of STEP_SAUCES) {
     if (!sauce.detect.test(blob)) continue;
+    if (skipMustard && /moutarde/i.test(sauce.mixLine)) continue;
     let added = false;
     for (const part of sauce.parts) {
       const known = [...meal.ingredients, ...extra];
@@ -304,7 +326,9 @@ export function injectMissingSauceFromSteps(meal: PlannedMeal): PlannedMeal {
 }
 
 const NAMED_SAUCE_RE =
-  /vinaigrette|marinade|sauce |pesto|pistou|tahini|tahin|houmous|satay|nuoc|chermoula|yassa|teriyaki|raifort|miso|velouté|veloute|gazpacho|soupe |aïoli|aioli|gremolata|salsa|pistou/i;
+  /vinaigrette|marinade|sauce |pesto|pistou|tahini|tahin|houmous|satay|nuoc|chermoula|yassa|teriyaki|raifort|miso|velouté|veloute|gazpacho|soupe |aïoli|aioli|gremolata|salsa|pistou|beurre de s[eé]same|huile de sésame|huile de sesame|sauce soja|soja-gingembre|namul|ponzu|coulis|ganache/i;
+
+const MUSTARD_FALLBACK_RE = /vinaigrette citron-moutarde|vinaigrette maison : moutarde/i;
 
 export function mealHasNamedSauce(meal: PlannedMeal) {
   return NAMED_SAUCE_RE.test(
@@ -312,35 +336,75 @@ export function mealHasNamedSauce(meal: PlannedMeal) {
   );
 }
 
-/** Garantit une sauce/vinaigrette nommée + ses composants, jamais un plat sec. */
-export function ensureNamedSauce(meal: PlannedMeal): PlannedMeal {
-  if (!meal.ingredients.length || meal.baseName === "Aucun repas") return meal;
-  if (mealHasNamedSauce(meal)) return meal;
-  const extra: RecipeIngredient[] = STEP_SAUCES[0].parts.map((part, index) => ({
-    id: slug("binder", part.name, index),
-    name: part.name,
-    role: "shared" as const,
-    gramsAlexis: part.grams,
-    gramsElodie: part.grams,
-    visualQuantity: part.visual,
-    notes: part.notes,
-  }));
-  const mixLine =
-    "Vinaigrette citron-moutarde : moutarde, jus de citron, huile d'olive. Fouetter dans un pot hermétique.";
-  const hasMix = meal.steps.some((line) => /vinaigrette citron-moutarde|fouetter dans un pot/i.test(line));
-  const steps = hasMix
-    ? meal.steps
-    : meal.steps.some((line) => /assemblage|kitchenaid|découpe/i.test(line))
-      ? [...meal.steps, mixLine]
-      : [...meal.steps, "§ Découpes KitchenAid & Assemblage", mixLine];
-  const title = /vinaigrette|sauce|marinade/i.test(meal.baseName)
-    ? meal.baseName
-    : `${meal.baseName.replace(/\s*,\s*$/, "")}, vinaigrette citron-moutarde`;
+function hasOwnNonMustardSauce(meal: PlannedMeal) {
+  const blob = `${meal.baseName} ${meal.sharedBase} ${meal.ingredients.map((item) => item.name).join(" ")} ${meal.steps.join(" ")}`
+    .replace(/vinaigrette citron-moutarde/gi, "")
+    .replace(/vinaigrette maison : moutarde[^.!]*/gi, "");
+  return /satay|tahini|tahin|pesto|pistou|houmous|nuoc|chermoula|yassa|teriyaki|miso|beurre de s[eé]same|huile de sésame|huile de sesame|soja-gingembre|vinaigrette soja|namul|ponzu|raifort/i.test(
+    blob,
+  );
+}
+
+function dropInjectedVinaigrettePart(ing: RecipeIngredient, meal: PlannedMeal, forceDessert: boolean) {
+  const n = ing.name.toLowerCase().trim();
+  if (/^moutarde\b/.test(n)) return true;
+  if (forceDessert) {
+    if (/huile d['’ ]?olive|^huile olive/.test(n)) return true;
+    if (/^citron\b/.test(n) && /jus/i.test(ing.notes ?? "")) return true;
+    return false;
+  }
+  const savoryAsian = /satay|tahini|soja|sésame|sesame|nuoc|miso|teriyaki/i.test(
+    `${meal.baseName} ${meal.ingredients.map((item) => item.name).join(" ")}`,
+  );
+  if (savoryAsian && /huile d['’ ]?olive|^huile olive/.test(n)) return true;
+  if (savoryAsian && /^citron\b/.test(n) && /jus/i.test(ing.notes ?? "") && hasIng(meal, /citron/i)) {
+    const citrons = meal.ingredients.filter((item) => /^citron\b/i.test(item.name));
+    if (citrons.length > 1) return /jus/i.test(ing.notes ?? "");
+  }
+  return false;
+}
+
+/** Enlève le filet moutarde-citron-huile collé par-dessus un vrai condiment (ou un dessert). */
+export function stripMustardVinaigretteFallback(
+  meal: PlannedMeal,
+  opts: { force?: boolean } = {},
+): PlannedMeal {
+  const force = Boolean(opts.force) || isDessertRecipe(meal);
+  const blob = `${meal.baseName} ${meal.steps.join(" ")}`;
+  if (!force) {
+    if (!MUSTARD_FALLBACK_RE.test(blob)) return meal;
+    if (!hasOwnNonMustardSauce(meal)) return meal;
+  } else if (
+    !hasIng(meal, /moutarde/i) &&
+    !MUSTARD_FALLBACK_RE.test(blob)
+  ) {
+    return meal;
+  }
+
+  const ingredients = meal.ingredients.filter((ing) => !dropInjectedVinaigrettePart(ing, meal, force));
+  const baseName = meal.baseName
+    .replace(/\s*,\s*vinaigrette citron-moutarde/gi, "")
+    .replace(/\s+vinaigrette citron-moutarde/gi, "")
+    .trim();
+  const steps = meal.steps.filter(
+    (line) => !/vinaigrette citron-moutarde|vinaigrette maison : moutarde/i.test(line),
+  );
+  const sharedBase = meal.sharedBase
+    .replace(/\s*,?\s*vinaigrette citron-moutarde/gi, "")
+    .replace(/(^|,\s*)moutarde(?=,|$)/gi, "$1")
+    .replace(/,\s*,/g, ",")
+    .replace(/^,\s*|,\s*$/g, "")
+    .trim();
   return {
     ...meal,
-    baseName: title,
-    ingredients: [...meal.ingredients, ...extra],
-    sharedBase: [meal.sharedBase, "vinaigrette citron-moutarde"].filter(Boolean).join(", "),
+    baseName: baseName || meal.baseName,
+    sharedBase,
+    ingredients,
     steps,
   };
+}
+
+/** Ancienne sécurité « plat sec → vinaigrette moutarde ». Ne plus l'utiliser : ça polluait desserts et sauces. */
+export function ensureNamedSauce(meal: PlannedMeal): PlannedMeal {
+  return meal;
 }

@@ -563,13 +563,16 @@ function upsertShopItem(
   merged.set(id, current);
 }
 
-export function shoppingItemsFromPlan(plan: PlannedMeal[]): ShoppingListItem[] {
+export function shoppingItemsFromPlan(
+  plan: PlannedMeal[],
+  extras: Array<{ meal: PlannedMeal; tag: string; times: number }> = [],
+): ShoppingListItem[] {
   const tagsByMeal = planTagByMealId(plan);
   const merged = new Map<string, ShopMerge>();
 
-  for (const meal of plan) {
-    if (isEmptyMeal(meal)) continue;
-    const tag = tagsByMeal.get(meal.id);
+  function addMeal(meal: PlannedMeal, tag: string | undefined, times: number) {
+    if (isEmptyMeal(meal)) return;
+    const factor = Math.max(1, times);
     const dedicated = new Set(
       meal.ingredients
         .filter((ing) => !isUnlistedShoppingIng(ing.name))
@@ -580,15 +583,15 @@ export function shoppingItemsFromPlan(plan: PlannedMeal[]): ShoppingListItem[] {
       const name = shoppingDisplayName(ing.name);
       upsertShopItem(merged, {
         name,
-        gramsAlexis: ing.gramsAlexis,
-        gramsElodie: ing.gramsElodie,
+        gramsAlexis: ing.gramsAlexis * factor,
+        gramsElodie: ing.gramsElodie * factor,
         tag,
         visual: shoppingVisualOf(ing),
       });
       for (const extra of impliedProduceFromName(ing.name, name)) {
         if (dedicated.has(fold(extra.name))) continue;
-        const shareA = ing.gramsAlexis > 0 ? Math.max(1, Math.round(ing.gramsAlexis * 0.2)) : extra.grams;
-        const shareE = ing.gramsElodie > 0 ? Math.max(1, Math.round(ing.gramsElodie * 0.2)) : extra.grams;
+        const shareA = ing.gramsAlexis > 0 ? Math.max(1, Math.round(ing.gramsAlexis * 0.2 * factor)) : extra.grams;
+        const shareE = ing.gramsElodie > 0 ? Math.max(1, Math.round(ing.gramsElodie * 0.2 * factor)) : extra.grams;
         upsertShopItem(merged, {
           name: extra.name,
           gramsAlexis: ing.role === "elodie" ? 0 : shareA,
@@ -598,6 +601,13 @@ export function shoppingItemsFromPlan(plan: PlannedMeal[]): ShoppingListItem[] {
         });
       }
     }
+  }
+
+  for (const meal of plan) {
+    addMeal(meal, tagsByMeal.get(meal.id), 1);
+  }
+  for (const extra of extras) {
+    addMeal(extra.meal, extra.tag, extra.times);
   }
 
   return Array.from(merged.entries())

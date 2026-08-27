@@ -1,8 +1,13 @@
+"use client";
+
+import { useState } from "react";
 import { burnedKcalFromHealth } from "@/lib/health-energy";
 import { macroStatus, TONE_COLOR } from "@/lib/macro-status";
 import type { Macros, PrimaryGoal, Profile } from "@/lib/types";
 import { CoachDiffTags } from "@/components/today/CoachDelta";
-import { MacrosGrid } from "@/components/ui/MacroProgress";
+import { CompactMacrosRow } from "@/components/ui/MacroProgress";
+import { energyBalanceLook, formatSignedKcal } from "@/lib/energy-balance";
+import { openBottomArc } from "@/lib/open-bottom-arc";
 
 function kcal(value: number) {
   return Math.round(value).toLocaleString("fr-FR");
@@ -86,11 +91,86 @@ function EatenBar({
   );
 }
 
+function SideStat({
+  value,
+  label,
+  color,
+  align,
+}: {
+  value: number;
+  label: string;
+  color?: string;
+  align: "left" | "right";
+}) {
+  return (
+    <div className={align === "right" ? "w-[4.75rem] shrink-0 text-right" : "w-[4.75rem] shrink-0"}>
+      <p
+        className="text-[22px] font-bold tabular-nums leading-none tracking-tight"
+        style={color ? { color } : undefined}
+      >
+        {kcal(value)}
+      </p>
+      <p className="mt-1 text-[11px] text-health-muted">{label}</p>
+    </div>
+  );
+}
+
+function ProgressArc({
+  eaten,
+  target,
+  fillColor,
+  centerValue,
+  centerLabel,
+  centerColor,
+}: {
+  eaten: number;
+  target: number;
+  fillColor: string;
+  centerValue: string;
+  centerLabel: string;
+  centerColor: string;
+}) {
+  const size = 168;
+  const stroke = 10;
+  const { d: arc, cropH } = openBottomArc(size, stroke);
+  const pct = target > 0 ? Math.min(100, Math.round((eaten / target) * 100)) : 0;
+
+  return (
+    <div className="flex min-w-0 flex-1 flex-col items-center">
+      <div className="relative overflow-hidden" style={{ width: size, height: cropH }}>
+        <svg width={size} height={size} aria-hidden>
+          <path
+            d={arc}
+            fill="none"
+            stroke="rgb(var(--c-track))"
+            strokeWidth={stroke}
+            strokeLinecap="round"
+          />
+          <path
+            d={arc}
+            fill="none"
+            stroke={fillColor}
+            strokeWidth={stroke}
+            strokeLinecap="round"
+            pathLength={100}
+            strokeDasharray={`${pct} 100`}
+          />
+        </svg>
+        <div className="absolute inset-0 flex flex-col items-center justify-center px-6 pb-1 pt-3 text-center">
+          <p className="text-[28px] font-bold tabular-nums leading-none tracking-tight" style={{ color: centerColor }}>
+            {centerValue}
+          </p>
+          <p className="mt-0.5 text-[12px] leading-tight text-health-muted">{centerLabel}</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function TodayEnergyCard({
   current,
   targets,
   goal,
-  accent,
   movement,
   profile,
   coachTags,
@@ -98,14 +178,13 @@ export function TodayEnergyCard({
   current: Macros;
   targets: Macros;
   goal: PrimaryGoal;
-  accent: Profile["accent"];
   movement: { activeEnergyKcal: number; restingEnergyKcal: number };
   profile: Profile;
   coachTags?: string[];
 }) {
+  const [details, setDetails] = useState(false);
   const eaten = current.calories;
   const plan = macroStatus("calories", eaten, targets.calories, goal);
-  const fillColor = accent === "coral" ? "#FF6B4A" : "#6B7CFF";
   const { burned, live } = burnedKcalFromHealth(movement, {
     bmr: profile.bmr,
     tdee: profile.tdee,
@@ -113,6 +192,7 @@ export function TodayEnergyCard({
   const delta = burned - eaten;
   const surplus = delta < 0;
   const amount = Math.abs(delta);
+  const balance = energyBalanceLook(eaten, burned, goal);
   const balanceStatus =
     Math.abs(delta) <= Math.max(80, burned * 0.05)
       ? "Équilibre"
@@ -122,28 +202,56 @@ export function TodayEnergyCard({
 
   return (
     <>
-      <div className="space-y-4">
-        <EatenBar
-          title="Vs le plan"
-          eaten={eaten}
-          mark={targets.calories}
-          markName="Cible"
-          fillColor={fillColor}
-          goal={goal}
-          status={plan.label}
-        />
-        <EatenBar
-          title="Vs le réel"
-          eaten={eaten}
-          mark={burned}
-          markName="Brûlées"
-          fillColor={fillColor}
-          goal={goal}
-          status={balanceStatus}
-          extra={live ? undefined : "lance le raccourci Santé"}
-        />
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-[13px] font-semibold uppercase tracking-[0.06em] text-health-muted">Résumé</p>
+        <button
+          type="button"
+          onClick={() => setDetails((open) => !open)}
+          className="text-[13px] font-semibold text-health-ink"
+        >
+          {details ? "Masquer" : "Détails"}
+        </button>
       </div>
-      <MacrosGrid current={current} target={targets} goal={goal} />
+
+      <div className="mt-3 flex items-center justify-between gap-1">
+        <SideStat value={eaten} label="Mangées" color={plan.color} align="left" />
+        <ProgressArc
+          eaten={eaten}
+          target={targets.calories}
+          fillColor={plan.color}
+          centerValue={formatSignedKcal(balance.net)}
+          centerLabel={balance.label}
+          centerColor={balance.color}
+        />
+        <SideStat value={burned} label="Brûlées" align="right" />
+      </div>
+
+      <CompactMacrosRow current={current} target={targets} goal={goal} />
+
+      {details ? (
+        <div className="mt-4 space-y-4 border-t border-health-line pt-4">
+          <EatenBar
+            title="Vs le plan"
+            eaten={eaten}
+            mark={targets.calories}
+            markName="Plan"
+            fillColor={plan.color}
+            goal={goal}
+            status={plan.label}
+          />
+          <EatenBar
+            title="Vs Santé"
+            eaten={eaten}
+            mark={burned}
+            markName="Brûlées"
+            fillColor={plan.color}
+            goal={goal}
+            status={balanceStatus}
+            extra={live ? undefined : "lance le raccourci Santé"}
+          />
+        </div>
+      ) : null}
+
       {coachTags && coachTags.length > 0 ? <CoachDiffTags tags={coachTags} /> : null}
     </>
   );

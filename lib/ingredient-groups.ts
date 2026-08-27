@@ -1,4 +1,5 @@
 import type { PlannedMeal, RecipeIngredient } from "@/lib/types";
+import { isDessertRecipe } from "@/lib/recipe-kind";
 
 const DRESSING_LABELS: Array<{ test: RegExp; label: string }> = [
   { test: /vinaigrette/i, label: "Vinaigrette" },
@@ -17,6 +18,7 @@ function mealBlob(meal: PlannedMeal) {
 }
 
 export function dressingLabel(meal: PlannedMeal): string | null {
+  if (isDessertRecipe(meal)) return null;
   const blob = mealBlob(meal);
   for (const row of DRESSING_LABELS) {
     if (row.test.test(blob)) return row.label;
@@ -49,6 +51,7 @@ function mentionedIn(ing: RecipeIngredient, text: string) {
 }
 
 export function isDressingIngredient(ing: RecipeIngredient, meal: PlannedMeal) {
+  if (isDessertRecipe(meal)) return false;
   if (isNamedDressing(ing)) return true;
   const label = dressingLabel(meal);
   if (!label) return false;

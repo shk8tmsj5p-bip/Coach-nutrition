@@ -16,17 +16,29 @@ import {
   type AisleName,
 } from "@/lib/shopping-from-plan";
 import type { PlannedMeal, ShoppingListItem } from "@/lib/types";
+import type { WeekLunchDessert } from "@/lib/week-dessert";
 import { cn } from "@/lib/utils";
 
 export function ShoppingListPanel({
   weekStart,
   plan,
+  dessert,
 }: {
   weekStart: string;
   plan: PlannedMeal[];
+  dessert?: WeekLunchDessert | null;
 }) {
   const [aisleRev, setAisleRev] = useState(0);
-  const derived = useMemo(() => shoppingItemsFromPlan(plan), [plan, aisleRev]);
+  const derived = useMemo(
+    () =>
+      shoppingItemsFromPlan(
+        plan,
+        dessert && dessert.weekdays.length
+          ? [{ meal: dessert.meal, tag: "D", times: dessert.weekdays.length }]
+          : [],
+      ),
+    [plan, dessert, aisleRev],
+  );
   const [custom, setCustom] = useState<ShoppingListItem[]>([]);
   const [checked, setChecked] = useState<string[]>([]);
   const [copied, setCopied] = useState(false);

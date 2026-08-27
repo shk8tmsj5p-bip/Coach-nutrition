@@ -17,6 +17,8 @@ import { SundayJournalCard } from "@/components/suivi/SundayJournalCard";
 import { EditGoalsSheet } from "@/components/suivi/EditGoalsSheet";
 import { JournalHistorySheet } from "@/components/suivi/JournalHistorySheet";
 import { CoachReadySheet } from "@/components/suivi/CoachReadySheet";
+import { DayEnergyCard } from "@/components/suivi/DayEnergyCard";
+import { DayLogSheet } from "@/components/suivi/DayLogSheet";
 import { addDaysISO, formatWeekRange, mondayOf, todayISO } from "@/lib/dates";
 import { formatWeeklyRate, goalLabel } from "@/lib/goals";
 import type { GoalPatch } from "@/lib/goals";
@@ -37,12 +39,18 @@ import { HealthMetricTile } from "@/components/today/HealthMetricTile";
 import { sanitizeRestingKcal } from "@/lib/health-energy";
 import { loadHealthHistory, movementSeries } from "@/lib/supabase/health-logs";
 import { loadJournalHistory, loadPesees, savePesee } from "@/lib/supabase/pesees";
+import { createBrowserSupabaseClient } from "@/lib/supabase/client";
+import { fetchMealsRange } from "@/lib/supabase/today-data";
+import { fetchDailyFeels } from "@/lib/supabase/daily-feel";
+import { buildDailyEnergy } from "@/lib/energy-history";
+import type { DailyFeelEntry } from "@/lib/daily-feel";
+import type { DatedMeal } from "@/lib/recent-foods";
 import type { DailyMovement, Pesee, Profile, ProfileId, SundayJournalFields } from "@/lib/types";
 import { formatKg, formatKcal, formatKm, formatMin, formatSteps } from "@/lib/utils";
 import type { RenphoOcrResult } from "@/lib/gemini/renpho";
 
 export default function SuiviScreen() {
-  const { activeProfiles, view, updateGoals } = useProfile();
+  const { activeProfiles, view, catalog, updateGoals } = useProfile();
   const fileRef = useRef<HTMLInputElement>(null);
   const [byProfile, setByProfile] = useState<Record<ProfileId, Pesee[]>>({
     alexis: [],
@@ -52,6 +60,15 @@ export default function SuiviScreen() {
     alexis: [],
     elodie: [],
   });
+  const [mealsByProfile, setMealsByProfile] = useState<Record<ProfileId, DatedMeal[]>>({
+    alexis: [],
+    elodie: [],
+  });
+  const [feelsByProfile, setFeelsByProfile] = useState<Record<ProfileId, DailyFeelEntry[]>>({
+    alexis: [],
+    elodie: [],
+  });
+  const [dayLog, setDayLog] = useState<{ profileId: ProfileId; date: string } | null>(null);
   const [loading, setLoading] = useState(true);
   const [ocrBusy, setOcrBusy] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -81,21 +98,40 @@ export default function SuiviScreen() {
 
   useEffect(() => {
     let cancelled = false;
+    const supabase = createBrowserSupabaseClient();
+    const from = addDaysISO(todayISO(), -365);
+    const to = todayISO();
     Promise.all([
       loadPesees("alexis"),
       loadPesees("elodie"),
       loadHealthHistory("alexis"),
       loadHealthHistory("elodie"),
-    ]).then(([alexis, elodie, alexisHealth, elodieHealth]) => {
+      supabase ? fetchMealsRange(supabase, ["alexis"], from, to) : Promise.resolve({ meals: [] as DatedMeal[] }),
+      supabase ? fetchMealsRange(supabase, ["elodie"], from, to) : Promise.resolve({ meals: [] as DatedMeal[] }),
+      fetchDailyFeels(supabase, ["alexis", "elodie"], from, to),
+    ]).then(([alexis, elodie, alexisHealth, elodieHealth, alexisMeals, elodieMeals, feels]) => {
       if (cancelled) return;
       setByProfile({ alexis: alexis.rows, elodie: elodie.rows });
       setHealthByProfile({ alexis: alexisHealth, elodie: elodieHealth });
+      setMealsByProfile({ alexis: alexisMeals.meals, elodie: elodieMeals.meals });
+      setFeelsByProfile({
+        alexis: feels.filter((row) => row.profileId === "alexis"),
+        elodie: feels.filter((row) => row.profileId === "elodie"),
+      });
       setLoading(false);
     });
     return () => {
       cancelled = true;
     };
   }, []);
+
+  async function reloadMeals(profileId: ProfileId) {
+    const supabase = createBrowserSupabaseClient();
+    if (!supabase) return;
+    const from = addDaysISO(todayISO(), -365);
+    const { meals } = await fetchMealsRange(supabase, [profileId], from, todayISO());
+    setMealsByProfile((current) => ({ ...current, [profileId]: meals }));
+  }
 
   useEffect(() => {
     if (!historyFor) return;
@@ -187,7 +223,7 @@ export default function SuiviScreen() {
     <div>
       <h1 className="text-[28px] font-bold tracking-tight">Suivi</h1>
       <p className="mt-1 text-[13px] text-health-muted">
-        Poids, composition, Apple Santé, journal du dimanche
+        Poids, journées, composition, Apple Santé, journal du dimanche
       </p>
 
       {loading ? (
@@ -199,6 +235,7 @@ export default function SuiviScreen() {
             profile={profile}
             rows={byProfile[profile.id]}
             healthDays={healthByProfile[profile.id]}
+            meals={mealsByProfile[profile.id]}
             showRenpho={index === 0}
             ocrBusy={ocrBusy}
             notice={notice}
@@ -206,6 +243,7 @@ export default function SuiviScreen() {
             onPickFile={(file) => void onPickFile(file)}
             onEditGoals={() => setEditing(profile)}
             onOpenHistory={() => setHistoryFor(profile)}
+            onOpenDay={(date) => setDayLog({ profileId: profile.id, date })}
             onSaved={(row) =>
               setByProfile((current) => ({
                 ...current,
@@ -234,6 +272,22 @@ export default function SuiviScreen() {
           entries={historyEntries}
           loading={historyLoading}
           onClose={() => setHistoryFor(null)}
+        />
+      )}
+
+      {dayLog && catalog[dayLog.profileId] && (
+        <DayLogSheet
+          date={dayLog.date}
+          profile={catalog[dayLog.profileId]}
+          meals={mealsByProfile[dayLog.profileId]}
+          healthDays={healthByProfile[dayLog.profileId]}
+          feels={feelsByProfile[dayLog.profileId]}
+          onClose={() => setDayLog(null)}
+          onChangeDate={(date) => setDayLog({ ...dayLog, date })}
+          onMealsSaved={(meals) =>
+            setMealsByProfile((current) => ({ ...current, [dayLog.profileId]: meals }))
+          }
+          onReload={() => reloadMeals(dayLog.profileId)}
         />
       )}
 
@@ -273,6 +327,7 @@ function ProfileSuivi({
   profile,
   rows,
   healthDays,
+  meals,
   showRenpho,
   ocrBusy,
   notice,
@@ -280,12 +335,14 @@ function ProfileSuivi({
   onPickFile,
   onEditGoals,
   onOpenHistory,
+  onOpenDay,
   onSaved,
   onCoachReady,
 }: {
   profile: Profile;
   rows: Pesee[];
   healthDays: DailyMovement[];
+  meals: DatedMeal[];
   showRenpho: boolean;
   ocrBusy: boolean;
   notice: string | null;
@@ -293,6 +350,7 @@ function ProfileSuivi({
   onPickFile: (file: File) => void;
   onEditGoals: () => void;
   onOpenHistory: () => void;
+  onOpenDay: (date: string) => void;
   onSaved: (row: Pesee) => void;
   onCoachReady: (payload: CoachWeekPayload, saveError: string | null) => void;
 }) {
@@ -443,6 +501,13 @@ function ProfileSuivi({
         onOpenHistory={onOpenHistory}
         onSaved={onSaved}
         onCoachReady={onCoachReady}
+      />
+
+      <DayEnergyCard
+        rows={buildDailyEnergy(meals, healthDays, profile)}
+        goal={profile.primaryGoal}
+        color={color}
+        onOpenDay={onOpenDay}
       />
 
       <SectionTitle>Tendance poids</SectionTitle>

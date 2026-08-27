@@ -35,12 +35,14 @@ export function EditMealSheet({
   saving: boolean;
   onClose: () => void;
   onSave: (next: MealEntry) => void;
-  onAdd: (mode: QuickLogMode) => void;
+  onAdd?: (mode: QuickLogMode) => void;
 }) {
   const [type, setType] = useState<MealType>(meal.type);
   const [items, setItems] = useState<EditableItem[]>(() => parseMealItems(meal));
   const [dessertDraft, setDessertDraft] = useState("");
+  const [platDraft, setPlatDraft] = useState("");
   const [addingDessert, setAddingDessert] = useState(false);
+  const [addingPlat, setAddingPlat] = useState(false);
   const diet = meal.profileId === "elodie" ? "omnivore" : "vegan";
   const startedWithDessert = useMemo(
     () => parseMealItems(meal).some((item) => item.dessert),
@@ -59,26 +61,48 @@ export function EditMealSheet({
     setItems((list) => list.filter((row) => row.id !== id));
   }
 
+  async function addLines(raw: string, dessert: boolean) {
+    const parsed = await requestLogText(raw, diet);
+    return parsed.map((item, index) => ({
+      ...item,
+      id: `${dessert ? "dessert" : "plat"}-${Date.now()}-${index}`,
+      carbs: item.carbs ?? 0,
+      fat: item.fat ?? 0,
+      qty: item.qty ?? item.grams,
+      unit: item.unit ?? "g",
+      dessert,
+    }));
+  }
+
   async function addDessert() {
     const raw = dessertDraft.trim();
     if (!raw || addingDessert) return;
     setAddingDessert(true);
     try {
-      const parsed = await requestLogText(raw, diet);
-      const extra: EditableItem[] = parsed.map((item, index) => ({
-        ...item,
-        id: `dessert-${Date.now()}-${index}`,
-        carbs: item.carbs ?? 0,
-        fat: item.fat ?? 0,
-        qty: item.qty ?? item.grams,
-        unit: item.unit ?? "g",
-        dessert: true,
-      }));
+      const extra = await addLines(raw, true);
       if (!extra.length) return;
       setItems((list) => [...list, ...extra]);
       setDessertDraft("");
     } finally {
       setAddingDessert(false);
+    }
+  }
+
+  async function addPlatText() {
+    const raw = platDraft.trim();
+    if (!raw || addingPlat) return;
+    setAddingPlat(true);
+    try {
+      const extra = await addLines(raw, false);
+      if (!extra.length) return;
+      setItems((list) => {
+        const desserts = list.filter((item) => item.dessert);
+        const plat = list.filter((item) => !item.dessert);
+        return [...plat, ...extra, ...desserts];
+      });
+      setPlatDraft("");
+    } finally {
+      setAddingPlat(false);
     }
   }
 
@@ -102,7 +126,7 @@ export function EditMealSheet({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/30">
+    <div className="fixed inset-0 z-[60] flex items-end justify-center bg-black/30">
       <div className="w-full max-w-[430px] rounded-t-[24px] bg-white p-4 pb-8 shadow-card">
         <div className="mb-3 flex items-center justify-between">
           <h3 className="text-[17px] font-semibold">Modifier le repas</h3>
@@ -190,12 +214,37 @@ export function EditMealSheet({
             <Plus size={14} />
             Ajouter au plat
           </p>
-          <div className="grid grid-cols-2 gap-2">
-            <AddLogTile icon={Sparkles} label="Texte / IA" onClick={() => onAdd("text")} />
-            <AddLogTile icon={ScanBarcode} label="Code-barres" onClick={() => onAdd("barcode")} />
-            <AddLogTile icon={Camera} label="Photo" onClick={() => onAdd("photo")} />
-            <AddLogTile icon={Clock} label="Récents" onClick={() => onAdd("recent")} />
-          </div>
+          {onAdd ? (
+            <div className="grid grid-cols-2 gap-2">
+              <AddLogTile icon={Sparkles} label="Texte / IA" onClick={() => onAdd("text")} />
+              <AddLogTile icon={ScanBarcode} label="Code-barres" onClick={() => onAdd("barcode")} />
+              <AddLogTile icon={Camera} label="Photo" onClick={() => onAdd("photo")} />
+              <AddLogTile icon={Clock} label="Récents" onClick={() => onAdd("recent")} />
+            </div>
+          ) : (
+            <div className="flex gap-1.5">
+              <input
+                value={platDraft}
+                onChange={(e) => setPlatDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    void addPlatText();
+                  }
+                }}
+                placeholder="Ex. Skyr 150g"
+                className="min-w-0 flex-1 rounded-card bg-health-bg px-3 py-2 text-[13px] outline-none"
+              />
+              <button
+                type="button"
+                onClick={() => void addPlatText()}
+                disabled={!platDraft.trim() || addingPlat}
+                className="rounded-card bg-health-ink px-3 text-[12px] font-semibold text-white disabled:opacity-40"
+              >
+                {addingPlat ? "…" : "Ajouter"}
+              </button>
+            </div>
+          )}
         </div>
 
         <Card className="mt-3 bg-health-bg shadow-none">
