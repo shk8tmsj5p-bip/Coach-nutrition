@@ -9,7 +9,7 @@ import type {
 import { uniqueWeekdayBatches, weekendFreshMeals, WEEKEND_INDEXES } from "@/lib/weekly-plan";
 import { isAversionMention, isFluffLine, isLogisticsTip, isRealTmWork, isStepSection, stepSectionLabel } from "@/lib/recipe-copy";
 import { planTagByMealId } from "@/lib/meal-tags";
-import { formatIngredientLine, scaleVisualQuantity, visualForIngredient } from "@/lib/visual-quantity";
+import { formatIngredientLine, parseVisualQuantity, scaleVisualQuantity, visualForIngredient } from "@/lib/visual-quantity";
 import { groupShoppingItems, isUnlistedShoppingIng, shoppingItemsFromPlan } from "@/lib/shopping-from-plan";
 import { cookScale, type QtyMode } from "@/lib/qty-scale";
 import { portionsDiffer } from "@/lib/meal-coach";
@@ -144,6 +144,7 @@ function blockFor(
 ): BatchStepRecipeBlock {
   return {
     recipeNo: meal.recipeNo,
+    recipeNos: [meal.recipeNo],
     recipeTitle: meal.baseName,
     coverLabel: meal.coverLabel,
     ingredients: ings.map((ing) => lineFor(ing, scale, meal.recipeNo)),
@@ -792,8 +793,105 @@ function sortCutBlocks(blocks: BatchStepRecipeBlock[]) {
     if (byName !== 0) return byName;
     const byCut = (a.setting ?? "").localeCompare(b.setting ?? "", "fr");
     if (byCut !== 0) return byCut;
-    return a.recipeNo.localeCompare(b.recipeNo, "fr");
+    return recipeNoRank(recipeNosOf(a)[0] ?? "") - recipeNoRank(recipeNosOf(b)[0] ?? "");
   });
+}
+
+export function recipeNosOf(block: BatchStepRecipeBlock) {
+  if (block.recipeNos && block.recipeNos.length > 0) return block.recipeNos;
+  return [block.recipeNo];
+}
+
+function recipeNoRank(no: string) {
+  return Number(String(no).replace(/\D/g, "")) || 99;
+}
+
+function cutLineFor(ing: RecipeIngredient, scale: number, planTag: string): BatchStepIngredient {
+  const gramsA = Math.round(ing.gramsAlexis * scale);
+  const gramsE = Math.round(ing.gramsElodie * scale);
+  const grams = gramsA + gramsE;
+  const ref = Math.max(ing.gramsAlexis, ing.gramsElodie, 1);
+  const visual = scaleVisualQuantity(
+    visualForIngredient(ing.name, ref, ing.visualQuantity),
+    scale * ((ing.gramsAlexis + ing.gramsElodie) / ref),
+  );
+  return {
+    name: ing.name,
+    quantity: formatIngredientLine({ name: ing.name, grams, visual }),
+    visual,
+    planTag,
+    gramsAlexis: gramsA,
+    gramsElodie: gramsE,
+  };
+}
+
+function mergeVisuals(visuals: Array<string | undefined>) {
+  const byUnit = new Map<string, { amount: number; unit: string }>();
+  for (const visual of visuals) {
+    const parsed = parseVisualQuantity(visual);
+    if (!parsed?.unit) continue;
+    const key = fold(parsed.unit.replace(/s$/i, ""));
+    const prev = byUnit.get(key);
+    byUnit.set(key, {
+      amount: (prev?.amount ?? 0) + parsed.amount,
+      unit: prev?.unit ?? parsed.unit,
+    });
+  }
+  const first = [...byUnit.values()][0];
+  if (!first) return undefined;
+  return scaleVisualQuantity(`${first.amount} ${first.unit}`, 1);
+}
+
+function cutDisplayName(ings: BatchStepIngredient[]) {
+  const names = ings.map((ing) => ing.name).filter(Boolean);
+  if (names.length === 0) return "Légume";
+  const same = names.every((name) => fold(name) === fold(names[0]));
+  if (same) return names[0];
+  return vegFamilyLabel(names[0]);
+}
+
+function combineCutBlocks(list: BatchStepRecipeBlock[]): BatchStepRecipeBlock {
+  const tags = unique(list.flatMap((block) => recipeNosOf(block))).sort(
+    (a, b) => recipeNoRank(a) - recipeNoRank(b),
+  );
+  const ings = list.flatMap((block) => block.ingredients);
+  const gramsA = ings.reduce((sum, ing) => sum + (ing.gramsAlexis ?? 0), 0);
+  const gramsE = ings.reduce((sum, ing) => sum + (ing.gramsElodie ?? 0), 0);
+  const grams = gramsA + gramsE;
+  const name = cutDisplayName(ings);
+  const visual = mergeVisuals(ings.map((ing) => ing.visual));
+  return {
+    recipeNo: tags[0] ?? list[0].recipeNo,
+    recipeNos: tags,
+    recipeTitle: tags.length > 1 ? vegFamilyLabel(name) : list[0].recipeTitle,
+    coverLabel: list[0].coverLabel,
+    ingredients: [
+      {
+        name,
+        quantity: formatIngredientLine({ name, grams, visual }),
+        visual,
+        planTag: tags.join(", "),
+        gramsAlexis: gramsA,
+        gramsElodie: gramsE,
+      },
+    ],
+    action: "",
+    setting: list[0].setting,
+    servingsPerPerson: list.some((block) => block.servingsPerPerson === 2) ? 2 : 1,
+  };
+}
+
+/** Same veg + same cut → one household pile. Split Alexis / Élodie is packing, not cutting. */
+function mergeCutBlocks(blocks: BatchStepRecipeBlock[]) {
+  const groups = new Map<string, BatchStepRecipeBlock[]>();
+  for (const block of blocks) {
+    const name = block.ingredients[0]?.name ?? "";
+    const key = `${vegFamily(name)}|${fold(block.setting ?? "")}`;
+    const list = groups.get(key) ?? [];
+    list.push(block);
+    groups.set(key, list);
+  }
+  return [...groups.values()].map((list) => (list.length === 1 ? list[0] : combineCutBlocks(list)));
 }
 
 function cutTypeOf(ing: RecipeIngredient, meal: PlannedMeal) {
@@ -1010,7 +1108,7 @@ const SECTIONS: Array<{
   {
     key: "cuts",
     title: "4. Découpes",
-    detail: "Une ligne par légume. Disques KitchenAid (râpé fin, lamelles, spaghettis) ou couteau (ciselée).",
+    detail: "On coupe tout ensemble. Même légume + même coupe = une ligne, avec les n° de recettes. La répartition Alexis / Élodie est à l’étape 5.",
     appliance: "KitchenAid",
     fallbackSetting: "",
     fallbackAction: () => "Tailler chaque légume selon la coupe indiquée.",
@@ -1058,7 +1156,19 @@ export function buildBatchSession(plan: PlannedMeal[], qtyMode: QtyMode = "batch
         const vegs = meal.ingredients.filter((ing) => isCutVeg(ing, meal));
         if (vegs.length === 0) return [];
         const scale = cookScale(meal, qtyMode);
-        return vegs.map((ing) => blockFor(meal, [ing], "", cutTypeOf(ing, meal), scale));
+        return vegs.map((ing) => {
+          const cut = cutTypeOf(ing, meal);
+          return {
+            recipeNo: meal.recipeNo,
+            recipeNos: [meal.recipeNo],
+            recipeTitle: meal.baseName,
+            coverLabel: meal.coverLabel,
+            ingredients: [cutLineFor(ing, scale, meal.recipeNo)],
+            action: "",
+            setting: cut,
+            servingsPerPerson: meal.servingsPerPerson,
+          };
+        });
       }
       if (section.key === "tm") {
         const sauceIngs = sauceIngsFor(meal);
@@ -1093,7 +1203,7 @@ export function buildBatchSession(plan: PlannedMeal[], qtyMode: QtyMode = "batch
       ];
     });
 
-    const ordered = section.key === "cuts" ? sortCutBlocks(blocks) : blocks;
+    const ordered = section.key === "cuts" ? sortCutBlocks(mergeCutBlocks(blocks)) : blocks;
 
     appliances.push({
       appliance: section.appliance,

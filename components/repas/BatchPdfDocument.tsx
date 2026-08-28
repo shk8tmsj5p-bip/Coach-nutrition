@@ -1,6 +1,6 @@
 import type { CSSProperties, ReactNode } from "react";
 import type { BatchSession, NumberedRecipe } from "@/lib/batch-from-plan";
-import { vegFamilyLabel } from "@/lib/batch-from-plan";
+import { recipeNosOf, vegFamilyLabel } from "@/lib/batch-from-plan";
 import { cookScale } from "@/lib/qty-scale";
 import {
   appliancesLine,
@@ -66,17 +66,28 @@ function PdfTag({ recipeNo }: { recipeNo: string }) {
     <span
       style={{
         display: "inline-block",
-        minWidth: 28,
+        minWidth: 22,
         textAlign: "center",
-        fontSize: 11,
+        fontSize: 9,
         fontWeight: 700,
         color,
         background: `${color}22`,
-        borderRadius: 6,
-        padding: "2px 6px",
+        borderRadius: 5,
+        padding: "1px 4px",
+        lineHeight: 1.35,
       }}
     >
       {recipeNo}
+    </span>
+  );
+}
+
+function PdfTags({ recipeNos }: { recipeNos: string[] }) {
+  return (
+    <span style={{ display: "inline-flex", flexWrap: "wrap", gap: 3, alignItems: "center", flexShrink: 0 }}>
+      {recipeNos.map((recipeNo) => (
+        <PdfTag key={recipeNo} recipeNo={recipeNo} />
+      ))}
     </span>
   );
 }
@@ -96,14 +107,15 @@ function PdfTable({
   perItem?: boolean;
   groupByFamily?: boolean;
 }) {
+  const cutLayout = Boolean(groupByFamily && perItem);
   return (
     <div style={{ marginTop: 4, borderRadius: 10, overflow: "hidden" }}>
       <div
         style={{
           display: "grid",
-          gridTemplateColumns: "42px 1fr 100px",
+          gridTemplateColumns: cutLayout ? "1fr 88px" : "42px 1fr 100px",
           gap: "0 8px",
-          padding: "6px 8px",
+          padding: "5px 8px",
           background: headBg,
           color: headColor,
           fontSize: 10,
@@ -112,20 +124,33 @@ function PdfTable({
           textTransform: "uppercase",
         }}
       >
-        <span>{headers[0]}</span>
-        <span>{headers[1]}</span>
-        <span style={{ textAlign: "right" }}>{headers[2]}</span>
+        {cutLayout ? (
+          <>
+            <span>Légume</span>
+            <span style={{ textAlign: "right" }}>{headers[2]}</span>
+          </>
+        ) : (
+          <>
+            <span>{headers[0]}</span>
+            <span>{headers[1]}</span>
+            <span style={{ textAlign: "right" }}>{headers[2]}</span>
+          </>
+        )}
       </div>
       {rows.map((block, index) => {
         const family = groupByFamily && perItem ? vegFamilyLabel(block.ingredients[0]?.name ?? "") : "";
         const prevFamily = groupByFamily && perItem ? vegFamilyLabel(rows[index - 1]?.ingredients[0]?.name ?? "") : "";
         const showFamily = Boolean(groupByFamily && perItem && family && family !== prevFamily);
+        const qty =
+          block.ingredients.length > 0
+            ? block.ingredients.map((ing) => itemQuantityLine(ing)).join(" · ")
+            : "—";
         return (
         <div key={`${block.recipeNo}-${index}`}>
           {showFamily ? (
             <p
               style={{
-                margin: "6px 8px 2px",
+                margin: "4px 8px 0",
                 fontSize: 10,
                 fontWeight: 700,
                 letterSpacing: 0.6,
@@ -136,6 +161,26 @@ function PdfTable({
               {family}
             </p>
           ) : null}
+        {cutLayout ? (
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "1fr 88px",
+            gap: "0 8px",
+            padding: "4px 8px",
+            background: index % 2 === 1 ? "rgba(255,255,255,0.7)" : "transparent",
+            fontSize: 12,
+            lineHeight: 1.3,
+            alignItems: "center",
+          }}
+        >
+          <span style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 6, minWidth: 0 }}>
+            <span>{qty}</span>
+            <PdfTags recipeNos={recipeNosOf(block)} />
+          </span>
+          <span style={{ textAlign: "right", fontWeight: 650 }}>{cellSetting(block) || "—"}</span>
+        </div>
+        ) : (
         <div
           style={{
             display: "grid",
@@ -148,13 +193,9 @@ function PdfTable({
             alignItems: "start",
           }}
         >
-          <PdfTag recipeNo={block.recipeNo} />
+          <PdfTags recipeNos={recipeNosOf(block)} />
           {perItem ? (
-            <span>
-              {block.ingredients.length > 0
-                ? block.ingredients.map((ing) => itemQuantityLine(ing)).join(" · ")
-                : "—"}
-            </span>
+            <span>{qty}</span>
           ) : (
           <div>
             {groupedCellIngredients(block.ingredients).length === 0 ? (
@@ -183,6 +224,7 @@ function PdfTable({
           )}
           <span style={{ textAlign: "right", fontWeight: 650 }}>{cellSetting(block) || "—"}</span>
         </div>
+        )}
         </div>
         );
       })}

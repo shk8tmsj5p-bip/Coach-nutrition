@@ -4,7 +4,7 @@ import { useMemo, useRef, useState } from "react";
 import { FileDown } from "lucide-react";
 import { BatchPdfDocument } from "@/components/repas/BatchPdfDocument";
 import { SectionTitle } from "@/components/ui/Card";
-import { buildBatchSession, vegFamilyLabel } from "@/lib/batch-from-plan";
+import { buildBatchSession, recipeNosOf, vegFamilyLabel } from "@/lib/batch-from-plan";
 import { exportElementToPdf } from "@/lib/export-batch-pdf";
 import { formatWeekRange } from "@/lib/dates";
 import { groupedCellIngredients, cellSetting, blockHowto, shortCoverDays, itemQuantityLine, packingLists, assemblyHowto, stackedSauceLines } from "@/lib/s34-copy";
@@ -180,6 +180,27 @@ function SauceList({
   );
 }
 
+function RecipeTags({
+  recipeNos,
+  onOpenRecipe,
+}: {
+  recipeNos: string[];
+  onOpenRecipe?: (recipeNo: string) => void;
+}) {
+  return (
+    <div className="flex shrink-0 flex-wrap items-center gap-0.5">
+      {recipeNos.map((recipeNo) => (
+        <RecipeTag
+          key={recipeNo}
+          recipeNo={recipeNo}
+          compact
+          onClick={onOpenRecipe ? () => onOpenRecipe(recipeNo) : undefined}
+        />
+      ))}
+    </div>
+  );
+}
+
 function CookbookTable({
   headers,
   rows,
@@ -206,38 +227,69 @@ function CookbookTable({
 
   return (
     <div className="mt-2 overflow-hidden rounded-xl bg-health-bg">
-      <div className={cn("grid grid-cols-[2.4rem_1fr_5.6rem] gap-x-2 px-2 py-1.5 text-[10px] font-semibold uppercase tracking-wide", head)}>
-        <span>{headers[0]}</span>
-        <span>{headers[1]}</span>
-        <span className="text-right">{headers[2]}</span>
+      <div
+        className={cn(
+          "grid gap-x-2 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide",
+          groupByFamily ? "grid-cols-[1fr_4.8rem]" : "grid-cols-[2.4rem_1fr_5.6rem]",
+          head,
+        )}
+      >
+        {groupByFamily ? (
+          <>
+            <span>Légume</span>
+            <span className="text-right">{headers[2]}</span>
+          </>
+        ) : (
+          <>
+            <span>{headers[0]}</span>
+            <span>{headers[1]}</span>
+            <span className="text-right">{headers[2]}</span>
+          </>
+        )}
       </div>
       {rows.map((block, index) => {
         const family = groupByFamily && perItem ? vegFamilyLabel(block.ingredients[0]?.name ?? "") : "";
         const prevFamily = groupByFamily && perItem ? vegFamilyLabel(rows[index - 1]?.ingredients[0]?.name ?? "") : "";
         const showFamily = Boolean(groupByFamily && perItem && family && family !== prevFamily);
+        const qty =
+          block.ingredients.length > 0
+            ? block.ingredients.map((ing) => itemQuantityLine(ing)).join(" · ")
+            : "—";
         return (
-          <div key={`${block.recipeNo}-${block.recipeTitle}-${block.ingredients[0]?.name ?? index}`}>
+          <div key={`${recipeNosOf(block).join("-")}-${block.setting ?? ""}-${block.ingredients[0]?.name ?? index}`}>
             {showFamily ? (
-              <p className="px-2 pb-0.5 pt-1.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-health-muted">
+              <p className="px-2 pb-0 pt-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-health-muted">
                 {family}
               </p>
             ) : null}
+            {groupByFamily ? (
+              <div
+                className={cn(
+                  "grid grid-cols-[1fr_4.8rem] items-center gap-x-2 px-2 py-1",
+                  index % 2 === 1 ? "bg-health-card/80" : "bg-transparent",
+                )}
+              >
+                <div className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5">
+                  <p className="text-[12px] leading-snug text-health-ink">{qty}</p>
+                  <RecipeTags recipeNos={recipeNosOf(block)} onOpenRecipe={onOpenRecipe} />
+                </div>
+                <p className="text-right text-[11px] font-semibold leading-snug text-health-ink">
+                  {cellSetting(block) || "—"}
+                </p>
+              </div>
+            ) : (
             <div
               className={cn(
                 "grid grid-cols-[2.4rem_1fr_5.6rem] items-start gap-x-2 px-2 py-1.5",
                 index % 2 === 1 ? "bg-health-card/80" : "bg-transparent",
               )}
             >
-              <RecipeTag
-                recipeNo={block.recipeNo}
-                onClick={onOpenRecipe ? () => onOpenRecipe(block.recipeNo) : undefined}
+              <RecipeTags
+                recipeNos={recipeNosOf(block)}
+                onOpenRecipe={onOpenRecipe}
               />
               {perItem ? (
-                <p className="min-w-0 text-[12px] leading-snug text-health-ink">
-                  {block.ingredients.length > 0
-                    ? block.ingredients.map((ing) => itemQuantityLine(ing)).join(" · ")
-                    : "—"}
-                </p>
+                <p className="min-w-0 text-[12px] leading-snug text-health-ink">{qty}</p>
               ) : (
                 <div className="min-w-0">
                   <IngredientCell recipeNo={block.recipeNo} ings={block.ingredients} />
@@ -250,6 +302,7 @@ function CookbookTable({
                 {cellSetting(block) || "—"}
               </p>
             </div>
+            )}
           </div>
         );
       })}
@@ -371,7 +424,7 @@ export function BatchGuidePanel({
                 {step.title.replace(/^\d+\.\s*/, "")}
               </p>
             </div>
-            {(step.time === "5" || /boîte/i.test(step.title)) && step.detail ? (
+            {(step.time === "4" || step.time === "5" || /boîte|découpe/i.test(step.title)) && step.detail ? (
               <p className="mt-1 text-[11px] leading-snug text-health-muted">{step.detail}</p>
             ) : null}
             {step.time === "5" || /boîte|assemblage/i.test(step.title) ? (

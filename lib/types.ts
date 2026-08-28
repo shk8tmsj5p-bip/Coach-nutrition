@@ -302,6 +302,8 @@ export interface BatchStepIngredient {
 
 export interface BatchStepRecipeBlock {
   recipeNo: string;
+  /** All `[P…]` tags when a découpe line is shared across recipes. */
+  recipeNos?: string[];
   recipeTitle: string;
   coverLabel: string;
   ingredients: BatchStepIngredient[];
