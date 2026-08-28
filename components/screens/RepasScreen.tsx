@@ -38,6 +38,8 @@ import { QtyScaleToggle } from "@/components/repas/QtyScaleToggle";
 import { StockPanel } from "@/components/repas/StockPanel";
 import { cn } from "@/lib/utils";
 import { loadKitchenPrefs, formatKitchenPrefsForPrompt } from "@/lib/kitchen-prefs";
+import { pickMealInspirations } from "@/lib/meal-inspo";
+import { useSeasonWeather } from "@/context/SeasonContext";
 import {
   DEFAULT_STOCK,
   formatStockForPrompt,
@@ -97,6 +99,7 @@ type Tab = "plan" | "courses" | "batch" | "favoris";
 
 export default function RepasScreen() {
   const { view, catalog } = useProfile();
+  const { season, weather } = useSeasonWeather();
   const [tab, setTab] = useState<Tab>("plan");
   const [planQty, setPlanQty] = useState<QtyMode>("repas");
   const [batchQty, setBatchQty] = useState<QtyMode>("batch");
@@ -124,6 +127,7 @@ export default function RepasScreen() {
   const [dessertWeekdays, setDessertWeekdays] = useState<Weekday[]>([...DEFAULT_DESSERT_DAYS]);
   const [dessertWarning, setDessertWarning] = useState<string | null>(null);
   const [openDessert, setOpenDessert] = useState(false);
+  const [inspoOffset, setInspoOffset] = useState(0);
 
   function kitchenContext(opts?: { dessertDays?: Weekday[]; dessertBatch?: boolean }) {
     const prefs = formatKitchenPrefsForPrompt(loadKitchenPrefs(), [catalog.alexis, catalog.elodie]);
@@ -210,6 +214,7 @@ export default function RepasScreen() {
       setDessertWeekdays(dessert?.weekdays ?? [...DEFAULT_DESSERT_DAYS]);
       setDessertWarning(null);
       setOpenDessert(false);
+      setInspoOffset(0);
       const coach = buildMealCoachFromProfiles(catalog.alexis, catalog.elodie);
       const hasMeals = synced.plan.some((meal) => !isEmptyMeal(meal));
       setPlanStamp(ensurePlanTargetsBaseline(weekStart, coach, hasMeals));
@@ -521,6 +526,34 @@ export default function RepasScreen() {
 
   const tags = useMemo(() => planTagByMealId(plan), [plan]);
   const recipes = useMemo(() => taggedUniqueMeals(plan), [plan]);
+  const suggestions = useMemo(() => {
+    const prefs = loadKitchenPrefs();
+    const avoid = [
+      ...rejected.map((item) => item.title),
+      ...rejected.map((item) => item.theme),
+      ...plan.filter((meal) => !isEmptyMeal(meal)).flatMap((meal) => [meal.baseName, meal.theme]),
+    ];
+    return pickMealInspirations({
+      weekStart,
+      season,
+      weather,
+      prefs,
+      profiles: [catalog.alexis, catalog.elodie],
+      avoid,
+      stockNames: stock.useStock ? stock.items.map((item) => item.name) : [],
+      offset: inspoOffset,
+    });
+  }, [
+    weekStart,
+    season,
+    weather,
+    rejected,
+    plan,
+    stock,
+    catalog.alexis,
+    catalog.elodie,
+    inspoOffset,
+  ]);
   const openRecipe = recipes.find((row) => row.tag === openTag) ?? null;
   const hasMeals = plan.some((meal) => !isEmptyMeal(meal));
   const targetsStale =
@@ -596,6 +629,8 @@ export default function RepasScreen() {
           <GenerateControls
             theme={theme}
             onThemeChange={setTheme}
+            suggestions={suggestions}
+            onShuffle={() => setInspoOffset((n) => n + 1)}
             busy={busy}
             canClear={plan.some((meal) => !isEmptyMeal(meal)) || Boolean(lunchDessert)}
             coachHint={`Portions selon Suivi : Alexis ${goalLabel(catalog.alexis.primaryGoal)} · Élodie ${goalLabel(catalog.elodie.primaryGoal)}. Même plat, grammes différents (sauf sauces).`}

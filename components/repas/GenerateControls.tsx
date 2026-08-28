@@ -13,12 +13,16 @@ export function GenerateControls({
   onGenerateSingle,
   onClearWeek,
   coachHint,
+  suggestions = [],
+  onShuffle,
 }: {
   theme: string;
   onThemeChange: (value: string) => void;
   busy: boolean;
   canClear?: boolean;
   coachHint?: string;
+  suggestions?: string[];
+  onShuffle?: () => void;
   onGenerateWeekdays: () => void;
   onGenerateWeekend: () => void;
   onGenerateSingle: () => void;
@@ -44,6 +48,39 @@ export function GenerateControls({
         placeholder="Ex. Coréen, thaï, tomate, bowl…"
         className="mt-1.5 w-full rounded-card bg-health-bg px-3 py-2.5 text-[14px] outline-none"
       />
+      {suggestions.length > 0 ? (
+        <div className="mt-2">
+          <div className="mb-1.5 flex items-center justify-between gap-2">
+            <p className="text-[11px] text-health-muted">Pistes du moment · vos critères</p>
+            {onShuffle ? (
+              <button
+                type="button"
+                disabled={busy}
+                onClick={onShuffle}
+                className="text-[11px] font-semibold text-health-ink disabled:opacity-40"
+              >
+                Autres pistes
+              </button>
+            ) : null}
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {suggestions.map((item) => (
+              <button
+                key={item}
+                type="button"
+                disabled={busy}
+                onClick={() => onThemeChange(theme === item ? "" : item)}
+                className={cn(
+                  "rounded-full px-2.5 py-1 text-[11px] font-semibold",
+                  theme === item ? "bg-health-ink text-white" : "bg-health-bg text-health-muted",
+                )}
+              >
+                {item}
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
       <div className="mt-2 grid grid-cols-2 gap-2">
         <GenButton disabled={busy} onClick={onGenerateWeekdays}>
           {busy ? "Génération…" : "Générer Lun–Ven"}
