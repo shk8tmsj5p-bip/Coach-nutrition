@@ -5,7 +5,7 @@ import { ThemeProvider } from "@/context/ThemeContext";
 import { AppShell } from "@/components/layout/AppShell";
 import "./globals.css";
 
-const THEME_BOOT = `(function(){try{var t=localStorage.getItem("coach-nutrition:theme");if(t==="dark"||(t!=="light"&&window.matchMedia&&window.matchMedia("(prefers-color-scheme: dark)").matches))document.documentElement.classList.add("dark")}catch(e){}})();`;
+const THEME_BOOT = `(function(){try{var t=localStorage.getItem("coach-nutrition:theme");if(t==="dark"||(t!=="light"&&window.matchMedia&&window.matchMedia("(prefers-color-scheme: dark)").matches))document.documentElement.classList.add("dark");var m=Number(new Intl.DateTimeFormat("en-US",{timeZone:"Europe/Paris",month:"numeric"}).format(new Date()));document.documentElement.setAttribute("data-season",m>=3&&m<=5?"spring":m>=6&&m<=8?"summer":m>=9&&m<=11?"autumn":"winter")}catch(e){}})();`;
 
 export const metadata: Metadata = {
   title: "Coach Nutrition",

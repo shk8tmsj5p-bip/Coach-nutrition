@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { isStressedNotes } from "@/lib/daily-feel";
 import { callGeminiFlashText, coachPrompt, parseCoachJson } from "@/lib/gemini/coach";
 import { parseGeminiJson } from "@/lib/gemini/meals";
 import { friendlyGeminiError } from "@/lib/gemini/models";
@@ -31,12 +32,11 @@ export async function POST(request: Request) {
       );
     }
     const latest = body.journals?.[0]?.notes;
-    const stressed =
-      (latest?.hunger ?? 3) >= 4 || (latest?.fatigue ?? 3) >= 4 || (latest?.energy ?? 3) <= 2;
+    const stressed = isStressedNotes(latest ?? {});
     if (stressed && parsed.calorieDelta < 0) {
       parsed.calorieDelta = 0;
       parsed.caution = true;
-      parsed.message = `${parsed.message} Baisse calorique annulée : faim/fatigue trop hautes.`;
+      parsed.message = `${parsed.message} Baisse calorique annulée : un sticker crevé (faim, motivation ou fatigue).`;
     }
     return NextResponse.json({ adjustment: parsed, mock: false });
   } catch (error) {

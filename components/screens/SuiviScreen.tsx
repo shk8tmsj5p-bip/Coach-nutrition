@@ -640,7 +640,7 @@ function ProfileJournal({
   async function save() {
     const serialized = serializeJournalNotes(fields);
     if (!serialized) {
-      setEmptyHint("Ajoute un ressenti, une victoire, un frein, ou un score différent de 3.");
+      setEmptyHint("Ajoute un ressenti, une victoire, un frein, ou un sticker autre que bof.");
       return;
     }
     setEmptyHint(null);

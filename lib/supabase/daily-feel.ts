@@ -40,8 +40,8 @@ export async function upsertDailyFeel(
   saveLocalFeel(profileId, date, merged);
   const payload = mergeFeelPayload(existing.data?.payload ?? {}, merged);
   const patch = {
-    hunger: merged.hunger,
-    energy: merged.energy,
+    hunger: null,
+    energy: null,
     payload,
     source: "manual" as const,
   };

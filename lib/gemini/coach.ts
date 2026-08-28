@@ -1,3 +1,4 @@
+import { formatFeelPromptBits, isStressedMoods } from "@/lib/cat-feel";
 import { parseGeminiJson } from "@/lib/gemini/meals";
 import { generateGeminiFlash } from "@/lib/gemini/flash";
 import type { Pesee, Profile, SundayJournalFields } from "@/lib/types";
@@ -22,15 +23,12 @@ export function localCoachAdjustment(
   plateau: boolean,
 ): CoachAdjustment {
   const latest = journals[0]?.notes;
-  const highHunger = (latest?.hunger ?? 3) >= 4;
-  const highFatigue = (latest?.fatigue ?? 3) >= 4;
-  const lowEnergy = (latest?.energy ?? 3) <= 2;
-  const stressed = highHunger || highFatigue || lowEnergy;
+  const stressed = isStressedMoods(latest ?? {});
 
   if (stressed) {
     return {
       title: "Protection récupération",
-      message: `Notes dimanche : faim ${latest?.hunger ?? "—"}/5, énergie ${latest?.energy ?? "—"}/5, fatigue ${latest?.fatigue ?? "—"}/5. Pas de baisse calorique agressive cette semaine. Objectif ${goalLabel(profile.primaryGoal)} (${formatWeeklyRate(profile.weeklyRateKg)}) : maintenir les kcal, +1000 pas si possible.`,
+      message: `Notes dimanche : ${formatFeelPromptBits(latest ?? {})}. Pas de baisse calorique agressive cette semaine. Objectif ${goalLabel(profile.primaryGoal)} (${formatWeeklyRate(profile.weeklyRateKg)}) : maintenir les kcal, +1000 pas si possible.`,
       calorieDelta: 0,
       stepsDelta: 1000,
       caution: true,
@@ -72,7 +70,7 @@ export function coachPrompt(
     .slice(0, 4)
     .map(
       (entry) =>
-        `- ${entry.date} : humeur="${entry.notes.mood}" victoires="${entry.notes.wins}" freins="${entry.notes.blockers}" faim=${entry.notes.hunger}/5 énergie=${entry.notes.energy}/5 fatigue=${entry.notes.fatigue}/5`,
+        `- ${entry.date} : humeur="${entry.notes.mood}" victoires="${entry.notes.wins}" freins="${entry.notes.blockers}" ${formatFeelPromptBits(entry.notes)}`,
     )
     .join("\n");
 
@@ -86,7 +84,7 @@ Notes qualitatives du journal dimanche (les plus récentes d'abord) :
 ${notes || "(aucune note)"}
 
 Règles d'ajustement métabolique hebdo :
-- Si faim ≥ 4 OU fatigue ≥ 4 OU énergie ≤ 2 : INTERDIT de baisser les calories. calorie_delta = 0. Proposer +pas ou récupération.
+- Si un sticker crevé (faim, motivation ou fatigue) : INTERDIT de baisser les calories. calorie_delta = 0. Proposer +pas ou récupération.
 - Plateau perte (moy. 7 j plate) ET notes OK : −150 kcal/j max OU +1000 pas, jamais les deux agressifs.
 - Jamais plus de −200 kcal/j.
 - Prise de masse : ne pas couper les kcal.

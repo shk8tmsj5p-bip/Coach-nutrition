@@ -2,9 +2,9 @@
 
 import Link from "next/link";
 import { X } from "lucide-react";
-import { coachWeightTrend, type CoachWeekPayload } from "@/lib/coach-payload";
-import { formatSportRoutine } from "@/lib/sport-routine";
-import { formatKg } from "@/lib/utils";
+import { CatSticker } from "@/components/ui/CatSticker";
+import { polaroidLines } from "@/lib/week-polaroid";
+import type { CoachWeekPayload } from "@/lib/coach-payload";
 
 export function CoachReadySheet({
   payload,
@@ -15,9 +15,7 @@ export function CoachReadySheet({
   saveError: string | null;
   onClose: () => void;
 }) {
-  const trend = coachWeightTrend(payload);
-  const last = trend[trend.length - 1];
-  const notes = payload.journal.notes;
+  const lines = polaroidLines(payload.journal.notes);
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/30">
@@ -28,32 +26,28 @@ export function CoachReadySheet({
             <X size={16} />
           </button>
         </div>
-        <p className="text-[14px] leading-relaxed text-health-muted">
-          Notes du dimanche sauvegardées dans <span className="font-medium text-health-ink">pesees.journal_notes</span>
-          {saveError ? " (copie locale — Supabase a renvoyé une erreur)." : " · profil " + payload.profileName}.
-        </p>
-        {saveError && <p className="mt-2 text-[12px] text-coral">{saveError}</p>}
 
-        <div className="mt-3 rounded-2xl bg-health-bg px-3 py-3">
-          <p className="text-[11px] font-semibold uppercase tracking-wide text-health-muted">
-            Payload coach · Tab 4
-          </p>
-          <p className="mt-1 text-[13px] leading-relaxed">
-            Contexte 7 j prêt pour Gemini Flash. Ouvre Métabolisme & Coaching pour lancer l’analyse.
-          </p>
-          <ul className="mt-2 space-y-1 text-[13px] text-health-muted">
-            <li>
-              Tendance 7 j · {trend.length} pts
-              {last ? ` · ${formatKg(last.value)}` : ""}
-              {payload.latestMa7 != null ? ` · moy. 7 j ${formatKg(payload.latestMa7)}` : ""}
-              {payload.plateau ? " · plateau" : ""}
-            </li>
-            <li>
-              Journal · faim {notes.hunger}/5 · énergie {notes.energy}/5 · fatigue {notes.fatigue}/5
-            </li>
-            <li>Routine · {formatSportRoutine(payload.sportRoutine)}</li>
-          </ul>
+        <div className="mx-auto w-[88%] rotate-[-2deg] rounded-sm bg-white px-3 pb-4 pt-3 shadow-card ring-1 ring-health-line">
+          <div className="flex items-start justify-between gap-2">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-health-muted">
+              Semaine · {payload.profileName}
+            </p>
+            <CatSticker mood="ok" className="h-7 w-8 text-health-ink" />
+          </div>
+          <div className="mt-3 aspect-[4/3] rounded-sm bg-health-bg px-3 py-4">
+            <p className="text-[16px] font-semibold leading-snug">{lines.line1}</p>
+            <p className="mt-2 text-[14px] leading-relaxed text-health-muted">{lines.line2}</p>
+            <p className="mt-3 text-[13px] font-medium">{lines.line3}</p>
+          </div>
         </div>
+
+        {saveError ? (
+          <p className="mt-3 text-[12px] text-coral">Copie locale — {saveError}</p>
+        ) : (
+          <p className="mt-3 text-center text-[12px] text-health-muted">
+            Notes du dimanche sauvegardées.
+          </p>
+        )}
 
         <Link
           href="/metabolique"

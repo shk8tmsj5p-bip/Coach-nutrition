@@ -1,4 +1,5 @@
-import { isStressedDaily, type DailyFeelScores } from "@/lib/daily-feel";
+import type { DailyFeelScores } from "@/lib/daily-feel";
+import type { CatFeelMood } from "@/lib/cat-feel";
 import { dayPeriod, isoWeekday, parisHour, todayISO } from "@/lib/dates";
 import { burnedKcalFromHealth } from "@/lib/health-energy";
 import { templateForSlot } from "@/lib/meal-templates";
@@ -33,9 +34,9 @@ export type CoachTodaySnapshot = {
   goal: Profile["primaryGoal"];
   hour: number;
   period: "matin" | "midi" | "soir";
-  hunger: number;
-  energy: number;
-  fatigue: number;
+  hunger: CatFeelMood;
+  energy: CatFeelMood;
+  fatigue: CatFeelMood;
   eaten: number;
   remaining: number;
   target: number;
@@ -130,17 +131,17 @@ function nextOpenSlot(meals: MealEntry[], hour: number): MealType | null {
 }
 
 function feelOf(feels: DailyFeelScores) {
-  const hunger = feels.hunger ?? 3;
-  const energy = feels.energy ?? 3;
-  const fatigue = feels.fatigue ?? 3;
+  const hunger = feels.hunger ?? "bof";
+  const energy = feels.energy ?? "bof";
+  const fatigue = feels.fatigue ?? "bof";
   return {
     hunger,
     energy,
     fatigue,
-    hungry: hunger >= 4,
-    lowEnergy: energy <= 2,
-    tired: fatigue >= 4,
-    fresh: energy >= 4 && fatigue <= 2 && hunger <= 3,
+    hungry: hunger === "creve",
+    lowEnergy: energy === "creve",
+    tired: fatigue === "creve",
+    fresh: energy === "ok" && fatigue === "ok" && hunger !== "creve",
   };
 }
 
@@ -255,7 +256,7 @@ export function todayCoachRemark(opts: {
 
   const snapshot = buildTodayCoachSnapshot(opts);
   const feel = feelOf(opts.feels);
-  const stressed = isStressedDaily([{ ...opts.feels, date: opts.date ?? todayISO(), profileId: opts.profile.id }]);
+  const stressed = feel.hungry || feel.tired || feel.lowEnergy;
   const gap = snapshot.burned - snapshot.eaten;
   const underFuel = snapshot.eaten + snapshot.remaining < snapshot.target * 0.92;
   const overFuel = snapshot.eaten + snapshot.remaining > snapshot.target * 1.08;
@@ -284,7 +285,7 @@ export function todayCoachRemark(opts: {
 
   if (feel.lowEnergy) {
     return {
-      title: "Énergie basse",
+      title: "Motivation basse",
       message: `${
         gap > 200
           ? "Tu as plus dépensé que mangé : un féculent au prochain repas ouvert, pas un jeûne."
@@ -365,7 +366,7 @@ export function todayCoachRemark(opts: {
     };
   }
 
-  if (snapshot.live && gap < -250 && snapshot.goal === "perte" && feel.hunger <= 2 && feel.fatigue <= 3) {
+  if (snapshot.live && gap < -250 && snapshot.goal === "perte" && feel.hunger === "ok" && feel.fatigue !== "creve") {
     return {
       title: "Dépense couverte, faim calme",
       message: snapshot.nextSlot
@@ -416,21 +417,21 @@ export function todayCoachRemark(opts: {
 
 export function localCoachTodayActions(snapshot: CoachTodaySnapshot): CoachTodayAction[] {
   const actions: CoachTodayAction[] = [];
-  if (snapshot.hunger >= 4) {
+  if (snapshot.hunger === "creve") {
     actions.push({
       label: snapshot.nextSlot ? `Avancer ${mealTypeLabel(snapshot.nextSlot)}` : "Volume maintenant",
-      detail: "Faim ≥ 4 : pas de coupe. Protéines + volume. Un repas sauté reste sauté.",
+      detail: "Faim crevée : pas de coupe. Protéines + volume. Un repas sauté reste sauté.",
     });
   }
-  if (snapshot.energy <= 2 || snapshot.fatigue >= 4) {
+  if (snapshot.energy === "creve" || snapshot.fatigue === "creve") {
     actions.push({
       label: snapshot.pendingMin > 0 ? "Alléger la séance" : "Récup, pas d’intensité",
       detail: snapshot.pendingLabel
         ? `${snapshot.pendingLabel} → Zone 2 ou −10 min.`
-        : "Énergie basse / fatigue haute : on ne force pas.",
+        : "Motivation basse / fatigue haute : on ne force pas.",
     });
   }
-  if (snapshot.live && snapshot.burned - snapshot.eaten > 250 && snapshot.hunger >= 3) {
+  if (snapshot.live && snapshot.burned - snapshot.eaten > 250 && snapshot.hunger !== "ok") {
     actions.push({
       label: "Recharger l’assiette",
       detail: `${kcal(snapshot.eaten)} mangées vs ~${kcal(snapshot.burned)} dépensées. Féculent sur le prochain créneau ouvert.`,

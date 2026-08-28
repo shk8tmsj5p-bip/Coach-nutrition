@@ -1,6 +1,7 @@
 "use client";
 
 import { X } from "lucide-react";
+import { formatFeelLine } from "@/lib/cat-feel";
 import { formatWeekRange, mondayOf } from "@/lib/dates";
 import type { SundayJournalFields } from "@/lib/types";
 
@@ -46,8 +47,7 @@ export function JournalHistorySheet({
                   <p className="mt-1 text-[13px] text-health-muted">△ {entry.notes.blockers}</p>
                 )}
                 <p className="mt-2 text-[11px] font-medium text-health-muted">
-                  Faim {entry.notes.hunger}/5 · Énergie {entry.notes.energy}/5 · Fatigue{" "}
-                  {entry.notes.fatigue}/5
+                  {formatFeelLine(entry.notes)}
                 </p>
               </div>
             ))}

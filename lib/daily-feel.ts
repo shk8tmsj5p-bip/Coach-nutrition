@@ -1,11 +1,12 @@
 import type { ProfileId } from "@/lib/types";
 import type { Json } from "@/lib/supabase/database.types";
 import { storage } from "@/lib/storage";
+import { CAT_FEEL_LABELS, isStressedMoods, parseFeelMood, type CatFeelMood, type FeelAxis } from "@/lib/cat-feel";
 
 export type DailyFeelScores = {
-  hunger: number | null;
-  energy: number | null;
-  fatigue: number | null;
+  hunger: CatFeelMood | null;
+  energy: CatFeelMood | null;
+  fatigue: CatFeelMood | null;
   validated: boolean;
 };
 
@@ -16,12 +17,6 @@ export type DailyFeelEntry = DailyFeelScores & {
 
 export function emptyFeel(): DailyFeelScores {
   return { hunger: null, energy: null, fatigue: null, validated: false };
-}
-
-export function clampFeelScore(value: unknown): number | null {
-  const n = Math.round(Number(value));
-  if (!Number.isFinite(n) || n < 1 || n > 5) return null;
-  return n;
 }
 
 export function hasFeelScore(scores: DailyFeelScores) {
@@ -39,17 +34,21 @@ function asObject(value: unknown): Record<string, unknown> {
   return {};
 }
 
+function moodOf(value: unknown, axis: FeelAxis) {
+  return parseFeelMood(value, axis);
+}
+
 export function parseFeelFromRow(row: {
-  hunger?: number | null;
-  energy?: number | null;
+  hunger?: number | string | null;
+  energy?: number | string | null;
   payload?: Json | null;
 }): DailyFeelScores {
   const payload = asObject(row.payload);
   const checkin = asObject(payload.checkin);
   return {
-    hunger: clampFeelScore(checkin.hunger) ?? clampFeelScore(row.hunger),
-    energy: clampFeelScore(checkin.energy) ?? clampFeelScore(row.energy),
-    fatigue: clampFeelScore(checkin.fatigue),
+    hunger: moodOf(checkin.hunger, "hunger") ?? moodOf(row.hunger, "hunger"),
+    energy: moodOf(checkin.energy, "energy") ?? moodOf(row.energy, "energy"),
+    fatigue: moodOf(checkin.fatigue, "fatigue"),
     validated: checkin.validated === true,
   };
 }
@@ -74,10 +73,10 @@ function localKey(profileId: ProfileId, date: string) {
 export function loadLocalFeel(profileId: ProfileId, date: string): DailyFeelScores | null {
   const raw = storage.getJSON<DailyFeelScores | null>(localKey(profileId, date), null);
   if (!raw) return null;
-  const scores = {
-    hunger: clampFeelScore(raw.hunger),
-    energy: clampFeelScore(raw.energy),
-    fatigue: clampFeelScore(raw.fatigue),
+  const scores: DailyFeelScores = {
+    hunger: moodOf(raw.hunger, "hunger"),
+    energy: moodOf(raw.energy, "energy"),
+    fatigue: moodOf(raw.fatigue, "fatigue"),
     validated: raw.validated === true,
   };
   return hasFeelScore(scores) ? scores : null;
@@ -91,7 +90,6 @@ export function clearLocalFeel(profileId: ProfileId, date: string) {
   storage.remove(localKey(profileId, date));
 }
 
-/** Retire faim / énergie / fatigue du payload checkin (garde le reste, ex. jeûne). */
 export function stripFeelFromPayload(existing: Json | null | undefined): Json {
   const payload = asObject(existing);
   const checkin = { ...asObject(payload.checkin) };
@@ -112,16 +110,18 @@ export function mergeFeel(base: DailyFeelScores, overlay: DailyFeelScores | null
   };
 }
 
-export function isStressedNotes(notes: { hunger: number; energy: number; fatigue: number }) {
-  return notes.hunger >= 4 || notes.fatigue >= 4 || notes.energy <= 2;
+export function isStressedNotes(notes: {
+  hunger?: CatFeelMood | null;
+  energy?: CatFeelMood | null;
+  fatigue?: CatFeelMood | null;
+}) {
+  return isStressedMoods(notes);
 }
 
-/** Jours sans note ignorés. Une note faim≥4 / fatigue≥4 / énergie≤2 suffit. */
+/** Jours sans note ignorés. Un sticker crevé sur faim, motivation ou fatigue suffit. */
 export function isStressedDaily(days: DailyFeelEntry[] | undefined) {
   for (const day of days ?? []) {
-    if (day.hunger != null && day.hunger >= 4) return true;
-    if (day.fatigue != null && day.fatigue >= 4) return true;
-    if (day.energy != null && day.energy <= 2) return true;
+    if (isStressedMoods(day)) return true;
   }
   return false;
 }
@@ -132,14 +132,14 @@ export function formatDailyFeelsForPrompt(days: DailyFeelEntry[] | undefined) {
     .sort((a, b) => a.date.localeCompare(b.date))
     .map((day) => {
       const parts: string[] = [];
-      if (day.hunger != null) parts.push(`faim=${day.hunger}/5`);
-      if (day.energy != null) parts.push(`énergie=${day.energy}/5`);
-      if (day.fatigue != null) parts.push(`fatigue=${day.fatigue}/5`);
+      if (day.hunger != null) parts.push(`faim=${CAT_FEEL_LABELS[day.hunger]}`);
+      if (day.energy != null) parts.push(`motivation=${CAT_FEEL_LABELS[day.energy]}`);
+      if (day.fatigue != null) parts.push(`fatigue=${CAT_FEEL_LABELS[day.fatigue]}`);
       return `- ${day.date} ${parts.join(" ")}`;
     });
   if (lines.length === 0) {
-    return "Check-in quotidien : aucun jour noté (ignorer — ne pas inventer de 3/5).";
+    return "Check-in quotidien : aucun jour noté (ignorer — ne pas inventer de sticker).";
   }
-  return `Check-in quotidien (seulement les jours notés, les autres ignorés) :
+  return `Check-in quotidien (ok / bof / crevé, seulement les jours notés) :
 ${lines.join("\n")}`;
 }

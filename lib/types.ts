@@ -1,4 +1,5 @@
 import type { AppliedAdjustments } from "@/lib/coach-adjustments";
+import type { CatFeelMood } from "@/lib/cat-feel";
 
 export type ProfileId = "alexis" | "elodie";
 export type ViewMode = ProfileId | "couple";
@@ -174,9 +175,9 @@ export interface SundayJournalFields {
   mood: string;
   wins: string;
   blockers: string;
-  hunger: number;
-  energy: number;
-  fatigue: number;
+  hunger: CatFeelMood;
+  energy: CatFeelMood;
+  fatigue: CatFeelMood;
 }
 
 export interface WeightEntry {
@@ -222,8 +223,8 @@ export interface DailyMovement {
 export interface DailyCheckin {
   date: string;
   profileId: ProfileId;
-  hunger: number;
-  energy: number;
+  hunger: CatFeelMood;
+  energy: CatFeelMood;
   fasting: boolean;
   notes?: string;
 }

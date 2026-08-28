@@ -40,6 +40,33 @@ html.dark {
   --shadow-card: 0 0 0 0.5px rgba(255, 255, 255, 0.08);
 }
 
+html[data-season="spring"] {
+  --c-bg: 243 245 242;
+}
+html[data-season="summer"] {
+  --c-bg: 245 243 238;
+}
+html[data-season="autumn"] {
+  --c-bg: 244 240 234;
+}
+html[data-season="winter"] {
+  --c-bg: 236 241 246;
+}
+html[data-weather="heat"] {
+  --c-bg: 246 241 232;
+}
+html[data-weather="rain"] {
+  --c-bg: 236 240 244;
+}
+html[data-weather="snow"] {
+  --c-bg: 234 240 247;
+}
+
+html.dark[data-season],
+html.dark[data-weather] {
+  --c-bg: 0 0 0;
+}
+
 html,
 body {
   min-height: 100%;
@@ -140,11 +167,35 @@ body {
   animation: gemini-cat-ground 0.45s linear infinite;
 }
 
+@keyframes today-delight-pop {
+  0% {
+    opacity: 0;
+    transform: translateY(10px) scale(0.96);
+  }
+  12% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  82% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(6px) scale(0.98);
+  }
+}
+
+.today-delight-pop {
+  animation: today-delight-pop 2.6s ease forwards;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .gemini-cat-run,
   .gemini-cat-leg,
   .gemini-cat-tail,
-  .gemini-cat-ground {
+  .gemini-cat-ground,
+  .today-delight-pop {
     animation: none;
   }
 }

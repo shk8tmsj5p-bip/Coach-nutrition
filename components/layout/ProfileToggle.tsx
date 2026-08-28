@@ -1,16 +1,18 @@
 "use client";
 
 import { Moon, Sun } from "lucide-react";
+import { WeatherChip } from "@/components/layout/WeatherChip";
 import { useProfile } from "@/context/ProfileContext";
 import { useTheme } from "@/context/ThemeContext";
+import { VIEW_ORDER } from "@/lib/view-cycle";
 import { cn } from "@/lib/utils";
 import type { ViewMode } from "@/lib/types";
 
-const OPTIONS: { id: ViewMode; label: string }[] = [
-  { id: "alexis", label: "Alexis" },
-  { id: "elodie", label: "Élodie" },
-  { id: "couple", label: "Couple" },
-];
+const LABELS: Record<ViewMode, string> = {
+  alexis: "Alexis",
+  elodie: "Élodie",
+  couple: "Couple",
+};
 
 export function ProfileToggle() {
   const { view, setView } = useProfile();
@@ -20,26 +22,27 @@ export function ProfileToggle() {
     <header className="sticky top-0 z-30 bg-health-bg/85 px-4 pb-3 pt-3 backdrop-blur-xl">
       <div className="flex items-center gap-2">
         <div className="flex min-w-0 flex-1 rounded-full bg-health-card p-1 shadow-card">
-          {OPTIONS.map((option) => {
-            const active = view === option.id;
+          {VIEW_ORDER.map((id) => {
+            const active = view === id;
             return (
               <button
-                key={option.id}
+                key={id}
                 type="button"
-                onClick={() => setView(option.id)}
+                onClick={() => setView(id)}
                 className={cn(
                   "flex-1 rounded-full py-2 text-[13px] font-semibold tracking-tight transition",
-                  active && option.id === "alexis" && "bg-coral text-white shadow-sm",
-                  active && option.id === "elodie" && "bg-violet text-white shadow-sm",
-                  active && option.id === "couple" && "bg-health-ink text-white shadow-sm",
+                  active && id === "alexis" && "bg-coral text-white shadow-sm",
+                  active && id === "elodie" && "bg-violet text-white shadow-sm",
+                  active && id === "couple" && "bg-health-ink text-white shadow-sm",
                   !active && "text-health-muted",
                 )}
               >
-                {option.label}
+                {LABELS[id]}
               </button>
             );
           })}
         </div>
+        <WeatherChip />
         <button
           type="button"
           onClick={toggleScheme}

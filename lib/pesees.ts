@@ -1,3 +1,4 @@
+import { parseFeelMoodRequired, type CatFeelMood } from "@/lib/cat-feel";
 import { weightHistory } from "@/lib/mock-data";
 import { addDaysISO, todayISO } from "@/lib/dates";
 import type { Pesee, ProfileId, SundayJournalFields } from "@/lib/types";
@@ -27,9 +28,9 @@ export function seedPesees(profileId: ProfileId): Pesee[] {
               mood: "Semaine chargée, un peu de faim le soir",
               wins: "3 sorties vélo",
               blockers: "Coucher tard",
-              hunger: 4,
-              energy: 3,
-              fatigue: 4,
+              hunger: "creve" as CatFeelMood,
+              energy: "bof" as CatFeelMood,
+              fatigue: "creve" as CatFeelMood,
             },
           },
           {
@@ -38,9 +39,9 @@ export function seedPesees(profileId: ProfileId): Pesee[] {
               mood: "Stable",
               wins: "Protéines tenues 5/7",
               blockers: "Resto mercredi",
-              hunger: 3,
-              energy: 4,
-              fatigue: 2,
+              hunger: "bof" as CatFeelMood,
+              energy: "ok" as CatFeelMood,
+              fatigue: "ok" as CatFeelMood,
             },
           },
           {
@@ -49,9 +50,9 @@ export function seedPesees(profileId: ProfileId): Pesee[] {
               mood: "Bonne énergie",
               wins: "4 sorties vélo",
               blockers: "Léger plateau balance",
-              hunger: 3,
-              energy: 4,
-              fatigue: 3,
+              hunger: "bof" as CatFeelMood,
+              energy: "ok" as CatFeelMood,
+              fatigue: "bof" as CatFeelMood,
             },
           },
         ]
@@ -62,9 +63,9 @@ export function seedPesees(profileId: ProfileId): Pesee[] {
               mood: "Fatigue accumulée",
               wins: "2 runs",
               blockers: "Sommeil court",
-              hunger: 3,
-              energy: 2,
-              fatigue: 4,
+              hunger: "bof" as CatFeelMood,
+              energy: "creve" as CatFeelMood,
+              fatigue: "creve" as CatFeelMood,
             },
           },
           {
@@ -73,9 +74,9 @@ export function seedPesees(profileId: ProfileId): Pesee[] {
               mood: "Mieux",
               wins: "Hydratation",
               blockers: "En-cas tardif 1 soir",
-              hunger: 2,
-              energy: 4,
-              fatigue: 2,
+              hunger: "ok" as CatFeelMood,
+              energy: "ok" as CatFeelMood,
+              fatigue: "ok" as CatFeelMood,
             },
           },
           {
@@ -84,9 +85,9 @@ export function seedPesees(profileId: ProfileId): Pesee[] {
               mood: "Bonne énergie, sommeil OK",
               wins: "3 runs, 0 snacking tardif",
               blockers: "Plateau 4 jours — patience",
-              hunger: 2,
-              energy: 4,
-              fatigue: 2,
+              hunger: "ok" as CatFeelMood,
+              energy: "ok" as CatFeelMood,
+              fatigue: "ok" as CatFeelMood,
             },
           },
         ];
@@ -160,7 +161,7 @@ export function sliceTrendRange<T extends { date: string }>(
 }
 
 export function emptyJournal(): SundayJournalFields {
-  return { mood: "", wins: "", blockers: "", hunger: 3, energy: 3, fatigue: 3 };
+  return { mood: "", wins: "", blockers: "", hunger: "bof", energy: "bof", fatigue: "bof" };
 }
 
 export function parseJournalNotes(raw: string | null | undefined): SundayJournalFields {
@@ -172,9 +173,9 @@ export function parseJournalNotes(raw: string | null | undefined): SundayJournal
         mood: String(parsed.mood ?? ""),
         wins: String(parsed.wins ?? ""),
         blockers: String(parsed.blockers ?? ""),
-        hunger: clampScore(parsed.hunger),
-        energy: clampScore(parsed.energy),
-        fatigue: clampScore(parsed.fatigue),
+        hunger: parseFeelMoodRequired(parsed.hunger, "hunger"),
+        energy: parseFeelMoodRequired(parsed.energy, "energy"),
+        fatigue: parseFeelMoodRequired(parsed.fatigue, "fatigue"),
       };
     }
   } catch {
@@ -183,20 +184,14 @@ export function parseJournalNotes(raw: string | null | undefined): SundayJournal
   return { ...emptyJournal(), mood: raw };
 }
 
-function clampScore(value: unknown) {
-  const n = Number(value);
-  if (!Number.isFinite(n)) return 3;
-  return Math.min(5, Math.max(1, Math.round(n)));
-}
-
 export function serializeJournalNotes(fields: SundayJournalFields) {
   if (
     !fields.mood.trim() &&
     !fields.wins.trim() &&
     !fields.blockers.trim() &&
-    fields.hunger === 3 &&
-    fields.energy === 3 &&
-    fields.fatigue === 3
+    fields.hunger === "bof" &&
+    fields.energy === "bof" &&
+    fields.fatigue === "bof"
   ) {
     return null;
   }

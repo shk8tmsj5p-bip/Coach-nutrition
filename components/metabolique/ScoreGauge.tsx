@@ -1,32 +1,26 @@
+import { CatSticker } from "@/components/ui/CatSticker";
+import { CAT_FEEL_LABELS, type CatFeelMood } from "@/lib/cat-feel";
+
+const FILL: Record<CatFeelMood, number> = { ok: 0.28, bof: 0.58, creve: 1 };
+const COLOR: Record<CatFeelMood, string> = {
+  ok: "#34C759",
+  bof: "#FF9F0A",
+  creve: "#FF6B4A",
+};
+
 export function ScoreGauge({
   label,
-  value,
-  max = 5,
-  invert = false,
+  mood,
 }: {
   label: string;
-  value: number;
-  max?: number;
-  invert?: boolean;
+  mood: CatFeelMood;
 }) {
-  const clamped = Math.max(0, Math.min(max, value));
-  const pct = clamped / max;
-  const color = invert
-    ? pct >= 0.8
-      ? "#FF6B4A"
-      : pct >= 0.6
-        ? "#FF9F0A"
-        : "#34C759"
-    : pct <= 0.4
-      ? "#FF6B4A"
-      : pct >= 0.6
-        ? "#34C759"
-        : "#FF9F0A";
   const size = 76;
   const stroke = 8;
   const r = (size - stroke) / 2;
   const circ = 2 * Math.PI * r;
-  const offset = circ * (1 - pct);
+  const offset = circ * (1 - FILL[mood]);
+  const color = COLOR[mood];
 
   return (
     <div className="flex flex-col items-center">
@@ -52,11 +46,11 @@ export function ScoreGauge({
             strokeDashoffset={offset}
           />
         </svg>
-        <div className="absolute inset-0 flex flex-col items-center justify-center">
-          <span className="text-[20px] font-bold leading-none tabular-nums" style={{ color }}>
-            {clamped}
+        <div className="absolute inset-0 flex flex-col items-center justify-center" style={{ color }}>
+          <CatSticker mood={mood} className="h-6 w-7" />
+          <span className="mt-0.5 text-[10px] font-semibold leading-none">
+            {CAT_FEEL_LABELS[mood]}
           </span>
-          <span className="text-[10px] text-health-muted">/{max}</span>
         </div>
       </div>
       <p className="mt-1.5 text-[12px] font-semibold">{label}</p>

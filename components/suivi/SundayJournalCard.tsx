@@ -1,39 +1,9 @@
 "use client";
 
 import { Card, SectionTitle } from "@/components/ui/Card";
+import { FeelStickerRow } from "@/components/ui/FeelStickerRow";
+import { FEEL_AXIS_HINTS, FEEL_AXIS_LABELS } from "@/lib/cat-feel";
 import type { SundayJournalFields } from "@/lib/types";
-import { cn } from "@/lib/utils";
-
-function ScoreRow({
-  label,
-  value,
-  onChange,
-}: {
-  label: string;
-  value: number;
-  onChange: (value: number) => void;
-}) {
-  return (
-    <div className="flex items-center justify-between gap-3">
-      <span className="text-[13px] font-medium">{label}</span>
-      <div className="flex gap-1">
-        {[1, 2, 3, 4, 5].map((score) => (
-          <button
-            key={score}
-            type="button"
-            onClick={() => onChange(score)}
-            className={cn(
-              "h-8 w-8 rounded-full text-[12px] font-semibold",
-              value === score ? "bg-health-ink text-white" : "bg-white text-health-muted",
-            )}
-          >
-            {score}
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-}
 
 export function SundayJournalCard({
   weekLabel,
@@ -97,24 +67,33 @@ export function SundayJournalCard({
             placeholder="Points à lisser la semaine prochaine"
           />
         </label>
-        <div className="mt-3 space-y-2 rounded-2xl bg-health-bg px-3 py-3">
+        <div className="mt-3 space-y-3 rounded-2xl bg-health-bg px-3 py-3">
           <p className="text-[11px] font-semibold uppercase tracking-wide text-health-muted">
-            Pour le coach (Gemini Flash)
+            Comme Aujourd’hui
           </p>
-          <ScoreRow
-            label="Faim"
+          <FeelStickerRow
+            axis="hunger"
+            label={FEEL_AXIS_LABELS.hunger}
+            hint={FEEL_AXIS_HINTS.hunger}
             value={fields.hunger}
             onChange={(hunger) => onChange({ ...fields, hunger })}
+            surface="wash"
           />
-          <ScoreRow
-            label="Énergie"
+          <FeelStickerRow
+            axis="energy"
+            label={FEEL_AXIS_LABELS.energy}
+            hint={FEEL_AXIS_HINTS.energy}
             value={fields.energy}
             onChange={(energy) => onChange({ ...fields, energy })}
+            surface="wash"
           />
-          <ScoreRow
-            label="Fatigue"
+          <FeelStickerRow
+            axis="fatigue"
+            label={FEEL_AXIS_LABELS.fatigue}
+            hint={FEEL_AXIS_HINTS.fatigue}
             value={fields.fatigue}
             onChange={(fatigue) => onChange({ ...fields, fatigue })}
+            surface="wash"
           />
         </div>
         <button

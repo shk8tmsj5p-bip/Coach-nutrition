@@ -10,6 +10,7 @@ import { energyBalanceLook, formatSignedKcal } from "@/lib/energy-balance";
 import { emptyMacros, mealsOnDate, sumDayMacros } from "@/lib/energy-history";
 import { addDaysISO, formatLongDate, todayISO } from "@/lib/dates";
 import { burnedKcalFromHealth } from "@/lib/health-energy";
+import { formatFeelLine } from "@/lib/cat-feel";
 import type { DailyFeelEntry } from "@/lib/daily-feel";
 import type { DatedMeal } from "@/lib/recent-foods";
 import type { DailyMovement, MealEntry, MealType, Profile } from "@/lib/types";
@@ -187,10 +188,7 @@ export function DayLogSheet({
         </div>
         <CompactMacrosRow current={eaten} target={profile.targets} goal={profile.primaryGoal} />
         {feel && (feel.hunger != null || feel.energy != null || feel.fatigue != null) ? (
-          <p className="mt-2 text-[12px] text-health-muted">
-            Faim {feel.hunger ?? "—"}/5 · Énergie {feel.energy ?? "—"}/5 · Fatigue {feel.fatigue ?? "—"}
-            /5
-          </p>
+          <p className="mt-2 text-[12px] text-health-muted">{formatFeelLine(feel)}</p>
         ) : null}
 
         <p className="mb-2 mt-4 text-[12px] font-medium text-health-muted">Repas · toucher pour modifier</p>

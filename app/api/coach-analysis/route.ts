@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { emptyJournal } from "@/lib/pesees";
 import { callGeminiFlashText } from "@/lib/gemini/coach";
 import {
   coachAnalysisPrompt,
@@ -22,7 +23,7 @@ export async function POST(request: Request) {
     weightTrend7d: body.weightTrend7d ?? [],
     sessions: body.sessions ?? [],
     recentJournals: body.recentJournals ?? [],
-    journal: body.journal ?? { date: "", notes: { mood: "", wins: "", blockers: "", hunger: 3, energy: 3, fatigue: 3 } },
+    journal: body.journal ?? { date: "", notes: emptyJournal() },
     dailyFeels: body.dailyFeels ?? [],
   };
 

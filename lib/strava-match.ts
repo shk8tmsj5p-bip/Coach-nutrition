@@ -12,8 +12,18 @@ export type SimulatedStravaActivity = {
 export type SessionValidation = { activityName: string; dismissed?: boolean };
 type DayValidations = Record<string, SessionValidation>;
 
+export const SESSION_VALIDATIONS_EVENT = "cn-session-validations";
+
 function storageKey(profileId: ProfileId, date: string) {
   return `strava-match:${profileId}:${date}`;
+}
+
+function persistValidations(profileId: ProfileId, date: string, next: DayValidations) {
+  storage.setJSON(storageKey(profileId, date), next);
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new Event(SESSION_VALIDATIONS_EVENT));
+  }
+  return next;
 }
 
 export function loadSessionValidations(profileId: ProfileId, date = todayISO()): DayValidations {
@@ -35,8 +45,7 @@ export function markSessionsValidated(
   for (const id of sessionIds) {
     next[id] = { activityName };
   }
-  storage.setJSON(storageKey(profileId, date), next);
-  return next;
+  return persistValidations(profileId, date, next);
 }
 
 /** Marque la séance non faite. Santé ne la revalide pas aujourd’hui. */
@@ -50,8 +59,7 @@ export function unvalidateSession(
     ...current,
     [sessionId]: { activityName: current[sessionId]?.activityName ?? "", dismissed: true },
   };
-  storage.setJSON(storageKey(profileId, date), next);
-  return next;
+  return persistValidations(profileId, date, next);
 }
 
 export function toggleSessionValidation(

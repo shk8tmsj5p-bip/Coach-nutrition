@@ -1,3 +1,4 @@
+import { formatFeelPromptBits, type CatFeelMood } from "@/lib/cat-feel";
 import type { Macros, Profile, SportActivity, SportEffort } from "@/lib/types";
 import type { CoachActivityDay, CoachSessionSnapshot } from "@/lib/coach-week-sessions";
 import type { CoachTrendPoint, CoachWeekPayload } from "@/lib/coach-payload";
@@ -117,7 +118,7 @@ export function coachHeadline(analysis: CoachAnalysis) {
 }
 
 export function isStressedWeek(
-  notes: { hunger: number; energy: number; fatigue: number },
+  notes: { hunger: CatFeelMood; energy: CatFeelMood; fatigue: CatFeelMood },
   dailyFeels?: DailyFeelEntry[],
 ) {
   return isStressedNotes(notes) || isStressedDaily(dailyFeels);
@@ -242,8 +243,8 @@ export function localCoachAnalysis(body: CoachAnalysisRequest): CoachAnalysis {
       true,
     );
     const feelLine = isStressedDaily(body.dailyFeels)
-      ? "Un check-in quotidien signale faim, fatigue ou énergie basse."
-      : `Journal dimanche : faim ${notes.hunger}/5, énergie ${notes.energy}/5, fatigue ${notes.fatigue}/5.`;
+      ? "Un check-in quotidien signale un sticker crevé (faim, motivation ou fatigue)."
+      : `Journal dimanche : ${formatFeelPromptBits(notes)}.`;
     return {
       analysis: `Sur 7 jours : ${feelLine} ${weightLine} Séances ${completed}/${planned || 0} validées. La récupération prime : pas de coupe calorique cette semaine.`,
       nutrition: [
@@ -255,7 +256,7 @@ export function localCoachAnalysis(body: CoachAnalysisRequest): CoachAnalysis {
         hasIntervals
           ? "Conserver la séance Zone 2, alléger le fractionné"
           : "Garder l’endurance, ne pas ajouter d’intensité",
-        "Si fatigue ≥ 4 : raccourcir de 10–15 min plutôt que d’annuler",
+        "Si fatigue crevée : raccourcir de 10–15 min plutôt que d’annuler",
       ],
       sportAdjustments,
       targets: current,
@@ -279,7 +280,7 @@ export function localCoachAnalysis(body: CoachAnalysisRequest): CoachAnalysis {
         ],
         sport: [
           "Rattraper le volume prévu, pas d’intensité en plus",
-          "Ajouter ~1000 pas hors sport si la fatigue reste ≤ 3",
+          "Ajouter ~1000 pas hors sport si la fatigue n’est pas crevée",
         ],
         sportAdjustments: [],
         targets: current,
@@ -320,7 +321,7 @@ export function localCoachAnalysis(body: CoachAnalysisRequest): CoachAnalysis {
       ],
       sport: [
         "Conserver le volume actuel",
-        "Ajouter ~1000 pas hors sport si la fatigue reste ≤ 3",
+        "Ajouter ~1000 pas hors sport si la fatigue n’est pas crevée",
       ],
       sportAdjustments,
       targets: average,
@@ -350,7 +351,7 @@ export function localCoachAnalysis(body: CoachAnalysisRequest): CoachAnalysis {
       "Jours de repos : dîner low calorie inchangé",
     ],
     sport: [
-      hasIntervals ? "Conserver la séance Zone 2 ; fractionné seulement si fraîcheur ≥ 3/5" : "Tenir le plan d’endurance",
+      hasIntervals ? "Conserver la séance Zone 2 ; fractionné seulement si motivation ok et fatigue ok" : "Tenir le plan d’endurance",
       planned === 0 ? "Rien de prévu : une sortie Zone 2 légère si l’énergie le permet" : "Ne pas empiler d’intensité supplémentaire cette semaine",
     ],
     sportAdjustments,
@@ -380,7 +381,7 @@ export function coachAnalysisPrompt(body: CoachAnalysisRequest) {
     .slice(0, 3)
     .map(
       (entry) =>
-        `- ${entry.date} faim=${entry.notes.hunger} énergie=${entry.notes.energy} fatigue=${entry.notes.fatigue}`,
+        `- ${entry.date} ${formatFeelPromptBits(entry.notes)}`,
     )
     .join("\n");
   const routine =
@@ -404,7 +405,7 @@ ${trend || "(aucune)"}
 
 Journal dimanche le plus récent (${body.journal.date}) :
 humeur="${notes.mood}" victoires="${notes.wins}" freins="${notes.blockers}"
-faim=${notes.hunger}/5 énergie=${notes.energy}/5 fatigue=${notes.fatigue}/5
+${formatFeelPromptBits(notes)}
 ${recent ? `Autres notes :\n${recent}` : ""}
 
 ${formatDailyFeelsForPrompt(body.dailyFeels)}
@@ -425,7 +426,7 @@ ${
 Lecture plateau :
 - Poids plat ET minutes d’exercice clairement sous le plan → d’abord bouger / tenir les séances, INTERDIT de couper l’assiette.
 - Poids plat ET sport tenu ET notes OK → possible surplus alimentaire : −150 kcal max les jours de repos.
-- Poids plat ET faim≥4 / fatigue≥4 / énergie≤2 (jour noté) → pas de coupe.
+- Poids plat ET sticker crevé (faim, motivation ou fatigue, jour noté) → pas de coupe.
 
 Routine persistée (source Tab 2 / séance du jour) :
 ${routine}
@@ -433,11 +434,11 @@ ${routine}
 Mission :
 1. Analyser fatigue vs performance vs poids vs DÉPENSE RÉELLE 7 j (3–5 phrases, français). Distinguer clairement : pas assez bougé / trop mangé / vrai plateau / récupération.
 2. Proposer des micro-ajustements EXACTS (kcal, glucides, protéines) distincts jour d'entraînement vs jour de repos. Exemple : "+20g glucides les jours de course".
-3. Ajuster l'intensité / la durée sport si faim/fatigue hautes (alléger fractionné → Zone 2, raccourcir 10 min). Ne pas inventer de nouvelles séances.
+3. Ajuster l'intensité / la durée sport si faim/fatigue crevées (alléger fractionné → Zone 2, raccourcir 10 min). Ne pas inventer de nouvelles séances.
 
 Règles :
-- Si faim ≥ 4 OU fatigue ≥ 4 OU énergie ≤ 2 (journal dimanche OU n'importe quel check-in quotidien noté) : INTERDIT de baisser les calories. calorie_delta = 0. Préférer glucides d'entraînement + récupération. sport_adjustments : duration_delta_min négatif (−10) et next_effort plus facile si fractionné / HIIT.
-- Jours SANS check-in quotidien : ignorer complètement (ne pas inventer de 3/5).
+- Si un sticker crevé (faim, motivation ou fatigue — journal dimanche OU n'importe quel check-in quotidien noté) : INTERDIT de baisser les calories. calorie_delta = 0. Préférer glucides d'entraînement + récupération. sport_adjustments : duration_delta_min négatif (−10) et next_effort plus facile si fractionné / HIIT.
+- Jours SANS check-in quotidien : ignorer complètement (ne pas inventer de sticker).
 - Plateau perte ET sport sous le plan : calorie_delta = 0. Dire de tenir les séances / +pas. sport_adjustments = [].
 - Plateau perte ET sport tenu ET notes OK (journal dimanche + check-ins notés, jours sans note ignorés) : −150 kcal/j max, plutôt les jours de repos. Jamais plus de −200 kcal/j. sport_adjustments = [] (volume conservé).
 - Prise de masse : ne pas couper les kcal.

@@ -228,8 +228,8 @@ export const recentHighIntensity: Workout[] = [
 ];
 
 export const todayCheckins: DailyCheckin[] = [
-  { date: TODAY, profileId: "alexis", hunger: 3, energy: 4, fasting: false },
-  { date: TODAY, profileId: "elodie", hunger: 2, energy: 4, fasting: false },
+  { date: TODAY, profileId: "alexis", hunger: "bof", energy: "ok", fasting: false },
+  { date: TODAY, profileId: "elodie", hunger: "ok", energy: "ok", fasting: false },
 ];
 
 function buildWeightHistory(): WeightEntry[] {

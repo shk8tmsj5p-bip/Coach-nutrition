@@ -27,7 +27,7 @@ import { TodayEnergyCard } from "@/components/today/TodayEnergyCard";
 import { CoachBadge, CoachDiffTags, CoachMealAddTags, coachHighlightClass } from "@/components/today/CoachDelta";
 import { Card, SectionTitle } from "@/components/ui/Card";
 import { GoalBadge } from "@/components/ui/MacroProgress";
-import { formatLongDate, isoWeekday, mondayOf, todayISO, yesterdayISO } from "@/lib/dates";
+import { formatLongDate, isoWeekday, mondayOf, todayISO, yesterdayISO, addDaysISO } from "@/lib/dates";
 import {
   suggestedSnacks,
   todayMeals,
@@ -57,6 +57,7 @@ import { withGeminiWait } from "@/lib/gemini/wait";
 import { requestCoachQuickAdd } from "@/lib/gemini/client";
 import {
   copyYesterdayMeals,
+  fetchMealsRange,
   fetchRecentLoggedMeals,
   fetchTodayMeals,
   fillMissingSlotsFromTemplates,
@@ -75,6 +76,20 @@ import { loadWeekLunchDessert, type WeekLunchDessert } from "@/lib/week-dessert"
 import { clearDailyFeel, fetchTodayFeels, upsertDailyFeel } from "@/lib/supabase/daily-feel";
 import { emptyFeel, hasCompleteFeel, hasFeelScore, type DailyFeelScores } from "@/lib/daily-feel";
 import { todayCoachRemark, buildTodayCoachSnapshot } from "@/lib/today-coach";
+import { isFilledMeal, slotOfProfile } from "@/lib/meal-slot";
+import { coupleLunchStreak } from "@/lib/couple-streak";
+import {
+  buildTodayCatSnapshot,
+  mealsAccountedToday,
+  pickTodayCatLine,
+  todaySessionFlags,
+} from "@/lib/today-cat";
+import { SESSION_VALIDATIONS_EVENT } from "@/lib/strava-match";
+import { TodayCatBanner } from "@/components/today/TodayCatBanner";
+import { TodayDelight } from "@/components/today/TodayDelight";
+import { FeelStickerRow } from "@/components/ui/FeelStickerRow";
+import { FEEL_AXIS_HINTS, FEEL_AXIS_LABELS, type CatFeelMood } from "@/lib/cat-feel";
+import { useSeasonWeather } from "@/context/SeasonContext";
 import type { FavoriteRecipe } from "@/lib/favorites";
 import {
   canFavoriteMeal,
@@ -139,21 +154,6 @@ function otherProfileId(id: ProfileId): ProfileId {
 
 function profileShortName(id: ProfileId) {
   return id === "alexis" ? "Alexis" : "Élodie";
-}
-
-function slotOfProfile(list: MealEntry[], profileId: ProfileId, type: MealType) {
-  return list.find((meal) => meal.profileId === profileId && meal.type === type);
-}
-
-function isFilledMeal(meal: MealEntry | undefined) {
-  if (!meal || meal.isSkipped) return false;
-  const items = (meal.items ?? []).filter(
-    (line) => line.trim() && !isEmptyDessertMarker(line),
-  );
-  if (items.length > 0) return true;
-  if (meal.macros.calories > 0) return true;
-  const name = meal.name.trim().toLowerCase();
-  return name.length > 0 && name !== "repas sauté";
 }
 
 function yesterdayHasSlot(yesterdayMeals: MealEntry[], profileId: ProfileId, type: MealType) {
@@ -242,6 +242,7 @@ type SyncStatus = "loading" | "seeded" | "ready" | "offline" | "error";
 
 export default function AujourdhuiScreen() {
   const { activeProfiles, view, catalog } = useProfile();
+  const { season, weather } = useSeasonWeather();
   const [meals, setMeals] = useState<MealEntry[]>([]);
   const [ratings, setRatings] = useState<Record<ProfileId, DailyFeelScores>>({
     alexis: emptyFeel(),
@@ -270,13 +271,21 @@ export default function AujourdhuiScreen() {
   const [lunchDessert, setLunchDessert] = useState<WeekLunchDessert | null>(null);
   const [favorites, setFavorites] = useState<FavoriteRecipe[]>([]);
   const [rejected, setRejected] = useState<RejectedRecipe[]>([]);
+  const [streakMeals, setStreakMeals] = useState<Array<MealEntry & { date?: string }>>([]);
+  const [sessionTick, setSessionTick] = useState(0);
 
   function flash(message: string) {
     setToast(message);
     window.setTimeout(() => setToast(null), 2200);
   }
 
-  async function persistFeel(profileId: ProfileId, key: "hunger" | "energy" | "fatigue", value: number) {
+  useEffect(() => {
+    const bump = () => setSessionTick((n) => n + 1);
+    window.addEventListener(SESSION_VALIDATIONS_EVENT, bump);
+    return () => window.removeEventListener(SESSION_VALIDATIONS_EVENT, bump);
+  }, []);
+
+  async function persistFeel(profileId: ProfileId, key: "hunger" | "energy" | "fatigue", value: CatFeelMood) {
     const next = { ...(ratings[profileId] ?? emptyFeel()), [key]: value };
     setRatings((prev) => ({ ...prev, [profileId]: next }));
     const error = await upsertDailyFeel(createBrowserSupabaseClient(), profileId, todayISO(), next);
@@ -377,6 +386,7 @@ export default function AujourdhuiScreen() {
       setMeals(withTemplatesAndPlan(todayMeals, true));
       setWorkouts(todayWorkouts.filter((workout) => ids.includes(workout.profileId)));
       setMovement(todayMovement);
+      setStreakMeals(todayMeals.map((meal) => ({ ...meal, date })));
       setStatus("offline");
       setStatusDetail("Supabase non configuré — mock local");
       return;
@@ -392,11 +402,12 @@ export default function AujourdhuiScreen() {
       return;
     }
 
-    const [{ meals: rows, error }, activity, yest, recents] = await Promise.all([
+    const [{ meals: rows, error }, activity, yest, recents, range] = await Promise.all([
       fetchTodayMeals(supabase, HOUSEHOLD_IDS),
       fetchTodayActivity(supabase, ids),
       fetchTodayMeals(supabase, HOUSEHOLD_IDS, yesterdayISO()),
       fetchRecentLoggedMeals(supabase, HOUSEHOLD_IDS),
+      fetchMealsRange(supabase, HOUSEHOLD_IDS, addDaysISO(date, -20), date),
     ]);
 
     if (error) {
@@ -408,6 +419,7 @@ export default function AujourdhuiScreen() {
     setMeals(withTemplatesAndPlan(rows, false));
     setYesterdayMeals((yest.meals ?? []).filter((meal) => !meal.isSkipped));
     setRecentMeals(recents.meals ?? []);
+    setStreakMeals(range.meals ?? []);
     setWorkouts(activity.workouts);
     setMovement(activity.movement);
     setStatus(seed.seeded ? "seeded" : "ready");
@@ -872,10 +884,50 @@ export default function AujourdhuiScreen() {
     flash(types.length > 1 ? "Journée réinitialisée" : "Repas réinitialisé");
   }
 
+  const catSnapshot = useMemo(() => {
+    void sessionTick;
+    return buildTodayCatSnapshot({
+      view,
+      profiles: activeProfiles,
+      meals,
+      ratings,
+      workouts,
+      movement,
+      weekPlan,
+      season,
+      weather,
+    });
+  }, [activeProfiles, meals, movement, ratings, season, view, weather, weekPlan, workouts, sessionTick]);
+  const catLine = useMemo(() => pickTodayCatLine(catSnapshot).text, [catSnapshot]);
+  const lunchStreak = useMemo(() => {
+    const today = todayISO();
+    return coupleLunchStreak(
+      [...streakMeals, ...meals.map((meal) => ({ ...meal, date: meal.date ?? today }))],
+      today,
+    );
+  }, [meals, streakMeals]);
+  const delightProfiles = useMemo(() => {
+    void sessionTick;
+    return activeProfiles.map((profile) => {
+      const sport = todaySessionFlags(
+        profile,
+        workouts.filter((workout) => workout.profileId === profile.id),
+      );
+      return {
+        id: profile.id,
+        name: profile.name,
+        meals: mealsAccountedToday(meals, profile.id),
+        session: sport.planned && sport.done,
+        journal: Boolean(ratings[profile.id]?.validated),
+      };
+    });
+  }, [activeProfiles, meals, ratings, workouts, sessionTick]);
+
   return (
     <div>
       <h1 className="text-[28px] font-bold tracking-tight">Aujourd&apos;hui</h1>
       <p className="mt-0.5 text-[13px] capitalize text-health-muted">{formatLongDate(todayISO())}</p>
+      <TodayCatBanner line={catLine} streak={lunchStreak} />
       {status === "loading" || status === "offline" || status === "error" ? (
         <p className="mt-1 text-[12px] text-health-muted">
           {status === "loading" && "Connexion…"}
@@ -1063,6 +1115,12 @@ export default function AujourdhuiScreen() {
         />
       )}
 
+      <TodayDelight
+        profiles={delightProfiles}
+        couple={view === "couple"}
+        armed={status !== "loading"}
+      />
+
       {toast && (
         <div className="fixed bottom-24 left-1/2 z-50 -translate-x-1/2 rounded-full bg-health-ink px-4 py-2 text-[13px] text-white shadow-card">
           {toast}
@@ -1130,7 +1188,7 @@ function ProfileToday({
   meals: MealEntry[];
   householdMeals: MealEntry[];
   ratings: DailyFeelScores;
-  onRate: (key: "hunger" | "energy" | "fatigue", value: number) => void;
+  onRate: (key: "hunger" | "energy" | "fatigue", value: CatFeelMood) => void;
   onResetFeel: () => void;
   onValidateFeel: () => void;
   onAddToSlot: (type: MealType) => void;
@@ -1418,6 +1476,7 @@ function ProfileToday({
                     {copyFromOther ? (
                       <DuplicateMealBtn
                         label={`Copier celui ${otherId === "elodie" ? "d’Élodie" : "d’Alexis"}`}
+                        hint={slot === "dejeuner" || slot === "diner" ? "Tu copies le sien ?" : undefined}
                         onClick={() => onCopyFromOther(slot)}
                       />
                     ) : null}
@@ -1603,14 +1662,32 @@ function ProfileToday({
           </button>
         }
       >
-        Faim, énergie & fatigue
+        Faim, motivation & fatigue
       </SectionTitle>
       <Card>
-        <RatingRow label="Faim" value={ratings.hunger} onChange={(v) => onRate("hunger", v)} />
+        <FeelStickerRow
+          axis="hunger"
+          label={FEEL_AXIS_LABELS.hunger}
+          hint={FEEL_AXIS_HINTS.hunger}
+          value={ratings.hunger}
+          onChange={(v) => onRate("hunger", v)}
+        />
         <div className="my-3 h-px bg-health-line" />
-        <RatingRow label="Énergie" value={ratings.energy} onChange={(v) => onRate("energy", v)} />
+        <FeelStickerRow
+          axis="energy"
+          label={FEEL_AXIS_LABELS.energy}
+          hint={FEEL_AXIS_HINTS.energy}
+          value={ratings.energy}
+          onChange={(v) => onRate("energy", v)}
+        />
         <div className="my-3 h-px bg-health-line" />
-        <RatingRow label="Fatigue" value={ratings.fatigue} onChange={(v) => onRate("fatigue", v)} />
+        <FeelStickerRow
+          axis="fatigue"
+          label={FEEL_AXIS_LABELS.fatigue}
+          hint={FEEL_AXIS_HINTS.fatigue}
+          value={ratings.fatigue}
+          onChange={(v) => onRate("fatigue", v)}
+        />
         {ratings.validated ? (
           <p className="mt-3 text-[11px] leading-snug text-health-muted">
             Noté. Le coach du jour se met à jour si tu logges un repas ou une séance.
@@ -1824,10 +1901,26 @@ function MealCard({
               </button>
             ) : null}
             {onDuplicate && duplicateLabel ? (
-              <DuplicateMealBtn label={duplicateLabel} onClick={onDuplicate} />
+              <DuplicateMealBtn
+                label={duplicateLabel}
+                hint={
+                  meal.type === "dejeuner" || meal.type === "diner"
+                    ? "Tu lui copies le tien ?"
+                    : undefined
+                }
+                onClick={onDuplicate}
+              />
             ) : null}
             {onCopyFromOther && copyFromOtherLabel ? (
-              <DuplicateMealBtn label={copyFromOtherLabel} onClick={onCopyFromOther} />
+              <DuplicateMealBtn
+                label={copyFromOtherLabel}
+                hint={
+                  meal.type === "dejeuner" || meal.type === "diner"
+                    ? "Tu copies le sien ?"
+                    : undefined
+                }
+                onClick={onCopyFromOther}
+              />
             ) : null}
             {onCopyYesterday ? (
               <DuplicateMealBtn label="Comme hier" onClick={onCopyYesterday} />
@@ -1973,52 +2066,28 @@ function RestorePlannedBtn({
 function DuplicateMealBtn({
   label,
   onClick,
+  hint,
 }: {
   label: string;
   onClick: () => void;
+  hint?: string;
 }) {
   return (
-    <button
-      type="button"
-      onClick={(event) => {
-        event.stopPropagation();
-        onClick();
-      }}
-      className="mt-2 inline-flex items-center gap-1 text-[11px] font-semibold"
-    >
-      <Copy size={11} />
-      {label}
-    </button>
-  );
-}
-
-function RatingRow({
-  label,
-  value,
-  onChange,
-}: {
-  label: string;
-  value: number | null;
-  onChange: (value: number) => void;
-}) {
-  return (
-    <div className="flex items-center justify-between">
-      <span className="text-[14px] font-medium">{label}</span>
-      <div className="flex gap-1.5">
-        {[1, 2, 3, 4, 5].map((n) => (
-          <button
-            key={n}
-            type="button"
-            onClick={() => onChange(n)}
-            className={cn(
-              "h-8 w-8 rounded-full text-[13px] font-semibold",
-              value != null && n <= value ? "bg-health-ink text-white" : "bg-health-bg text-health-muted",
-            )}
-          >
-            {n}
-          </button>
-        ))}
-      </div>
-    </div>
+    <span className="mt-2 block">
+      <button
+        type="button"
+        onClick={(event) => {
+          event.stopPropagation();
+          onClick();
+        }}
+        className="inline-flex items-center gap-1 text-[11px] font-semibold"
+      >
+        <Copy size={11} />
+        {label}
+      </button>
+      {hint ? (
+        <p className="mt-0.5 text-[11px] leading-snug text-health-muted">{hint}</p>
+      ) : null}
+    </span>
   );
 }

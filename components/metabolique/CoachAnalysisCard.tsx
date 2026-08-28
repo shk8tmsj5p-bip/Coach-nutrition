@@ -309,9 +309,9 @@ export function CoachAnalysisCard({ profile }: { profile: Profile }) {
       <Card>
         {notes && (
           <div className="mb-3 flex justify-around">
-            <ScoreGauge label="Faim" value={notes.hunger} invert />
-            <ScoreGauge label="Énergie" value={notes.energy} />
-            <ScoreGauge label="Fatigue" value={notes.fatigue} invert />
+            <ScoreGauge label="Faim" mood={notes.hunger} />
+            <ScoreGauge label="Motivation" mood={notes.energy} />
+            <ScoreGauge label="Fatigue" mood={notes.fatigue} />
           </div>
         )}
         {payload?.plateau && (

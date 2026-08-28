@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { parseFeelMoodRequired } from "@/lib/cat-feel";
 import { proposeCoachToday } from "@/lib/gemini/coach-today";
 import { friendlyGeminiError } from "@/lib/gemini/models";
 import { localCoachTodayActions, type CoachTodaySnapshot } from "@/lib/today-coach";
@@ -21,9 +22,9 @@ function asSnapshot(value: unknown): CoachTodaySnapshot | null {
     goal,
     hour: n("hour"),
     period,
-    hunger: n("hunger") || 3,
-    energy: n("energy") || 3,
-    fatigue: n("fatigue") || 3,
+    hunger: parseFeelMoodRequired(rec.hunger, "hunger"),
+    energy: parseFeelMoodRequired(rec.energy, "energy"),
+    fatigue: parseFeelMoodRequired(rec.fatigue, "fatigue"),
     eaten: n("eaten"),
     remaining: n("remaining"),
     target: n("target"),

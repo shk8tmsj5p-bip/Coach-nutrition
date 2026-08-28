@@ -1,3 +1,4 @@
+import { formatFeelPromptBits } from "@/lib/cat-feel";
 import { goalLabel } from "@/lib/goals";
 import { parseGeminiJson } from "@/lib/gemini/meals";
 import { callGeminiFlashText } from "@/lib/gemini/coach";
@@ -59,11 +60,11 @@ export function coachTodayPrompt(snapshot: CoachTodaySnapshot) {
 Moment : ${snapshot.period} (il est ${snapshot.hour} h à Paris).
 Objectif : ${goalLabel(snapshot.goal)}.
 
-RESSENTI DU JOUR (obligatoire de t’en servir — 3 conseils DIFFÉRENTS si les notes changent) :
-faim=${snapshot.hunger}/5  énergie=${snapshot.energy}/5  fatigue=${snapshot.fatigue}/5
-- faim ≥ 4 : INTERDIT de couper les kcal. Volume / protéines, repas plus tôt.
-- énergie ≤ 2 ou fatigue ≥ 4 : INTERDIT de pousser le fractionné / HIIT. Zone 2 ou −10 min. Pas de coupe.
-- énergie ≥ 4 et fatigue ≤ 2 et faim ≤ 3 : tu peux valider une séance exigeante encore prévue.
+RESSENTI DU JOUR (stickers ok / bof / crevé — obligatoire de t’en servir — 3 conseils DIFFÉRENTS si les notes changent) :
+${formatFeelPromptBits(snapshot)}
+- faim crevée : INTERDIT de couper les kcal. Volume / protéines, repas plus tôt.
+- motivation crevée ou fatigue crevée : INTERDIT de pousser le fractionné / HIIT. Zone 2 ou −10 min. Pas de coupe.
+- motivation ok, fatigue ok, faim pas crevée : tu peux valider une séance exigeante encore prévue.
 
 Assiette : ${Math.round(snapshot.eaten)} mangées · encore ~${Math.round(snapshot.remaining)} sur les créneaux ENCORE OUVERTS · cible ${Math.round(snapshot.target)} kcal.
 Dépense : ${snapshot.live ? `~${Math.round(snapshot.burned)} kcal (repos + actif Apple Santé)` : "Santé pas encore sync, viser la cible"}.
@@ -80,7 +81,7 @@ ${workouts}
 Mission : exactement 2 ou 3 actions CONCRÈTES pour les prochaines heures (un aliment, un créneau, une séance). Français, tutoiement. Pas de jargon BMR/TDEE. Pas d’inventer de FC / D+ / fractionné mesuré.
 
 JSON uniquement :
-{ "title": "string court", "actions": [{ "label": "verbe + objet", "detail": "1 phrase pourquoi, liée aux notes faim/énergie/fatigue" }] }`;
+{ "title": "string court", "actions": [{ "label": "verbe + objet", "detail": "1 phrase pourquoi, liée aux stickers faim/motivation/fatigue" }] }`;
 }
 
 export async function proposeCoachToday(snapshot: CoachTodaySnapshot): Promise<CoachTodayAdvice> {
