@@ -14,7 +14,7 @@ export type Appliance =
   | "Four"
   | "Plaque"
   | "KitchenAid";
-export type WorkoutSource = "strava" | "apple-health";
+export type WorkoutSource = "strava" | "apple-health" | "manual";
 
 export interface Macros {
   calories: number;

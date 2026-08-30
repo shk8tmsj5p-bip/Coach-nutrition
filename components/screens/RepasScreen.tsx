@@ -16,7 +16,7 @@ import { SwapIngredientSheet } from "@/components/repas/SwapIngredientSheet";
 import { WeekNav } from "@/components/repas/WeekNav";
 import { useProfile } from "@/context/ProfileContext";
 import { mondayOf, todayISO, isoWeekday } from "@/lib/dates";
-import { requestGenerateMeals } from "@/lib/gemini/client";
+import { requestDessertProduct, requestGenerateMeals } from "@/lib/gemini/client";
 import { loadHouseholdCoachBias } from "@/lib/coach-apply";
 import { currentNutritionDeltas } from "@/lib/coach-adjustments";
 import { applyCoachBoostsToLoadedPlan } from "@/lib/coach-plan-sync";
@@ -87,6 +87,7 @@ import { loadRejected, persistRejected } from "@/lib/supabase/rejected";
 import type { QtyMode } from "@/lib/qty-scale";
 import {
   DEFAULT_DESSERT_DAYS,
+  dessertTagOf,
   formatDessertBatchForPrompt,
   loadWeekLunchDessert,
   persistWeekLunchDessert,
@@ -94,8 +95,41 @@ import {
   stampDessertMeal,
   type WeekLunchDessert,
 } from "@/lib/week-dessert";
+import { formatDessertProductForPrompt, type DessertProduct, type DessertSlot } from "@/lib/dessert-product";
 
 type Tab = "plan" | "courses" | "batch" | "favoris";
+
+type DessertPane = {
+  saved: WeekLunchDessert | null;
+  draft: PlannedMeal | null;
+  theme: string;
+  weekdays: Weekday[];
+  product: DessertProduct | null;
+  warning: string | null;
+};
+
+function emptyDessertPane(): DessertPane {
+  return {
+    saved: null,
+    draft: null,
+    theme: "",
+    weekdays: [...DEFAULT_DESSERT_DAYS],
+    product: null,
+    warning: null,
+  };
+}
+
+function paneFromSaved(saved: WeekLunchDessert | null): DessertPane {
+  if (!saved) return emptyDessertPane();
+  return {
+    saved,
+    draft: null,
+    theme: saved.theme,
+    weekdays: saved.weekdays,
+    product: saved.product ?? null,
+    warning: null,
+  };
+}
 
 export default function RepasScreen() {
   const { view, catalog } = useProfile();
@@ -122,20 +156,33 @@ export default function RepasScreen() {
   const [openRejected, setOpenRejected] = useState<RejectedRecipe | null>(null);
   const [stock, setStock] = useState<HouseholdStock>(DEFAULT_STOCK);
   const [lunchDessert, setLunchDessert] = useState<WeekLunchDessert | null>(null);
-  const [dessertDraft, setDessertDraft] = useState<PlannedMeal | null>(null);
-  const [dessertTheme, setDessertTheme] = useState("");
-  const [dessertWeekdays, setDessertWeekdays] = useState<Weekday[]>([...DEFAULT_DESSERT_DAYS]);
-  const [dessertWarning, setDessertWarning] = useState<string | null>(null);
+  const [dinnerDessert, setDinnerDessert] = useState<WeekLunchDessert | null>(null);
+  const [dessertSlot, setDessertSlot] = useState<DessertSlot>("midi");
+  const [midiPane, setMidiPane] = useState<DessertPane>(emptyDessertPane);
+  const [soirPane, setSoirPane] = useState<DessertPane>(emptyDessertPane);
+  const [productReview, setProductReview] = useState<DessertProduct | null>(null);
   const [openDessert, setOpenDessert] = useState(false);
   const [inspoOffset, setInspoOffset] = useState(0);
 
-  function kitchenContext(opts?: { dessertDays?: Weekday[]; dessertBatch?: boolean }) {
-    const prefs = formatKitchenPrefsForPrompt(loadKitchenPrefs(), [catalog.alexis, catalog.elodie]);
+  const dessertPane = dessertSlot === "soir" ? soirPane : midiPane;
+  const setDessertPane = dessertSlot === "soir" ? setSoirPane : setMidiPane;
+
+  function kitchenContext(opts?: { dessertDays?: Weekday[]; dessertBatch?: boolean; dessertSlot?: DessertSlot; product?: DessertProduct | null }) {
     const coach = nutritionCoach();
-    const dessert = opts?.dessertBatch
-      ? formatDessertBatchForPrompt(opts.dessertDays ?? dessertWeekdays, coach)
-      : "";
-    return [prefs, formatMealCoachForPrompt(coach), dessert, formatStockForPrompt(loadLocalStock())]
+    if (opts?.dessertBatch) {
+      const slot = opts.dessertSlot ?? dessertSlot;
+      const aversions = `Aversions foyer (omets-les sans les nommer) : Alexis ${catalog.alexis.aversions.join(", ")} · Élodie ${catalog.elodie.aversions.join(", ")}.`;
+      return [
+        aversions,
+        formatDessertBatchForPrompt(opts.dessertDays ?? dessertPane.weekdays, coach, slot),
+        formatDessertProductForPrompt(opts.product ?? dessertPane.product),
+        formatStockForPrompt(loadLocalStock()),
+      ]
+        .filter(Boolean)
+        .join("\n\n");
+    }
+    const prefs = formatKitchenPrefsForPrompt(loadKitchenPrefs(), [catalog.alexis, catalog.elodie]);
+    return [prefs, formatMealCoachForPrompt(coach), formatStockForPrompt(loadLocalStock())]
       .filter(Boolean)
       .join("\n\n");
   }
@@ -195,7 +242,10 @@ export default function RepasScreen() {
     let cancelled = false;
     void (async () => {
       const loaded = await loadWeekPlan(weekStart);
-      const dessert = await loadWeekLunchDessert(weekStart);
+      const [midi, soir] = await Promise.all([
+        loadWeekLunchDessert(weekStart, "midi"),
+        loadWeekLunchDessert(weekStart, "soir"),
+      ]);
       if (cancelled) return;
       const synced = applyCoachBoostsToLoadedPlan({
         weekStart,
@@ -208,11 +258,11 @@ export default function RepasScreen() {
       if (cancelled) return;
       setPlan(synced.plan);
       if (loaded.theme) setTheme(loaded.theme);
-      setLunchDessert(dessert);
-      setDessertDraft(null);
-      setDessertTheme(dessert?.theme ?? "");
-      setDessertWeekdays(dessert?.weekdays ?? [...DEFAULT_DESSERT_DAYS]);
-      setDessertWarning(null);
+      setLunchDessert(midi);
+      setDinnerDessert(soir);
+      setMidiPane(paneFromSaved(midi));
+      setSoirPane(paneFromSaved(soir));
+      setProductReview(null);
       setOpenDessert(false);
       setInspoOffset(0);
       const coach = buildMealCoachFromProfiles(catalog.alexis, catalog.elodie);
@@ -250,7 +300,12 @@ export default function RepasScreen() {
     const current = plan
       .filter((meal) => !isEmptyMeal(meal) && !skip.has(meal.id))
       .map((meal) => meal.baseName);
-    const dessertTitles = [lunchDessert?.meal.baseName, dessertDraft?.baseName].filter(Boolean) as string[];
+    const dessertTitles = [
+      lunchDessert?.meal.baseName,
+      dinnerDessert?.meal.baseName,
+      midiPane.draft?.baseName,
+      soirPane.draft?.baseName,
+    ].filter(Boolean) as string[];
     return mergeAvoidTitles([...recent, ...current, ...dessertTitles], rejected);
   }
 
@@ -302,10 +357,15 @@ export default function RepasScreen() {
       clearPlanTargetsSnapshot(weekStart);
       setPlanStamp(null);
       await persist(emptyWeekPlan());
-      await persistWeekLunchDessert(weekStart, null);
+      await persistWeekLunchDessert(weekStart, null, "midi");
+      await persistWeekLunchDessert(weekStart, null, "soir");
       setLunchDessert(null);
-      setDessertDraft(null);
-      await serveLunchDessertToday();
+      setDinnerDessert(null);
+      setMidiPane(emptyDessertPane());
+      setSoirPane(emptyDessertPane());
+      setProductReview(null);
+      await serveDessertToday("midi");
+      await serveDessertToday("soir");
       flash(error ? `Semaine vidée en local · ${error}` : "Semaine vidée");
     } finally {
       setBusy(false);
@@ -339,13 +399,31 @@ export default function RepasScreen() {
         const scaled: WeekLunchDessert = {
           ...lunchDessert,
           meal: stampDessertMeal(
-            scaleDessertToGoals(lunchDessert.meal, nutritionCoach()),
+            scaleDessertToGoals(lunchDessert.meal, nutritionCoach(), "midi", lunchDessert.product),
             lunchDessert.weekdays,
             lunchDessert.theme,
+            "midi",
+            lunchDessert.product,
           ),
         };
         setLunchDessert(scaled);
-        await persistWeekLunchDessert(weekStart, scaled);
+        setMidiPane((pane) => ({ ...pane, saved: scaled }));
+        await persistWeekLunchDessert(weekStart, scaled, "midi");
+      }
+      if (dinnerDessert) {
+        const scaled: WeekLunchDessert = {
+          ...dinnerDessert,
+          meal: stampDessertMeal(
+            scaleDessertToGoals(dinnerDessert.meal, nutritionCoach(), "soir", dinnerDessert.product),
+            dinnerDessert.weekdays,
+            dinnerDessert.theme,
+            "soir",
+            dinnerDessert.product,
+          ),
+        };
+        setDinnerDessert(scaled);
+        setSoirPane((pane) => ({ ...pane, saved: scaled }));
+        await persistWeekLunchDessert(weekStart, scaled, "soir");
       }
       stampTargets();
       flash("Quantités mises à jour · mêmes recettes");
@@ -354,21 +432,21 @@ export default function RepasScreen() {
     }
   }
 
-  async function serveLunchDessertToday() {
+  async function serveDessertToday(slot: DessertSlot = dessertSlot) {
     if (weekStart !== mondayOf(todayISO())) return;
     const supabase = createBrowserSupabaseClient();
     if (!supabase) return;
     await applyTodaySlotTemplates(supabase, todayISO(), {
       replacePlan: true,
-      slots: ["dessert-midi"],
+      slots: [slot === "soir" ? "dessert-soir" : "dessert-midi"],
     });
   }
 
   async function proposeDessert(themeOverride?: string) {
-    const themeUsed = themeOverride !== undefined ? themeOverride : dessertTheme;
-    if (themeOverride !== undefined) setDessertTheme(themeOverride);
+    const themeUsed = themeOverride !== undefined ? themeOverride : dessertPane.theme;
+    if (themeOverride !== undefined) setDessertPane({ ...dessertPane, theme: themeOverride });
     setBusy(true);
-    setDessertWarning(null);
+    setDessertPane({ ...dessertPane, warning: null, theme: themeUsed });
     try {
       const pastMeals = await collectPastMeals();
       const result = await requestGenerateMeals({
@@ -378,13 +456,30 @@ export default function RepasScreen() {
         nonce,
         coachBias: loadHouseholdCoachBias(),
         pastMeals,
-        kitchenContext: kitchenContext({ dessertBatch: true, dessertDays: dessertWeekdays }),
+        kitchenContext: kitchenContext({
+          dessertBatch: true,
+          dessertDays: dessertPane.weekdays,
+          dessertSlot,
+          product: dessertPane.product,
+        }),
         nutritionCoach: nutritionCoach(),
-        weekdays: dessertWeekdays,
+        weekdays: dessertPane.weekdays,
+        dessertSlot,
+        dessertProduct: dessertPane.product,
       });
       if (result.dessert) {
-        setDessertDraft(stampDessertMeal(result.dessert, dessertWeekdays, themeUsed));
-        setDessertWarning(result.warning ?? null);
+        setDessertPane({
+          ...dessertPane,
+          theme: themeUsed,
+          draft: stampDessertMeal(
+            result.dessert,
+            dessertPane.weekdays,
+            themeUsed,
+            dessertSlot,
+            dessertPane.product,
+          ),
+          warning: result.warning ?? null,
+        });
         setNonce((n) => n + 1);
         setOpenDessert(true);
       } else {
@@ -398,58 +493,82 @@ export default function RepasScreen() {
   }
 
   async function confirmDessert() {
-    if (!dessertDraft || dessertWeekdays.length === 0) return;
+    if (!dessertPane.draft || dessertPane.weekdays.length === 0) return;
     setBusy(true);
     try {
       const meal = stampDessertMeal(
-        scaleDessertToGoals(dessertDraft, nutritionCoach()),
-        dessertWeekdays,
-        dessertTheme,
+        scaleDessertToGoals(dessertPane.draft, nutritionCoach(), dessertSlot, dessertPane.product),
+        dessertPane.weekdays,
+        dessertPane.theme,
+        dessertSlot,
+        dessertPane.product,
       );
       const next: WeekLunchDessert = {
-        weekdays: dessertWeekdays,
-        theme: dessertTheme.trim() || meal.theme,
+        weekdays: dessertPane.weekdays,
+        theme: dessertPane.theme.trim() || meal.theme,
         meal,
+        product: dessertPane.product,
+        slot: dessertSlot,
       };
-      const error = await persistWeekLunchDessert(weekStart, next);
-      setLunchDessert(next);
-      setDessertDraft(null);
-      setDessertWarning(null);
+      const error = await persistWeekLunchDessert(weekStart, next, dessertSlot);
+      if (dessertSlot === "soir") setDinnerDessert(next);
+      else setLunchDessert(next);
+      setDessertPane({ ...dessertPane, saved: next, draft: null, warning: null });
       const used = await consumeStockFromMeals([meal]);
-      await serveLunchDessertToday();
+      await serveDessertToday(dessertSlot);
       const stockNote = used.length ? ` · stock : ${used.map(formatStockItem).join(", ")}` : "";
-      flash(error ? `Dessert en local · ${error}${stockNote}` : `Dessert midi dans la semaine${stockNote}`);
+      const label = dessertSlot === "soir" ? "Dessert soir" : "Dessert midi";
+      flash(error ? `Dessert en local · ${error}${stockNote}` : `${label} dans la semaine${stockNote}`);
     } finally {
       setBusy(false);
     }
   }
 
   async function removeDessert() {
-    if (!window.confirm("Retirer le dessert midi de cette semaine ?")) return;
-    await persistWeekLunchDessert(weekStart, null);
-    setLunchDessert(null);
-    setDessertDraft(null);
-    setDessertWarning(null);
+    const label = dessertSlot === "soir" ? "dessert soir" : "dessert midi";
+    if (!window.confirm(`Retirer le ${label} de cette semaine ?`)) return;
+    await persistWeekLunchDessert(weekStart, null, dessertSlot);
+    if (dessertSlot === "soir") setDinnerDessert(null);
+    else setLunchDessert(null);
+    setDessertPane(emptyDessertPane());
+    setProductReview(null);
     setOpenDessert(false);
-    await serveLunchDessertToday();
-    flash("Dessert midi retiré");
+    await serveDessertToday(dessertSlot);
+    flash(`${label.charAt(0).toUpperCase()}${label.slice(1)} retiré`);
   }
 
   async function changeDessertWeekdays(days: Weekday[]) {
-    setDessertWeekdays(days);
-    if (dessertDraft) {
-      setDessertDraft(stampDessertMeal(dessertDraft, days, dessertTheme));
+    if (dessertPane.draft) {
+      setDessertPane({
+        ...dessertPane,
+        weekdays: days,
+        draft: stampDessertMeal(dessertPane.draft, days, dessertPane.theme, dessertSlot, dessertPane.product),
+      });
       return;
     }
-    if (!lunchDessert) return;
+    if (!dessertPane.saved) {
+      setDessertPane({ ...dessertPane, weekdays: days });
+      return;
+    }
     const next: WeekLunchDessert = {
-      ...lunchDessert,
+      ...dessertPane.saved,
       weekdays: days,
-      meal: stampDessertMeal(lunchDessert.meal, days, lunchDessert.theme),
+      meal: stampDessertMeal(dessertPane.saved.meal, days, dessertPane.saved.theme, dessertSlot, dessertPane.product),
     };
-    setLunchDessert(next);
-    await persistWeekLunchDessert(weekStart, next);
-    await serveLunchDessertToday();
+    if (dessertSlot === "soir") setDinnerDessert(next);
+    else setLunchDessert(next);
+    setDessertPane({ ...dessertPane, saved: next, weekdays: days });
+    await persistWeekLunchDessert(weekStart, next, dessertSlot);
+    await serveDessertToday(dessertSlot);
+  }
+
+  async function pickDessertPhoto(file: File) {
+    try {
+      const product = await requestDessertProduct(file);
+      setProductReview(product);
+    } catch (error) {
+      flash(error instanceof Error ? error.message : "Produit illisible");
+    }
   }
 
   async function saveFavorites(next: FavoriteRecipe[]) {
@@ -632,7 +751,7 @@ export default function RepasScreen() {
             suggestions={suggestions}
             onShuffle={() => setInspoOffset((n) => n + 1)}
             busy={busy}
-            canClear={plan.some((meal) => !isEmptyMeal(meal)) || Boolean(lunchDessert)}
+            canClear={plan.some((meal) => !isEmptyMeal(meal)) || Boolean(lunchDessert) || Boolean(dinnerDessert)}
             coachHint={`Portions selon Suivi : Alexis ${goalLabel(catalog.alexis.primaryGoal)} · Élodie ${goalLabel(catalog.elodie.primaryGoal)}. Même plat, grammes différents (sauf sauces).`}
             onGenerateWeekdays={() => void generate("weekdays")}
             onGenerateWeekend={() => void generate("weekend")}
@@ -641,19 +760,37 @@ export default function RepasScreen() {
           />
 
           <DessertBatchCard
-            dessert={lunchDessert}
-            draft={dessertDraft}
-            theme={dessertTheme}
-            weekdays={dessertWeekdays}
+            slot={dessertSlot}
+            dessert={dessertPane.saved}
+            draft={dessertPane.draft}
+            theme={dessertPane.theme}
+            weekdays={dessertPane.weekdays}
+            product={dessertPane.product}
+            review={productReview}
             busy={busy}
-            warning={dessertWarning}
-            onThemeChange={setDessertTheme}
+            warning={dessertPane.warning}
+            onSlotChange={(next) => {
+              setDessertSlot(next);
+              setProductReview(null);
+              setOpenDessert(false);
+            }}
+            onThemeChange={(value) => setDessertPane({ ...dessertPane, theme: value })}
             onWeekdaysChange={(days) => void changeDessertWeekdays(days)}
+            onPickPhoto={(file) => void pickDessertPhoto(file)}
+            onReviewChange={setProductReview}
+            onKeepProduct={() => {
+              if (!productReview) return;
+              setDessertPane({ ...dessertPane, product: productReview });
+              setProductReview(null);
+            }}
+            onClearProduct={() => {
+              setProductReview(null);
+              setDessertPane({ ...dessertPane, product: null });
+            }}
             onPropose={() => void proposeDessert()}
             onConfirm={() => void confirmDessert()}
             onDiscardDraft={() => {
-              setDessertDraft(null);
-              setDessertWarning(null);
+              setDessertPane({ ...dessertPane, draft: null, warning: null });
               setOpenDessert(false);
             }}
             onOpen={() => setOpenDessert(true)}
@@ -675,7 +812,14 @@ export default function RepasScreen() {
         </div>
       )}
 
-      {tab === "courses" && <ShoppingListPanel weekStart={weekStart} plan={plan} dessert={lunchDessert} />}
+      {tab === "courses" && (
+        <ShoppingListPanel
+          weekStart={weekStart}
+          plan={plan}
+          dessert={lunchDessert}
+          dinnerDessert={dinnerDessert}
+        />
+      )}
 
       {tab === "batch" && (
         <div className="mt-2">
@@ -850,20 +994,22 @@ export default function RepasScreen() {
         />
       )}
 
-      {openDessert && (dessertDraft || lunchDessert) ? (
+      {openDessert && (dessertPane.draft || dessertPane.saved) ? (
         <RecipeDetailSheet
           meal={stampDessertMeal(
-            (dessertDraft ?? lunchDessert!.meal),
-            dessertWeekdays,
-            dessertTheme || lunchDessert?.theme || "",
+            (dessertPane.draft ?? dessertPane.saved!.meal),
+            dessertPane.weekdays,
+            dessertPane.theme || dessertPane.saved?.theme || "",
+            dessertSlot,
+            dessertPane.product,
           )}
-          planTag="D"
+          planTag={dessertTagOf(dessertSlot)}
           view={view}
           busy={busy}
           qtyMode={planQty}
           onQtyMode={setPlanQty}
           onClose={() => setOpenDessert(false)}
-          currentTheme={dessertTheme}
+          currentTheme={dessertPane.theme}
           onRegenerate={(regenTheme) => {
             setOpenDessert(false);
             void proposeDessert(regenTheme);

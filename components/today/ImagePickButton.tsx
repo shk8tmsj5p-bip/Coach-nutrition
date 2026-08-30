@@ -10,12 +10,14 @@ export function ImagePickButton({
   capture,
   disabled,
   onPick,
+  compact,
 }: {
   icon: typeof Camera;
   label: string;
   capture?: boolean;
   disabled?: boolean;
   onPick: (file: File) => void;
+  compact?: boolean;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -29,7 +31,8 @@ export function ImagePickButton({
   return (
     <label
       className={cn(
-        "relative flex cursor-pointer flex-col items-center gap-2 overflow-hidden rounded-card bg-health-bg py-6",
+        "relative flex cursor-pointer items-center overflow-hidden rounded-card bg-health-bg",
+        compact ? "flex-row justify-center gap-2 py-2.5" : "flex-col gap-2 py-6",
         disabled && "pointer-events-none opacity-50",
       )}
     >

@@ -1,5 +1,6 @@
 import type { PlannedMeal } from "@/lib/types";
 import { normalizeTitle } from "@/lib/recipe-diversity";
+import { sharedProteinThemeLine } from "@/lib/recipe-integrity";
 
 export function stripThemeSticker(title: string, theme: string) {
   const t = theme.trim();
@@ -159,12 +160,13 @@ export function themeConstraintLine(theme: string, count: number) {
     .flatMap((other) => other.markers)
     .slice(0, 22)
     .join(", ");
+  const star = sharedProteinThemeLine(label);
   return `THÈME IMPOSÉ SUR LES ${count} REPAS : « ${label} ».
 Le thème est la STAR de chaque recette : titre + base partagée + ingrédient majeur + une étape dédiée.
 Plats attendus (cuisine « ${label} ») : ${examples}.
 INTERDIT d'autres cuisines / mots : ${forbidden || "aucune"}.
 INTERDIT de coller « · ${label} » sur un bowl générique, un satay, un zaalouk, une kefta ou l'exemple JSON courgette/edamame.
-Les ${count} recettes, sans exception — 0 plat hors thème.`;
+Les ${count} recettes, sans exception — 0 plat hors thème.${star ? `\n${star}` : ""}`;
 }
 
 /** Ne greffe plus le thème en suffixe. Le catalogue / Gemini doit fournir le vrai plat. */

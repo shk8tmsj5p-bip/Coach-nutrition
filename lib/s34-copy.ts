@@ -260,7 +260,9 @@ export function blockHowto(block: BatchStepRecipeBlock) {
   if (setting && (action === setting || action.startsWith(setting))) return "";
   const names = block.ingredients.map((ing) => ing.name.toLowerCase());
   const restatesQty = names.length > 0 && names.every((name) => action.toLowerCase().includes(name.split(/[\s,(]/)[0] ?? name));
-  if (restatesQty && setting && /cuiseur|cookeo|eau|min|°c/i.test(action) && action.length < 80) return "";
+  if (restatesQty && setting && /cuiseur|cookeo|eau/i.test(action) && !/airfryer|retourner|falafel/i.test(action) && action.length < 80) {
+    return "";
+  }
   return action;
 }
 

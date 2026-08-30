@@ -5,6 +5,7 @@ import { type Season, type WeatherKind } from "@/lib/season";
 import { plannedMealForDay } from "@/lib/serve-week-plan";
 import { parseSportRoutine, sessionsForWeekday } from "@/lib/sport-routine";
 import { isSessionValidated, loadSessionValidations, matchWorkoutsToPlanned } from "@/lib/strava-match";
+import { extrasLogged, loadLoggedToday, loggedForPlanned } from "@/lib/today-sport";
 import type {
   DailyMovement,
   MealEntry,
@@ -53,11 +54,18 @@ export function todaySessionFlags(profile: Profile, workouts: Workout[], date = 
     parseSportRoutine(profile.sportRoutine).sessions,
     isoWeekday(date),
   );
-  if (planned.length === 0) return { planned: false, done: false };
+  const logs = loadLoggedToday(profile.id, date);
+  const extraDone = extrasLogged(logs).length > 0;
+  if (planned.length === 0) return { planned: false, done: extraDone || workouts.length > 0 };
   const vals = loadSessionValidations(profile.id, date);
   const hits = matchWorkoutsToPlanned(workouts, planned, date);
-  const done = planned.some((session) => isSessionValidated(vals[session.id]) || hits.has(session.id));
-  return { planned: true, done };
+  const done = planned.some(
+    (session) =>
+      Boolean(loggedForPlanned(logs, session.id)) ||
+      isSessionValidated(vals[session.id]) ||
+      hits.has(session.id),
+  );
+  return { planned: true, done: done || extraDone };
 }
 
 export function mealsAccountedToday(meals: MealEntry[], profileId: ProfileId) {

@@ -6,6 +6,7 @@ import { templateForSlot } from "@/lib/meal-templates";
 import { macrosFromPlanned, plannedMealForDay } from "@/lib/serve-week-plan";
 import { isSessionValidated, loadSessionValidations, matchWorkoutsToPlanned } from "@/lib/strava-match";
 import { activityLabel, effortLabel, parseSportRoutine, sessionsForWeekday } from "@/lib/sport-routine";
+import { loggedForPlanned, loadLoggedToday } from "@/lib/today-sport";
 import type {
   DailyMovement,
   MealEntry,
@@ -172,9 +173,13 @@ export function buildTodayCoachSnapshot(opts: {
     isoWeekday(date),
   );
   const validations = loadSessionValidations(opts.profile.id, date);
+  const logs = loadLoggedToday(opts.profile.id, date);
   const healthHits = matchWorkoutsToPlanned(opts.workouts, planned, date);
   const pending = planned.filter(
-    (session) => !isSessionValidated(validations[session.id]) && !healthHits.has(session.id),
+    (session) =>
+      !loggedForPlanned(logs, session.id) &&
+      !isSessionValidated(validations[session.id]) &&
+      !healthHits.has(session.id),
   );
   const feel = feelOf(opts.feels);
   return {

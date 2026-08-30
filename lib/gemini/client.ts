@@ -1,5 +1,6 @@
 import { parseFoodTextLocal } from "@/lib/food-log";
 import type { DetectedIngredient, DietType, MealType, PlannedMeal, ProfileId, Weekday } from "@/lib/types";
+import type { DessertProduct, DessertSlot } from "@/lib/dessert-product";
 import type { GenerateMealsMode } from "@/lib/gemini/meals";
 import type { HouseholdCoachBias } from "@/lib/coach-apply";
 import type { MealCoachHousehold } from "@/lib/meal-coach";
@@ -34,6 +35,8 @@ export async function requestGenerateMeals(body: {
   nutritionCoach?: MealCoachHousehold;
   mealType?: MealType;
   weekdays?: Weekday[];
+  dessertSlot?: DessertSlot;
+  dessertProduct?: DessertProduct | null;
 }): Promise<GenerateMealsResponse> {
   const label =
     body.mode === "weekdays"
@@ -47,7 +50,9 @@ export async function requestGenerateMeals(body: {
             : body.mode === "today-swap"
               ? "Gem Chef propose un plat…"
               : body.mode === "dessert-batch"
-                ? "Gem Chef prépare un dessert midi…"
+                ? body.dessertSlot === "soir"
+                  ? "Gem Chef prépare un dessert soir light…"
+                  : "Gem Chef prépare un dessert midi…"
                 : "Gem Chef prépare un repas…";
   return withGeminiWait(label, async () => {
     const response = await fetch("/api/generate-meals", {
@@ -166,5 +171,22 @@ export async function requestCoachQuickAdd(body: {
       throw new Error(payload.error ?? "Suggestion impossible");
     }
     return payload;
+  });
+}
+
+export async function requestDessertProduct(file: File): Promise<DessertProduct> {
+  return withGeminiWait("Gem Chef lit le paquet…", async () => {
+    const form = new FormData();
+    form.append("image", file);
+    const response = await fetch("/api/dessert-product", {
+      method: "POST",
+      cache: "no-store",
+      body: form,
+    });
+    const payload = (await response.json()) as { product?: DessertProduct; error?: string };
+    if (!response.ok || !payload.product) {
+      throw new Error(payload.error ?? "Produit illisible");
+    }
+    return payload.product;
   });
 }

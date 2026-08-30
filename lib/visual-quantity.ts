@@ -11,15 +11,13 @@ function formatGrams(grams: number) {
 
 export function parseVisualQuantity(raw?: string | null) {
   if (!raw?.trim()) return null;
-  const text = raw.trim();
-  const prefix = /^(env\.?|environ)\s+/i.test(text) ? "env. " : "";
-  const rest = text.replace(/^(env\.?|environ)\s+/i, "").trim();
+  const rest = raw.trim().replace(/^(env\.?|environ)\s+/i, "").trim();
   const frac = rest.match(/^(\d+)\s*\/\s*(\d+)\s*(.*)$/);
   if (frac) {
     return {
       amount: Number(frac[1]) / Number(frac[2]),
       unit: frac[3].trim() || "pièce",
-      prefix,
+      prefix: "",
     };
   }
   const num = rest.match(/^(\d+(?:[.,]\d+)?)\s*(.*)$/);
@@ -27,10 +25,10 @@ export function parseVisualQuantity(raw?: string | null) {
     return {
       amount: Number(num[1].replace(",", ".")),
       unit: num[2].trim(),
-      prefix,
+      prefix: "",
     };
   }
-  return { amount: 1, unit: rest, prefix };
+  return { amount: 1, unit: rest, prefix: "" };
 }
 
 function formatAmount(value: number, unit: string) {
@@ -53,13 +51,12 @@ function formatAmount(value: number, unit: string) {
 export function scaleVisualQuantity(raw: string | undefined, scale: number) {
   if (!raw) return undefined;
   if (!Number.isFinite(scale) || scale <= 0 || Math.abs(scale - 1) < 0.08) {
-    return raw.trim();
+    return raw.trim().replace(/^(env\.?|environ)\s+/i, "");
   }
   const parsed = parseVisualQuantity(raw);
   if (!parsed) return raw.trim();
   const amount = formatAmount(parsed.amount * scale, parsed.unit);
-  const prefix = parsed.prefix || (scale > 1.05 ? "env. " : "");
-  return `${prefix}${amount}${parsed.unit ? ` ${parsed.unit}` : ""}`.replace(/\s+/g, " ").trim();
+  return `${amount}${parsed.unit ? ` ${parsed.unit}` : ""}`.replace(/\s+/g, " ").trim();
 }
 
 export function formatVisualAndWeight(
@@ -68,10 +65,7 @@ export function formatVisualAndWeight(
   opts?: { approx?: boolean },
 ) {
   const weight = formatGrams(grams);
-  let label = visual?.trim() ?? "";
-  if (opts?.approx && label && !/^(env\.?|environ)\b/i.test(label)) {
-    label = `env. ${label}`;
-  }
+  const label = (visual?.trim() ?? "").replace(/^(env\.?|environ)\s+/i, "");
   if (label && weight) return `${label} (${weight})`;
   return weight || label;
 }
@@ -201,7 +195,7 @@ export function inferSpoonUnit(name: string, grams: number) {
 }
 
 export function visualForIngredient(name: string, grams: number, visual?: string) {
-  const given = visual?.trim();
+  const given = visual?.trim().replace(/^(env\.?|environ)\s+/i, "");
   if (given && /cc|cs|cuill[eè]re|gousse|pièce|piece|botte|cm\b/i.test(given)) return given;
   return inferSpoonUnit(name, grams) || given || inferVisualUnit(name, grams);
 }

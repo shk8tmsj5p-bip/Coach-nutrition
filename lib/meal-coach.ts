@@ -187,10 +187,11 @@ ${personBlock(coach.alexis)}
 ${personBlock(coach.elodie)}
 
 RÈGLES PORTIONS
-- UN seul plat pour les deux. Double déclinaison = protéine vegan / omni + GRAMMES différents. INTERDIT deux recettes, INTERDIT « bowl Alexis » vs « assiette Élodie ».
+- UN seul plat pour les deux. Double déclinaison = protéine vegan / omni + GRAMMES différents, SAUF si le thème/titre EST la protéine (falafel) : alors falafels partagés, pas de crevettes à la place. INTERDIT deux recettes, INTERDIT « bowl Alexis » vs « assiette Élodie ».
 - shared_ingredients : grams_alexis ET grams_elodie OBLIGATOIRES sur féculents, légumes, légumineuses. Herbes / épices / ail : grammes identiques OK.
 - SAUCES COMMUNES : vinaigrette, sauce, marinade, pesto, houmous, satay, nuoc, tahini — UN seul dosage foyer (grams_alexis = grams_elodie, ou un seul weight_g). INTERDIT de splitter huile / soja / moutarde / citron / tahini de la sauce. L'huile de CUISSON du plat (hors sauce) peut rester split.
-- Perte = volume (légumes, herbes, agrume, soja, moutarde), densité calorique basse. Prise = densité (féculent + protéine + tahini / huile).
+- Perte = un peu plus de légumes (+10 % max), herbes, agrume, soja, moutarde — PAS des kilos ni 3 carottes + 1 concombre entier par assiette. Prise = densité (féculent + protéine + tahini / huile).
+- Légumes par personne par plat : 1–2 pièces au total (ex. 1 carotte 80 g + 1/3 concombre 100 g). Plafond ~120 g par légume, ~250 g de légumes en tout. INTERDIT 400 g de carotte ou 1 concombre entier par personne.
 - Protéine plancher : ne JAMAIS réduire tofu / poulet / poisson / œufs / edamame pour « faire light ». Le dîner light coupe le riz et l'huile, pas la protéine.
 - Dîner : light pour les deux, mais la prise garde sa protéine ; seule la perte coupe vraiment le féculent (≈ −45 %).
 - Écart kcal > 250 : ajouter une ligne profil-only (riz cuit, tofu extra) — jamais de 2e sauce, jamais de beurre de cacahuète (aversion Élodie) ni fromage pour Alexis.
@@ -269,7 +270,7 @@ function scaleSharedItem(
       e *= dinnerCut(coach.elodie.goal);
     }
   } else if (kind === "veg") {
-    const vol = (goal: PrimaryGoal) => (goal === "perte" ? 1.25 : 1);
+    const vol = (goal: PrimaryGoal) => (goal === "perte" ? 1.1 : 1);
     a = base * vol(coach.alexis.goal) * clamp(aSlot.calories / refKcal, 0.9, 1.15);
     e = base * vol(coach.elodie.goal) * clamp(eSlot.calories / refKcal, 0.9, 1.15);
   } else if (kind === "oil") {
@@ -367,6 +368,49 @@ function withMacros(meal: PlannedMeal, ingredients: RecipeIngredient[]): Planned
   };
 }
 
+function vegItemCap(name: string, dinner: boolean) {
+  const n = name
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+  const base = dinner ? 100 : 130;
+  if (/carotte|oignon|poivron|radis|betterave/.test(n)) return Math.round(base * 0.85);
+  if (/concombre|salade|laitue|courgette|tomate|chou/.test(n)) return Math.round(base * 1.1);
+  return base;
+}
+
+/** Assiette réelle : ~1–2 légumes, pas des kilos. Appliqué au load et après scale. */
+export function capVegetablePortions(meal: PlannedMeal): PlannedMeal {
+  if (!meal.ingredients.length || meal.baseName === "Aucun repas") return meal;
+  const dinner = meal.lowCalorie || meal.mealType === "diner";
+  const maxTotal = dinner ? 220 : 280;
+  let ingredients = meal.ingredients.map((item) => {
+    if (classifyIngredient(item.name) !== "veg") return item;
+    if (isDressingIngredient(item, meal)) return item;
+    const cap = vegItemCap(item.name, dinner);
+    return {
+      ...item,
+      gramsAlexis: item.gramsAlexis > 0 ? Math.min(item.gramsAlexis, cap) : 0,
+      gramsElodie: item.gramsElodie > 0 ? Math.min(item.gramsElodie, cap) : 0,
+    };
+  });
+  for (const profile of ["alexis", "elodie"] as const) {
+    const gramsOf = (item: RecipeIngredient) => (profile === "alexis" ? item.gramsAlexis : item.gramsElodie);
+    const vegs = ingredients.filter(
+      (item) => classifyIngredient(item.name) === "veg" && !isDressingIngredient(item, meal) && gramsOf(item) > 0,
+    );
+    const total = vegs.reduce((sum, item) => sum + gramsOf(item), 0);
+    if (total <= maxTotal) continue;
+    const factor = maxTotal / total;
+    ingredients = ingredients.map((item) => {
+      if (!vegs.some((veg) => veg.id === item.id)) return item;
+      const grams = Math.max(20, roundGrams(gramsOf(item) * factor, "veg"));
+      return profile === "alexis" ? { ...item, gramsAlexis: grams } : { ...item, gramsElodie: grams };
+    });
+  }
+  return withMacros(meal, ingredients);
+}
+
 export function scaleMealToGoals(meal: PlannedMeal, coach: MealCoachHousehold): PlannedMeal {
   if (!meal.ingredients.length || meal.baseName === "Aucun repas") return meal;
   let ingredients = meal.ingredients.map((item) => {
@@ -377,7 +421,7 @@ export function scaleMealToGoals(meal: PlannedMeal, coach: MealCoachHousehold): 
   ingredients = fitProfile(ingredients, "alexis", coach.alexis, meal);
   ingredients = fitProfile(ingredients, "elodie", coach.elodie, meal);
   const equalized = equalizeSharedSauce({ ...meal, ingredients });
-  return withMacros(equalized, equalized.ingredients);
+  return capVegetablePortions(equalized);
 }
 
 export function scalePlanToGoals(plan: PlannedMeal[], coach: MealCoachHousehold | null | undefined) {

@@ -2,6 +2,8 @@ import { extraRecipes, WEEK_DAYS, weeklyPlan as seedPlan } from "@/lib/weekly-pl
 import { sanitizeCopy, stripAversionPhrases, isAversionMention, isFluffLine, isStepSection, stepSectionLabel, isRealTmWork, isWorthTmMix, rewriteTmAsHandMix, isKitchenAidCut, isLogisticsTip } from "@/lib/recipe-copy";
 import { visualForIngredient } from "@/lib/visual-quantity";
 import { expandPreparedSauces } from "@/lib/homemade-sauces";
+import { capVegetablePortions } from "@/lib/meal-coach";
+import { ensureFalafelAirfryer, repairMealIntegrity } from "@/lib/recipe-integrity";
 import { declinationFromIngredients } from "@/lib/recipe-macros";
 import { adaptMealToTheme, conflictsWithTheme, matchKit, mealMatchesTheme, stripThemeSticker } from "@/lib/theme-kits";
 import { mockSuggestSwap as coherentSuggestSwap } from "@/lib/swap-coherence";
@@ -86,10 +88,13 @@ function sanitizeMeal(meal: PlannedMeal): PlannedMeal {
       )
       .map((item) => {
         const grams = Math.max(item.gramsAlexis, item.gramsElodie);
-        const name =
+        const nameRaw =
           /nuoc/i.test(item.name) && /v[ée]g[ée]|bouteille|commerce/i.test(item.name)
             ? "Nuoc mam vegan maison"
             : item.name;
+        const name = /falafel/i.test(nameRaw)
+          ? nameRaw.replace(/\s*marin[ée]e?s?\b/gi, "").replace(/\s{2,}/g, " ").trim() || nameRaw
+          : nameRaw;
         const visualHint =
           item.visualQuantity ||
           (item.notes && /pièce|botte|barquette|gousse|brin|cc|cs|tranche|cm\b/i.test(item.notes)
@@ -110,13 +115,16 @@ function sanitizeMeal(meal: PlannedMeal): PlannedMeal {
       .filter((line): line is string => Boolean(line) && isLogisticsTip(line)),
     cautions: [],
   });
-  const clean = deriveAppliances(
-    dropColdAirfryer(rewriteRiceCooker(scrubForcedRobots(scrubWeekdayTofuAirfryer(expanded)))),
+  const repaired = capVegetablePortions(repairMealIntegrity(expanded));
+  const clean = ensureFalafelAirfryer(
+    deriveAppliances(
+      dropColdAirfryer(rewriteRiceCooker(scrubForcedRobots(scrubWeekdayTofuAirfryer(repaired)))),
+    ),
   );
   return {
     ...clean,
-    alexis: { ...clean.alexis, ...declinationFromIngredients(clean.ingredients, "alexis"), protein: clean.alexis.protein },
-    elodie: { ...clean.elodie, ...declinationFromIngredients(clean.ingredients, "elodie"), protein: clean.elodie.protein },
+    alexis: declinationFromIngredients(clean.ingredients, "alexis"),
+    elodie: declinationFromIngredients(clean.ingredients, "elodie"),
   };
 }
 

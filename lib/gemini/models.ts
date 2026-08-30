@@ -171,12 +171,44 @@ export async function geminiFlashModels() {
   return modelsFor("flash");
 }
 
+function looksLikeJson(raw: string) {
+  const trimmed = raw.trim().replace(/^```(?:json)?/i, "").replace(/```[\s\n]*$/, "").trim();
+  try {
+    JSON.parse(trimmed);
+    return true;
+  } catch {
+    const start = trimmed.indexOf("{");
+    const end = trimmed.lastIndexOf("}");
+    if (start >= 0 && end > start) {
+      try {
+        JSON.parse(trimmed.slice(start, end + 1));
+        return true;
+      } catch {
+        return false;
+      }
+    }
+    const a = trimmed.indexOf("[");
+    const b = trimmed.lastIndexOf("]");
+    if (a >= 0 && b > a) {
+      try {
+        JSON.parse(trimmed.slice(a, b + 1));
+        return true;
+      } catch {
+        return false;
+      }
+    }
+    return false;
+  }
+}
+
 export async function generateGeminiJson(opts: {
   preferredTier: GeminiTier;
   fallbackTier?: GeminiTier;
   parts: GeminiPart[];
   temperature: number;
   logLabel: string;
+  maxOutputTokens?: number;
+  maxModelsPerTier?: number;
 }): Promise<GeminiCallResult> {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
@@ -184,11 +216,12 @@ export async function generateGeminiJson(opts: {
     throw new Error("GEMINI_API_KEY manquante dans .env.local");
   }
   const key = apiKey;
+  const cap = Math.max(1, opts.maxModelsPerTier ?? MAX_PER_TIER);
 
-  const primary = await modelsFor(opts.preferredTier);
+  const primary = (await modelsFor(opts.preferredTier)).slice(0, cap);
   const fallback =
     opts.fallbackTier && opts.fallbackTier !== opts.preferredTier
-      ? await modelsFor(opts.fallbackTier)
+      ? (await modelsFor(opts.fallbackTier)).slice(0, cap)
       : [];
 
   const tried = new Set<string>();
@@ -217,6 +250,7 @@ export async function generateGeminiJson(opts: {
             generationConfig: {
               temperature: opts.temperature,
               responseMimeType: "application/json",
+              ...(opts.maxOutputTokens ? { maxOutputTokens: opts.maxOutputTokens } : {}),
             },
           }),
         },
@@ -250,8 +284,12 @@ export async function generateGeminiJson(opts: {
         console.error(`[${opts.logLabel}] FAIL:`, lastError, model);
         return null;
       }
-      if (finish === "MAX_TOKENS") {
+      if (finish === "MAX_TOKENS" && !looksLikeJson(text)) {
         lastError = "Réponse Gemini incomplète (MAX_TOKENS)";
+        console.warn(`[${opts.logLabel}] MAX_TOKENS JSON cassé`, model, `${text.length} chars`);
+        return null;
+      }
+      if (finish === "MAX_TOKENS") {
         console.warn(`[${opts.logLabel}] MAX_TOKENS`, model, `${text.length} chars`);
       }
       console.log(`[${opts.logLabel}] OK:`, model, `${Date.now() - started}ms`, `${text.length} chars`);

@@ -28,6 +28,7 @@ const FOODS: FoodRef[] = [
   { keys: ["fraises", "fraise"], label: "Fraises", kcal: 32, protein: 0.7, carbs: 8, fat: 0.3, defaultG: 80, defaultUnit: "g" },
   { keys: ["granola"], label: "Granola", kcal: 470, protein: 10, carbs: 64, fat: 20, defaultG: 30, defaultUnit: "g" },
   { keys: ["fromage blanc"], label: "Fromage blanc", kcal: 47, protein: 8, carbs: 4, fat: 0.2, defaultG: 200, defaultUnit: "g" },
+  { keys: ["riz konjac", "nouille konjac", "nouilles konjac", "shirataki", "konjac"], label: "Konjac", kcal: 8, protein: 0.2, carbs: 1, fat: 0, defaultG: 150, defaultUnit: "g" },
   { keys: ["tofu soyeux"], label: "Tofu soyeux", kcal: 55, protein: 5.3, carbs: 2.3, fat: 2.7, defaultG: 150, defaultUnit: "g" },
   { keys: ["whey vegan", "whey"], label: "Whey vegan", kcal: 380, protein: 80, carbs: 6, fat: 5, defaultG: 25, defaultUnit: "g" },
   { keys: ["chocolat noir", "chocolat"], label: "Chocolat noir", kcal: 580, protein: 8, carbs: 45, fat: 42, defaultG: 10, defaultUnit: "carreau" },

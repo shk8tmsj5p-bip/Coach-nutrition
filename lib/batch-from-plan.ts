@@ -13,7 +13,7 @@ import { formatIngredientLine, parseVisualQuantity, scaleVisualQuantity, visualF
 import { groupShoppingItems, isUnlistedShoppingIng, shoppingItemsFromPlan } from "@/lib/shopping-from-plan";
 import { cookScale, type QtyMode } from "@/lib/qty-scale";
 import { portionsDiffer } from "@/lib/meal-coach";
-import { isDressingIngredient } from "@/lib/ingredient-groups";
+import { isDressingIngredient, isMarinadeIngredient, isFinishSauceIngredient, dressingGroupOf, dressingGroupLabel, DRESSING_GROUP_ORDER } from "@/lib/ingredient-groups";
 
 export type AppliancePlan = {
   appliance: Appliance;
@@ -89,11 +89,22 @@ function lineFor(
   ing: RecipeIngredient,
   scale: number,
   planTag?: string,
+  meal?: PlannedMeal,
+  totalsOnly = true,
 ): BatchStepIngredient {
+  const dressing = meal ? isDressingIngredient(ing, meal) : isPotSauceIng(ing);
+  const sauce = meal ? isFinishSauceIngredient(ing, meal) : isPotSauceIng(ing);
+  const display = meal && !dressing ? packingDisplayName(ing, meal) : ing.name;
   const gramsA = Math.round(ing.gramsAlexis * scale);
   const gramsE = Math.round(ing.gramsElodie * scale);
-  const who = ing.role === "alexis" ? "Alexis" : ing.role === "elodie" ? "Élodie" : undefined;
-  if (ing.role === "shared" && !isPotSauceIng(ing) && portionsDiffer(gramsA, gramsE)) {
+  const who = totalsOnly
+    ? undefined
+    : ing.role === "alexis"
+      ? "Alexis"
+      : ing.role === "elodie"
+        ? "Élodie"
+        : undefined;
+  if (!totalsOnly && ing.role === "shared" && !dressing && portionsDiffer(gramsA, gramsE)) {
     const maxG = Math.max(ing.gramsAlexis, ing.gramsElodie, 1);
     const visualA = scaleVisualQuantity(
       visualForIngredient(ing.name, ing.gramsAlexis, ing.visualQuantity),
@@ -104,24 +115,24 @@ function lineFor(
       scale * (ing.gramsElodie / maxG),
     );
     return {
-      name: ing.name,
-      quantity: `${ing.name} : Alexis ${visualA ? `${visualA} (${gramsA}g)` : `${gramsA}g`} · Élodie ${visualE ? `${visualE} (${gramsE}g)` : `${gramsE}g`}`,
+      name: display,
+      quantity: `${display} : Alexis ${visualA ? `${visualA} (${gramsA}g)` : `${gramsA}g`} · Élodie ${visualE ? `${visualE} (${gramsE}g)` : `${gramsE}g`}`,
       visual: visualA || visualE,
       planTag,
       gramsAlexis: gramsA,
       gramsElodie: gramsE,
-      sauce: isPotSauceIng(ing),
+      sauce,
     };
   }
   const grams = (ing.gramsAlexis + ing.gramsElodie) * scale;
   const visual = scaleVisualQuantity(
     visualForIngredient(ing.name, Math.max(ing.gramsAlexis, ing.gramsElodie), ing.visualQuantity),
-    scale,
+    scale * ((ing.gramsAlexis + ing.gramsElodie) / Math.max(ing.gramsAlexis, ing.gramsElodie, 1)),
   );
   return {
-    name: ing.name,
+    name: display,
     quantity: formatIngredientLine({
-      name: ing.name,
+      name: display,
       grams,
       visual,
       who,
@@ -131,7 +142,7 @@ function lineFor(
     who,
     gramsAlexis: gramsA,
     gramsElodie: gramsE,
-    sauce: isPotSauceIng(ing),
+    sauce,
   };
 }
 
@@ -141,13 +152,14 @@ function blockFor(
   action: string,
   setting: string | undefined,
   scale: number,
+  totalsOnly = true,
 ): BatchStepRecipeBlock {
   return {
     recipeNo: meal.recipeNo,
     recipeNos: [meal.recipeNo],
     recipeTitle: meal.baseName,
     coverLabel: meal.coverLabel,
-    ingredients: ings.map((ing) => lineFor(ing, scale, meal.recipeNo)),
+    ingredients: ings.map((ing) => lineFor(ing, scale, meal.recipeNo, meal, totalsOnly)),
     action,
     setting,
     servingsPerPerson: meal.servingsPerPerson,
@@ -249,6 +261,14 @@ function stepSentences(line: string) {
   return parts.length > 0 ? parts : [line.trim()];
 }
 
+function defaultAirfrySetting(ings: RecipeIngredient[]) {
+  const names = ings.map((ing) => ing.name).join(" ");
+  if (/crevette/i.test(names)) return "190°C · 8 min";
+  if (/falafel/i.test(names)) return "180°C · 12 min";
+  if (/poulet|dinde/i.test(names)) return "180°C · 16 min";
+  return "180°C · 12 min";
+}
+
 function extractSetting(lines: string[], fallback: string, ings: RecipeIngredient[] = []) {
   const blob = `${lines.join(" ")} ${ings.map((ing) => ing.name).join(" ")}`;
   if (/\briz\b/i.test(blob) && !/lentille|quinoa|pâte|pate|nouille/i.test(blob)) {
@@ -318,8 +338,6 @@ function isSolidBoxFood(ing: RecipeIngredient) {
     "champignon",
     "salade",
     "roquette",
-    "gingembre",
-    "ail",
     "graines de sésame",
     "graines de sesame",
     "nori",
@@ -353,6 +371,50 @@ function isPotSauceIng(ing: RecipeIngredient) {
     "paprika",
     "citron",
     "lime",
+    "lait de soja",
+    "lait soja",
+    "mayo",
+    "mayonnaise",
+  ]);
+}
+
+function stripFalafelMarinatedLabel(name: string) {
+  if (!/falafel/i.test(name)) return name;
+  return name.replace(/\s*marin[ée]e?s?\b/gi, "").replace(/\s{2,}/g, " ").trim() || name;
+}
+
+function proteinIsMarinated(ing: RecipeIngredient, meal: PlannedMeal) {
+  if (/falafel/i.test(ing.name)) return false;
+  if (/marin/i.test(`${ing.name} ${ing.notes ?? ""}`)) return true;
+  if (isFreshTofuIng(ing, meal)) return true;
+  const marinadeSteps = meal.steps.filter((line) => /marinade|\bmariner\b/i.test(line));
+  return marinadeSteps.some((line) => mentionedIn(ing, line));
+}
+
+function packingDisplayName(ing: RecipeIngredient, meal: PlannedMeal) {
+  if (/falafel/i.test(ing.name)) return stripFalafelMarinatedLabel(ing.name);
+  if (!isBoxProtein(ing) || isMarinadeIngredient(ing, meal) || isFinishSauceIngredient(ing, meal)) {
+    return ing.name;
+  }
+  if (/marin/i.test(ing.name)) return ing.name;
+  if (!proteinIsMarinated(ing, meal)) return ing.name;
+  if (/crevette/i.test(ing.name)) return `${ing.name} marinées`;
+  return `${ing.name} mariné`;
+}
+
+function isBoxProtein(ing: RecipeIngredient) {
+  return matches(ing.name, [
+    "tofu",
+    "poulet",
+    "dinde",
+    "crevette",
+    "falafel",
+    "saumon",
+    "cabillaud",
+    "bœuf",
+    "boeuf",
+    "steak",
+    "simili",
   ]);
 }
 
@@ -534,6 +596,7 @@ function isPreparedOrCold(ing: RecipeIngredient) {
 function isAirfryProtein(ing: RecipeIngredient, meal?: PlannedMeal) {
   if (isPreparedOrCold(ing) || isSauceIng(ing)) return false;
   if (meal && isFreshTofuIng(ing, meal)) return false;
+  if (/falafel/i.test(ing.name)) return true;
   if (/pois chiche/i.test(ing.name)) {
     const blob = meal ? `${meal.steps.join(" ")} ${meal.baseName}` : "";
     if (/houmous|hummus/i.test(blob)) return false;
@@ -545,7 +608,6 @@ function isAirfryProtein(ing: RecipeIngredient, meal?: PlannedMeal) {
     "crevette",
     "bœuf",
     "boeuf",
-    "falafel",
     "cabillaud",
     "tofu ferme",
     "simili",
@@ -589,12 +651,8 @@ function mealUsesSection(meal: PlannedMeal, key: SectionKey) {
   const lines = groupedSteps(meal)[key];
   const useful = lines.filter((line) => !/^(rien|n\/a|aucune|pas de cuisson|omit)/i.test(line.trim()));
   if (key === "airfryer") {
-    const cook = useful.filter(
-      (line) =>
-        /\d+\s*°c|airfryer/i.test(line) &&
-        !(/tofu/i.test(line) && /hors panier|presser|frais|réserver/i.test(line) && !/\d+\s*°c|airfryer/i.test(line)),
-    );
-    return cook.length > 0 && meal.ingredients.some((ing) => isAirfryProtein(ing, meal));
+    if (isColdDish(meal)) return false;
+    return meal.ingredients.some((ing) => isAirfryProtein(ing, meal) && !isFreshTofuIng(ing, meal));
   }
   if (key === "tm") {
     return sauceIngsFor(meal).length > 0;
@@ -931,6 +989,27 @@ function classifyIng(ing: RecipeIngredient, meal: PlannedMeal): SectionKey {
   return "assembly";
 }
 
+function sauceBlocksFor(meal: NumberedRecipe, qtyMode: QtyMode): BatchStepRecipeBlock[] {
+  const scale = cookScale(meal, qtyMode);
+  const byGroup = new Map<string, RecipeIngredient[]>();
+  for (const ing of meal.ingredients) {
+    if (isUnlistedShoppingIng(ing.name)) continue;
+    const group = dressingGroupOf(ing, meal);
+    if (!group) continue;
+    const list = byGroup.get(group) ?? [];
+    list.push(ing);
+    byGroup.set(group, list);
+  }
+  if (byGroup.size === 0) {
+    const fallback = meal.ingredients.filter((ing) => isPotSauceIng(ing) && !isUnlistedShoppingIng(ing.name));
+    if (fallback.length === 0) return [];
+    return [blockFor(meal, fallback, "", "Sauce", scale)];
+  }
+  return DRESSING_GROUP_ORDER.filter((id) => byGroup.has(id)).map((id) =>
+    blockFor(meal, byGroup.get(id)!, "", dressingGroupLabel(id), scale),
+  );
+}
+
 function sauceIngsFor(meal: PlannedMeal) {
   const dressing = meal.ingredients.filter(
     (ing) => isDressingIngredient(ing, meal) && !isUnlistedShoppingIng(ing.name),
@@ -959,6 +1038,7 @@ function marinadeHowTo(meal: PlannedMeal) {
   if (proteins.length === 0) return "";
   return groupedSteps(meal)
     .airfryer.filter((line) => {
+      if (/falafel/i.test(line)) return false;
       if (!/marinade|mariner|badigeon|imbib/i.test(line)) return false;
       return proteins.some((ing) => mentionedIn(ing, line));
     })
@@ -979,8 +1059,17 @@ function actionFor(meal: PlannedMeal, key: SectionKey, fallback: string) {
   });
   if (key === "airfryer") {
     const marinade = marinadeHowTo(meal);
-    const cook = lines.filter((line) => !/marinade|mariner|badigeon|imbib/i.test(line));
-    const parts = [marinade, ...cook].filter(Boolean);
+    const cook = lines
+      .filter((line) => /falafel/i.test(line) || !/marinade|mariner|badigeon|imbib/i.test(line))
+      .map((line) =>
+        /falafel/i.test(line) ? line.replace(/\s*marin[ée]e?s?\b/gi, "").replace(/\s{2,}/g, " ").trim() : line,
+      );
+    const falafel = meal.ingredients.some((ing) => /falafel/i.test(ing.name));
+    const falafelHow =
+      falafel && !cook.some((line) => /falafel/i.test(line))
+        ? "Falafels : Airfryer 180°C · 12 min, retourner à mi-cuisson."
+        : "";
+    const parts = [marinade, falafelHow, ...cook].filter(Boolean);
     if (parts.length > 0) return unique(parts).join(" ");
     return fallback;
   }
@@ -1083,8 +1172,10 @@ const SECTIONS: Array<{
       "Enchaînez les cuissons. Placez la version végane d'un côté du panier, la classique de l'autre, avec un pschitt d'huile.",
     appliance: "Airfryer",
     fallbackSetting: "",
-    fallbackAction: () =>
-      "Cuisson parallèle vegan / omnivore, même panier si possible.",
+    fallbackAction: (meal) =>
+      meal.ingredients.some((ing) => /falafel/i.test(ing.name))
+        ? "Falafels : Airfryer 180°C · 12 min, retourner à mi-cuisson."
+        : "Cuisson parallèle vegan / omnivore, même panier si possible.",
   },
   {
     key: "water",
@@ -1100,7 +1191,7 @@ const SECTIONS: Array<{
   {
     key: "tm",
     title: "3. Sauces",
-    detail: "",
+    detail: "Marinade, mayo et sauce de service en groupes distincts. La marinade reste sur la protéine.",
     appliance: "Thermomix",
     fallbackSetting: "",
     fallbackAction: () => "",
@@ -1116,7 +1207,7 @@ const SECTIONS: Array<{
   {
     key: "assembly",
     title: "5. Boîtes Alexis & Élodie",
-    detail: "Grammes = 1 boîte = 1 repas. Semaine : faire ×2 pour 4 repas. Sauce au pot, jamais dans la boîte.",
+    detail: "Grammes = 1 boîte = 1 repas. Semaine : faire ×2 pour 4 repas. Protéine marinée (tofu, poulet…) dans la boîte — pas les ingrédients de marinade. Falafels : tels quels après Airfryer. Sauce / mayo au pot.",
     appliance: "Plaque",
     fallbackSetting: "",
     fallbackAction: () => "Répartir dans les boîtes. Sauce au pot.",
@@ -1144,7 +1235,9 @@ export function buildBatchSession(plan: PlannedMeal[], qtyMode: QtyMode = "batch
       if (!mealUsesSection(meal, section.key)) return [];
       const ings =
         section.key === "assembly"
-          ? meal.ingredients.filter((ing) => !isUnlistedShoppingIng(ing.name))
+          ? meal.ingredients.filter(
+              (ing) => !isUnlistedShoppingIng(ing.name) && !isMarinadeIngredient(ing, meal),
+            )
           : ingsFor(meal, section.key);
       const lines = groupedSteps(meal)[section.key].filter(
         (line) => !/^(rien|n\/a|aucune|pas de cuisson|omit)/i.test(line.trim()),
@@ -1171,9 +1264,7 @@ export function buildBatchSession(plan: PlannedMeal[], qtyMode: QtyMode = "batch
         });
       }
       if (section.key === "tm") {
-        const sauceIngs = sauceIngsFor(meal);
-        if (sauceIngs.length === 0) return [];
-        return [blockFor(meal, sauceIngs, "", undefined, cookScale(meal, qtyMode))];
+        return sauceBlocksFor(meal, qtyMode);
       }
       const montageLines = lines.filter(
         (line) => isAssemblySentence(line) && !isCutSentence(line) && !isCookWaterSentence(line),
@@ -1187,17 +1278,20 @@ export function buildBatchSession(plan: PlannedMeal[], qtyMode: QtyMode = "batch
             actionFor(meal, section.key, section.fallbackAction(meal)),
             undefined,
             1,
+            false,
           ),
         ];
       }
       if (ings.length === 0) return [];
       const scale = cookScale(meal, qtyMode);
+      const fallbackSetting =
+        section.key === "airfryer" ? defaultAirfrySetting(ings) : section.fallbackSetting;
       return [
         blockFor(
           meal,
           ings,
           actionFor(meal, section.key, section.fallbackAction(meal)),
-          extractSetting(lines, section.fallbackSetting, ings) || undefined,
+          extractSetting(lines, fallbackSetting, ings) || undefined,
           scale,
         ),
       ];

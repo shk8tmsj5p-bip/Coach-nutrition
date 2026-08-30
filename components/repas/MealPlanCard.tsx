@@ -54,7 +54,7 @@ export function MealPlanCard({
       <button type="button" onClick={() => setOpen((value) => !value)} className="w-full text-left">
         <div className="flex items-start justify-between gap-2">
           <p className="text-[11px] font-semibold uppercase tracking-wide text-health-muted">
-            {isWeekLunchDessert(meal) ? "Dessert midi" : mealTypeLabel(meal.mealType)}
+            {isWeekLunchDessert(meal) ? meal.day : mealTypeLabel(meal.mealType)}
             {meal.lowCalorie ? " · low cal" : ""}
             {!empty && meal.theme && meal.theme !== "Base" ? ` · ${meal.theme}` : ""}
           </p>
@@ -101,8 +101,8 @@ export function MealPlanCard({
             {cookQtyCaption(meal, qtyMode)}
           </p>
           <div className="mt-1.5 space-y-2">
-            {groupMealIngredients(visibleIngredients, meal).map((group) => (
-              <div key={group.label ?? "base"}>
+            {groupMealIngredients(visibleIngredients, meal).map((group, groupIndex) => (
+              <div key={`${group.label ?? "base"}-${groupIndex}`}>
                 {group.label ? (
                   <p className="mb-0.5 text-[13px] font-semibold text-violet-dark">{group.label} :</p>
                 ) : null}

@@ -7,37 +7,11 @@ import { SectionTitle } from "@/components/ui/Card";
 import { buildBatchSession, recipeNosOf, vegFamilyLabel } from "@/lib/batch-from-plan";
 import { exportElementToPdf } from "@/lib/export-batch-pdf";
 import { formatWeekRange } from "@/lib/dates";
-import { groupedCellIngredients, cellSetting, blockHowto, shortCoverDays, itemQuantityLine, packingLists, assemblyHowto, stackedSauceLines } from "@/lib/s34-copy";
+import { cellSetting, blockHowto, shortCoverDays, itemQuantityLine, packingLists, assemblyHowto, stackedSauceLines } from "@/lib/s34-copy";
 import type { QtyMode } from "@/lib/qty-scale";
 import type { BatchStep, BatchStepRecipeBlock, PlannedMeal } from "@/lib/types";
 import { cn, mealTypeLabel } from "@/lib/utils";
 import { RecipeTag } from "@/components/repas/RecipeTag";
-
-function IngredientCell({ recipeNo, ings }: { recipeNo: string; ings: BatchStepRecipeBlock["ingredients"] }) {
-  const groups = groupedCellIngredients(ings);
-  if (groups.length === 0) return <p>—</p>;
-  return (
-    <div className="min-w-0 space-y-0.5 text-[12px] leading-snug text-health-ink">
-      {groups.map((row) => (
-        <p key={`${recipeNo}-${row.label}`}>
-          <span
-            className={cn(
-              "font-semibold",
-              row.label === "Alexis"
-                ? "text-coral-dark"
-                : row.label === "Élodie"
-                  ? "text-violet-dark"
-                  : "text-health-muted",
-            )}
-          >
-            {row.label} :
-          </span>{" "}
-          {row.text}
-        </p>
-      ))}
-    </div>
-  );
-}
 
 function AssemblyCard({
   block,
@@ -148,7 +122,7 @@ function SauceList({
         const lines = stackedSauceLines(block.ingredients);
         return (
           <div
-            key={`${block.recipeNo}-${block.recipeTitle}`}
+            key={`${block.recipeNo}-${block.setting ?? "sauce"}-${index}`}
             className={cn(
               "flex items-start gap-2 px-2 py-2",
               index % 2 === 1 ? "bg-health-card/80" : "bg-transparent",
@@ -159,6 +133,9 @@ function SauceList({
               onClick={onOpenRecipe ? () => onOpenRecipe(block.recipeNo) : undefined}
             />
             <div className="min-w-0 flex-1 space-y-0.5">
+              {block.setting ? (
+                <p className="text-[11px] font-semibold text-violet-dark">{block.setting}</p>
+              ) : null}
               {lines.length === 0 ? (
                 <p className="text-[12px] text-health-muted">—</p>
               ) : (
@@ -292,7 +269,15 @@ function CookbookTable({
                 <p className="min-w-0 text-[12px] leading-snug text-health-ink">{qty}</p>
               ) : (
                 <div className="min-w-0">
-                  <IngredientCell recipeNo={block.recipeNo} ings={block.ingredients} />
+                  {stackedSauceLines(block.ingredients).map((line, lineIndex) => (
+                    <p
+                      key={`${block.recipeNo}-${line.name}-${lineIndex}`}
+                      className="flex justify-between gap-3 text-[12px] leading-snug"
+                    >
+                      <span className="min-w-0 truncate font-medium text-health-ink">{line.name}</span>
+                      <span className="shrink-0 tabular-nums text-health-muted">{line.qty}</span>
+                    </p>
+                  ))}
                   {blockHowto(block) ? (
                     <p className="mt-1 text-[11px] leading-snug text-health-muted">{blockHowto(block)}</p>
                   ) : null}

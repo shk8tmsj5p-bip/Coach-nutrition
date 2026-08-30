@@ -24,6 +24,7 @@ const KIND_MACROS: Record<IngredientKind, Per100> = {
 };
 
 const NAMED: Array<{ keys: string[]; macros: Per100 }> = [
+  { keys: ["riz konjac", "nouilles konjac", "shirataki", "konjac"], macros: { kcal: 8, protein: 0.2, carbs: 1, fat: 0 } },
   { keys: ["riz"], macros: { kcal: 130, protein: 2.7, carbs: 28, fat: 0.3 } },
   { keys: ["pates", "pate", "nouille"], macros: { kcal: 160, protein: 6, carbs: 31, fat: 1 } },
   { keys: ["quinoa"], macros: { kcal: 120, protein: 4.4, carbs: 21, fat: 1.9 } },
@@ -34,6 +35,7 @@ const NAMED: Array<{ keys: string[]; macros: Per100 }> = [
   { keys: ["tofu ferme", "tofu"], macros: { kcal: 145, protein: 16, carbs: 2, fat: 9 } },
   { keys: ["edamame"], macros: { kcal: 120, protein: 11, carbs: 9, fat: 5 } },
   { keys: ["lentille", "pois chiche", "haricot blanc", "haricot rouge"], macros: { kcal: 115, protein: 8, carbs: 18, fat: 1 } },
+  { keys: ["falafel"], macros: { kcal: 270, protein: 9, carbs: 32, fat: 13 } },
   { keys: ["poulet", "dinde"], macros: { kcal: 165, protein: 31, carbs: 0, fat: 3.6 } },
   { keys: ["crevette", "cabillaud", "saumon", "thon"], macros: { kcal: 120, protein: 22, carbs: 0, fat: 3 } },
   { keys: ["oeuf", "œuf"], macros: { kcal: 143, protein: 13, carbs: 1, fat: 10 } },
@@ -68,15 +70,17 @@ export function classifyIngredient(name: string): IngredientKind {
   if (/huile|tahini|tahin|beurre de sesame|avocat(?!ier)/.test(n) && !/pousse/.test(n)) {
     return "oil";
   }
+  if (/konjac|shirataki/.test(n)) return "veg";
   if (
     /riz|pate|quinoa|boulgour|semoule|pomme de terre|patate|pain|naan|galette|wrap|pita|tortilla|avoine|sarrasin|nouille|vermicelle/.test(
       n,
-    )
+    ) &&
+    !/konjac|shirataki/.test(n)
   ) {
     return "starch";
   }
   if (
-    /tofu|poulet|dinde|saumon|cabillaud|crevette|oeuf|thon|boeuf|steak|fromage|skyr|tempeh|seitan/.test(
+    /tofu|falafel|poulet|dinde|saumon|cabillaud|crevette|oeuf|thon|boeuf|steak|fromage|skyr|tempeh|seitan/.test(
       n,
     )
   ) {

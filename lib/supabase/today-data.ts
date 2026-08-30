@@ -23,6 +23,7 @@ import {
 } from "@/lib/serve-week-plan";
 import { loadWeekPlan } from "@/lib/supabase/week-plans";
 import {
+  dinnerDessertTemplateForDay,
   lunchDessertTemplateForDay,
   loadWeekLunchDessert,
   type WeekLunchDessert,
@@ -324,7 +325,7 @@ export function fillMissingSlotsFromTemplates(
   profileIds: ProfileId[],
   date = todayISO(),
   household: Record<ProfileId, SlotTemplate[]> = loadHouseholdMealTemplates(),
-  opts: { createMissing?: boolean; lunchDessert?: WeekLunchDessert | null } = {},
+  opts: { createMissing?: boolean; lunchDessert?: WeekLunchDessert | null; dinnerDessert?: WeekLunchDessert | null } = {},
 ): MealEntry[] {
   const weekday = isoWeekday(date);
   const createMissing = opts.createMissing !== false;
@@ -347,7 +348,7 @@ export function fillMissingSlotsFromTemplates(
       const template =
         slot === "dessert-midi"
           ? lunchDessertTemplateForDay(household, id, date, opts.lunchDessert ?? null, templateForSlot)
-          : templateForSlot(household[id], slot, weekday);
+          : dinnerDessertTemplateForDay(household, id, date, opts.dinnerDessert ?? null, templateForSlot);
       if (!template || !template.items.length) continue;
       const mealType = mealTypeForTemplate(slot);
       const index = next.findIndex((meal) => meal.profileId === id && meal.type === mealType);
@@ -394,7 +395,10 @@ export async function applyTodaySlotTemplates(
 ): Promise<boolean> {
   const weekday = isoWeekday(date);
   const household = await householdTemplatesFromDb(supabase);
-  const weekDessert = await loadWeekLunchDessert(mondayOf(date));
+  const [weekDessert, dinnerDessert] = await Promise.all([
+    loadWeekLunchDessert(mondayOf(date), "midi"),
+    loadWeekLunchDessert(mondayOf(date), "soir"),
+  ]);
   const existing = await supabase
     .from("repas")
     .select("id, profile_id, type, source, is_skipped, nom, items, calories, proteines_g, glucides_g, lipides_g, heure")
@@ -449,7 +453,7 @@ export async function applyTodaySlotTemplates(
       const template =
         slot === "dessert-midi"
           ? lunchDessertTemplateForDay(household, id, date, weekDessert, templateForSlot)
-          : templateForSlot(household[id], slot, weekday);
+          : dinnerDessertTemplateForDay(household, id, date, dinnerDessert, templateForSlot);
       const mealType = mealTypeForTemplate(slot);
       const current = byKey.get(`${id}:${mealType}`);
       if (!template || !template.items.length) {

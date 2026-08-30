@@ -6,7 +6,6 @@ import {
   appliancesLine,
   cellSetting,
   blockHowto,
-  groupedCellIngredients,
   compactPasAPas,
   itemQuantityLine,
   proseList,
@@ -198,20 +197,16 @@ function PdfTable({
             <span>{qty}</span>
           ) : (
           <div>
-            {groupedCellIngredients(block.ingredients).length === 0 ? (
+            {stackedSauceLines(block.ingredients).length === 0 ? (
               "—"
             ) : (
-              groupedCellIngredients(block.ingredients).map((row) => (
-                <div key={`${block.recipeNo}-${row.label}`} style={{ marginBottom: 2 }}>
-                  <b
-                    style={{
-                      color:
-                        row.label === "Alexis" ? "#E25538" : row.label === "Élodie" ? "#4F5FE0" : "#6E6E73",
-                    }}
-                  >
-                    {row.label} :{" "}
-                  </b>
-                  {row.text}
+              stackedSauceLines(block.ingredients).map((line, lineIndex) => (
+                <div
+                  key={`${block.recipeNo}-${line.name}-${lineIndex}`}
+                  style={{ display: "flex", justifyContent: "space-between", gap: 12, marginBottom: 1 }}
+                >
+                  <span>{line.name}</span>
+                  <span style={{ fontWeight: 650, color: "#6E6E73", flexShrink: 0 }}>{line.qty}</span>
                 </div>
               ))
             )}
@@ -250,6 +245,11 @@ function PdfSauceList({ rows }: { rows: BatchStepRecipeBlock[] }) {
           >
             <PdfTag recipeNo={block.recipeNo} />
             <div style={{ flex: 1, minWidth: 0 }}>
+              {block.setting ? (
+                <div style={{ fontSize: 11, fontWeight: 700, color: "#5B6CFF", marginBottom: 2 }}>
+                  {block.setting}
+                </div>
+              ) : null}
               {lines.length === 0 ? (
                 <span style={{ fontSize: 12, color: "#6E6E73" }}>—</span>
               ) : (

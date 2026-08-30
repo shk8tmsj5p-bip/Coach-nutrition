@@ -85,6 +85,7 @@ import {
   todaySessionFlags,
 } from "@/lib/today-cat";
 import { SESSION_VALIDATIONS_EVENT } from "@/lib/strava-match";
+import { mergeLoggedWorkouts } from "@/lib/today-sport";
 import { TodayCatBanner } from "@/components/today/TodayCatBanner";
 import { TodayDelight } from "@/components/today/TodayDelight";
 import { FeelStickerRow } from "@/components/ui/FeelStickerRow";
@@ -269,6 +270,7 @@ export default function AujourdhuiScreen() {
   const [movement, setMovement] = useState<Record<ProfileId, DailyMovement>>(emptyMovement);
   const [weekPlan, setWeekPlan] = useState<PlannedMeal[]>([]);
   const [lunchDessert, setLunchDessert] = useState<WeekLunchDessert | null>(null);
+  const [dinnerDessert, setDinnerDessert] = useState<WeekLunchDessert | null>(null);
   const [favorites, setFavorites] = useState<FavoriteRecipe[]>([]);
   const [rejected, setRejected] = useState<RejectedRecipe[]>([]);
   const [streakMeals, setStreakMeals] = useState<Array<MealEntry & { date?: string }>>([]);
@@ -359,12 +361,14 @@ export default function AujourdhuiScreen() {
     const supabase = createBrowserSupabaseClient();
     const ids = profileIdsForView(view);
     const date = todayISO();
-    const [{ plan }, dessert] = await Promise.all([
+    const [{ plan }, dessert, evening] = await Promise.all([
       loadWeekPlan(mondayOf(date)),
-      loadWeekLunchDessert(mondayOf(date)),
+      loadWeekLunchDessert(mondayOf(date), "midi"),
+      loadWeekLunchDessert(mondayOf(date), "soir"),
     ]);
     setWeekPlan(plan);
     setLunchDessert(dessert);
+    setDinnerDessert(evening);
     const feels = await fetchTodayFeels(supabase, ids);
     setRatings({
       alexis: feels.alexis,
@@ -376,6 +380,7 @@ export default function AujourdhuiScreen() {
         fillMissingSlotsFromTemplates(rows, HOUSEHOLD_IDS, date, householdTemplates, {
           createMissing,
           lunchDessert: dessert,
+          dinnerDessert: evening,
         }),
         plan,
         HOUSEHOLD_IDS,
@@ -867,7 +872,7 @@ export default function AujourdhuiScreen() {
           [profileId],
           date,
           householdTemplates,
-          { createMissing: true, lunchDessert },
+          { createMissing: true, lunchDessert, dinnerDessert },
         );
       });
       flash(types.length > 1 ? "Journée réinitialisée" : "Repas réinitialisé");
@@ -975,6 +980,7 @@ export default function AujourdhuiScreen() {
           movement={movement[profile.id]}
           onPersistMeal={persistMealFromCoach}
           onFlash={flash}
+          onReload={() => void reload()}
         />
       ))}
 
@@ -1183,6 +1189,7 @@ function ProfileToday({
   movement,
   onPersistMeal,
   onFlash,
+  onReload,
 }: {
   profile: Profile;
   meals: MealEntry[];
@@ -1212,11 +1219,13 @@ function ProfileToday({
   movement: DailyMovement;
   onPersistMeal: (meal: MealEntry) => Promise<boolean>;
   onFlash: (message: string) => void;
+  onReload: () => void;
 }) {
   const { updateAppliedAdjustments } = useProfile();
   const [confirmResetAll, setConfirmResetAll] = useState(false);
   const current = useMemo(() => sumMacros(meals), [meals]);
   const today = todayISO();
+  const shownWorkouts = mergeLoggedWorkouts(profile.id, today, workouts);
   const weekStart = mondayOf(today);
   const weekLunch = plannedMealForDay(weekPlan, today, "dejeuner");
   const weekDinner = plannedMealForDay(weekPlan, today, "diner");
@@ -1240,7 +1249,7 @@ function ProfileToday({
     profile,
     meals,
     weekPlan,
-    workouts,
+    workouts: shownWorkouts,
     movement,
     feels: ratings,
     date: today,
@@ -1250,7 +1259,7 @@ function ProfileToday({
         profile,
         meals,
         weekPlan,
-        workouts,
+        workouts: shownWorkouts,
         movement,
         feels: ratings,
         date: today,
@@ -1712,18 +1721,26 @@ function ProfileToday({
 
       <TodayDayCoach remark={remark} snapshot={coachSnapshot} />
 
-      <TodayPlannedCard profile={profile} workouts={workouts} />
+      <TodayPlannedCard
+        profile={profile}
+        workouts={shownWorkouts}
+        onWorkoutsChanged={onReload}
+      />
 
       <SectionTitle>Activité</SectionTitle>
       <Card>
-        {workouts.length > 0 ? (
+        {shownWorkouts.length > 0 ? (
           <div className="space-y-3">
-            {workouts.map((workout) => (
+            {shownWorkouts.map((workout) => (
               <div key={workout.id}>
                 <p className="text-[15px] font-medium">{workout.name}</p>
                 <p className="mt-0.5 text-[13px] text-health-muted">
                   {workout.durationMin} min · {workout.calories} kcal ·{" "}
-                  {workout.source === "strava" ? "Strava" : "Apple Santé"}
+                  {workout.source === "strava"
+                    ? "Strava"
+                    : workout.source === "manual"
+                      ? "Manuel"
+                      : "Apple Santé"}
                 </p>
               </div>
             ))}

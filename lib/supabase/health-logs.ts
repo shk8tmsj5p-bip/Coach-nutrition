@@ -49,7 +49,9 @@ function keepNumber(next: number | undefined, previous: unknown, fallback = 0) {
 }
 
 function sourceFromRow(source: LogSanteRow["source"]): WorkoutSource {
-  return source === "strava" ? "strava" : "apple-health";
+  if (source === "strava") return "strava";
+  if (source === "manual") return "manual";
+  return "apple-health";
 }
 
 function similarDuration(a: number, b: number) {
@@ -201,10 +203,10 @@ async function isDuplicateWorkout(
     .eq("profile_id", profileId)
     .eq("date", workout.date)
     .eq("kind", "activite")
-    .eq("source", "strava")
     .neq("activity_type", DAILY_TYPE);
 
   return (data ?? []).some((row) => {
+    if (row.source === "manual") return false;
     const name = row.activity_name ?? row.activity_type ?? "";
     const duration = row.duration_min ?? 0;
     return similarActivity(name, workout.activity) && similarDuration(duration, workout.durationMin);
@@ -560,4 +562,80 @@ export function movementSeries(
   key: "steps" | "distanceKm" | "cyclingDistanceKm" | "workoutMinutes" | "activeEnergyKcal" | "restingEnergyKcal",
 ) {
   return days.map((day) => ({ date: day.date, value: Number(day[key] ?? 0) }));
+}
+
+function manualExternalId(profileId: ProfileId, date: string, overlayId: string) {
+  return `manual:${profileId}:${date}:${overlayId}`;
+}
+
+export async function upsertManualWorkout(opts: {
+  profileId: ProfileId;
+  date: string;
+  overlayId: string;
+  activity: string;
+  durationMin: number;
+  calories: number;
+  workoutId?: string;
+}): Promise<{ id: string; error?: string }> {
+  const localId = opts.workoutId?.startsWith("local-") ? undefined : opts.workoutId;
+  const supabase = createBrowserSupabaseClient();
+  if (!supabase) {
+    return { id: localId || `local-${opts.overlayId}` };
+  }
+
+  const fields = {
+    profile_id: opts.profileId,
+    date: opts.date,
+    kind: "activite" as const,
+    source: "manual" as const,
+    activity_name: mapActivityLabel(opts.activity),
+    activity_type: opts.activity,
+    duration_min: opts.durationMin,
+    calories_burned: opts.calories,
+    intensity: inferIntensity(opts.durationMin, opts.calories),
+    external_id: manualExternalId(opts.profileId, opts.date, opts.overlayId),
+    payload: {
+      activity: opts.activity,
+      duration: opts.durationMin,
+      kcal: opts.calories,
+      overlay_id: opts.overlayId,
+    } as Json,
+  };
+
+  if (localId) {
+    const { error } = await supabase.from("logs_sante").update(fields).eq("id", localId);
+    if (!error) return { id: localId };
+  }
+
+  const existing = await supabase
+    .from("logs_sante")
+    .select("id")
+    .eq("external_id", fields.external_id)
+    .limit(1);
+  const rowId = existing.data?.[0]?.id;
+  if (rowId) {
+    const { error } = await supabase.from("logs_sante").update(fields).eq("id", rowId);
+    if (error) return { id: rowId, error: error.message };
+    return { id: rowId };
+  }
+
+  const inserted = await supabase.from("logs_sante").insert(fields).select("id").limit(1);
+  if (inserted.error) {
+    return { id: localId || `local-${opts.overlayId}`, error: inserted.error.message };
+  }
+  return { id: inserted.data?.[0]?.id ?? localId ?? `local-${opts.overlayId}` };
+}
+
+export async function deleteManualWorkout(workoutId: string | undefined) {
+  if (!workoutId || workoutId.startsWith("local-") || workoutId.startsWith("extra-")) {
+    return { error: undefined as string | undefined };
+  }
+  const supabase = createBrowserSupabaseClient();
+  if (!supabase) return {};
+  const { error } = await supabase
+    .from("logs_sante")
+    .delete()
+    .eq("id", workoutId)
+    .eq("source", "manual");
+  return { error: error?.message };
 }

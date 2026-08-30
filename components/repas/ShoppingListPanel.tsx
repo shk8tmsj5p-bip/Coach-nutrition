@@ -23,22 +23,24 @@ export function ShoppingListPanel({
   weekStart,
   plan,
   dessert,
+  dinnerDessert,
 }: {
   weekStart: string;
   plan: PlannedMeal[];
   dessert?: WeekLunchDessert | null;
+  dinnerDessert?: WeekLunchDessert | null;
 }) {
   const [aisleRev, setAisleRev] = useState(0);
-  const derived = useMemo(
-    () =>
-      shoppingItemsFromPlan(
-        plan,
-        dessert && dessert.weekdays.length
-          ? [{ meal: dessert.meal, tag: "D", times: dessert.weekdays.length }]
-          : [],
-      ),
-    [plan, dessert, aisleRev],
-  );
+  const derived = useMemo(() => {
+    const extras: Array<{ meal: PlannedMeal; tag: string; times: number }> = [];
+    if (dessert && dessert.weekdays.length) {
+      extras.push({ meal: dessert.meal, tag: "D", times: dessert.weekdays.length });
+    }
+    if (dinnerDessert && dinnerDessert.weekdays.length) {
+      extras.push({ meal: dinnerDessert.meal, tag: "Ds", times: dinnerDessert.weekdays.length });
+    }
+    return shoppingItemsFromPlan(plan, extras);
+  }, [plan, dessert, dinnerDessert, aisleRev]);
   const [custom, setCustom] = useState<ShoppingListItem[]>([]);
   const [checked, setChecked] = useState<string[]>([]);
   const [copied, setCopied] = useState(false);

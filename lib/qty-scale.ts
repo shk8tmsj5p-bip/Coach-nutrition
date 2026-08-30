@@ -12,8 +12,9 @@ export function cookScale(meal: PlannedMeal, mode: QtyMode) {
 export function cookQtyCaption(meal: PlannedMeal, mode: QtyMode) {
   if (isWeekLunchDessert(meal)) {
     const n = dessertWeekdaysOf(meal).length;
-    if (mode === "repas") return "Recette · 1 part / pers. (un midi)";
-    return `Recette · total à cuisiner · ${n} midi${n > 1 ? "s" : ""} × 2 pers.`;
+    const when = /soir/i.test(meal.day) ? "soir" : "midi";
+    if (mode === "repas") return `Recette · 1 part / pers. (un ${when})`;
+    return `Recette · total à cuisiner · ${n} ${when}${n > 1 ? "s" : ""} × 2 pers.`;
   }
   if (mode === "repas") {
     return meal.servingsPerPerson === 2

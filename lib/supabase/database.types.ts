@@ -241,6 +241,7 @@ export interface Database {
           theme: string | null;
           meals: Json;
           lunch_dessert?: Json | null;
+          dinner_dessert?: Json | null;
           updated_at: string;
         };
         Insert: {
@@ -248,6 +249,7 @@ export interface Database {
           theme?: string | null;
           meals?: Json;
           lunch_dessert?: Json | null;
+          dinner_dessert?: Json | null;
           updated_at?: string;
         };
         Update: Partial<Database["public"]["Tables"]["plans_semaine"]["Insert"]>;

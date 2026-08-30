@@ -384,8 +384,10 @@ export default function ParametresScreen() {
           <div className="min-w-0">
             <p className="text-[13px] font-semibold">Strava</p>
             <p className="mt-0.5 text-[11px] leading-snug text-health-muted">
-              L’API Strava est payante depuis 2026. On récupère tes sorties sans abonnement via Apple
-              Santé (l’app Strava y écrit déjà tes séances).
+              Pas d’API Strava gratuite (depuis juin 2026 il faut un abonnement Strava pour l’API).
+              Le chemin gratuit : Strava écrit déjà tes sorties dans Apple Santé, le Raccourci les
+              envoie ici. Badge Strava si la source le dit. Sur Aujourd’hui tu peux rattacher une
+              séance Santé même si elle ne colle pas au prévu.
             </p>
           </div>
           <StatusBadge tone={strava.tone} label={strava.label} />
@@ -396,7 +398,7 @@ export default function ParametresScreen() {
         </ol>
         <MaskedKeyField
           inputRef={stravaInputRef}
-          label="Refresh token API (optionnel, abo Strava requis)"
+          label="Refresh token API (optionnel — abo Strava requis, pas de surcoût API)"
           value={draftKeys.strava}
           hasSaved={Boolean(savedKeys.strava) || Boolean(connections?.stravaToken)}
           onChange={(stravaKey) => setDraftKeys((current) => ({ ...current, strava: stravaKey }))}

@@ -14,6 +14,30 @@ type DayValidations = Record<string, SessionValidation>;
 
 export const SESSION_VALIDATIONS_EVENT = "cn-session-validations";
 
+function pairWorkoutsToSessions(
+  workouts: Array<Pick<Workout, "name" | "type" | "durationMin">>,
+  sessions: SportSession[],
+  date = todayISO(),
+) {
+  const hits = new Map<string, { index: number; name: string }>();
+  const used = new Set<number>();
+  for (const session of sessions) {
+    const index = workouts.findIndex((workout, i) => {
+      if (used.has(i)) return false;
+      const type = sportActivityFromText(`${workout.type} ${workout.name}`);
+      if (!type) return false;
+      return activityMatchesSession(
+        { name: workout.name, type, durationMin: workout.durationMin, date },
+        session,
+      );
+    });
+    if (index < 0) continue;
+    used.add(index);
+    hits.set(session.id, { index, name: workouts[index].name });
+  }
+  return { hits, used };
+}
+
 function storageKey(profileId: ProfileId, date: string) {
   return `strava-match:${profileId}:${date}`;
 }
@@ -97,21 +121,18 @@ export function matchWorkoutsToPlanned(
   sessions: SportSession[],
   date = todayISO(),
 ) {
-  const hits = new Map<string, string>();
-  const used = new Set<number>();
-  for (const session of sessions) {
-    const index = workouts.findIndex((workout, i) => {
-      if (used.has(i)) return false;
-      const type = sportActivityFromText(`${workout.type} ${workout.name}`);
-      if (!type) return false;
-      return activityMatchesSession(
-        { name: workout.name, type, durationMin: workout.durationMin, date },
-        session,
-      );
-    });
-    if (index < 0) continue;
-    used.add(index);
-    hits.set(session.id, workouts[index].name);
-  }
-  return hits;
+  const { hits } = pairWorkoutsToSessions(workouts, sessions, date);
+  return new Map([...hits.entries()].map(([id, hit]) => [id, hit.name]));
+}
+
+/** Séances Santé / Strava qui n’ont collé à aucune séance prévue (et pas déjà rattachées). */
+export function unmatchedWorkouts<T extends Pick<Workout, "id" | "name" | "type" | "durationMin">>(
+  workouts: T[],
+  sessions: SportSession[],
+  date = todayISO(),
+  claimedIds: Iterable<string> = [],
+) {
+  const claimed = new Set(claimedIds);
+  const { used } = pairWorkoutsToSessions(workouts, sessions, date);
+  return workouts.filter((workout, index) => !used.has(index) && !claimed.has(workout.id));
 }

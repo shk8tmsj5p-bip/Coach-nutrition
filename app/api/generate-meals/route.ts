@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import {
   applySwapPrompt,
   callGeminiPro,
+  callGeminiDessert,
   extractRecipes,
   extractSuggestions,
   geminiToPlannedMeal,
@@ -18,6 +19,7 @@ import type { MealType, PlannedMeal, Weekday } from "@/lib/types";
 import type { HouseholdCoachBias } from "@/lib/coach-apply";
 import { parseMealCoach, scalePlanToGoals, type MealCoachHousehold } from "@/lib/meal-coach";
 import { dummyDessertSlot, scaleDessertToGoals, stampDessertMeal } from "@/lib/week-dessert";
+import { ensureDessertProductInMeal, isDessertSlot, parseDessertProduct, type DessertSlot } from "@/lib/dessert-product";
 import { diversityProblems } from "@/lib/recipe-diversity";
 import { themeMismatchProblems } from "@/lib/theme-kits";
 import { suggestionsFitRecipe } from "@/lib/swap-coherence";
@@ -49,6 +51,8 @@ type Body = {
   nutritionCoach?: MealCoachHousehold;
   mealType?: MealType;
   weekdays?: Weekday[];
+  dessertSlot?: DessertSlot;
+  dessertProduct?: unknown;
 };
 
 function applyRecipes(
@@ -137,9 +141,11 @@ export async function POST(request: Request) {
 
     if (body.mode === "dessert-batch") {
       const kitchenContext = body.kitchenContext;
-      const prompt = dessertBatchPrompt(theme, body.coachBias, body.pastMeals, kitchenContext);
+      const dessertSlot: DessertSlot = isDessertSlot(body.dessertSlot) ? body.dessertSlot : "midi";
+      const product = parseDessertProduct(body.dessertProduct);
+      const prompt = dessertBatchPrompt(theme, body.coachBias, body.pastMeals, kitchenContext, dessertSlot);
       try {
-        const first = await callGeminiPro(prompt);
+        const first = await callGeminiDessert(prompt);
         let used = first;
         let recipes: ReturnType<typeof extractRecipes> = [];
         try {
@@ -148,10 +154,10 @@ export async function POST(request: Request) {
           /* retry */
         }
         if (recipes.length === 0) {
-          const again = await callGeminiPro(
+          const again = await callGeminiDessert(
             `${prompt}
 
-CORRECTION : ta réponse précédente n'était pas du JSON utilisable. Renvoie UNIQUEMENT le JSON demandé, complet.`,
+CORRECTION : ta réponse précédente n'était pas du JSON utilisable. Renvoie UNIQUEMENT le JSON dessert demandé, complet.`,
           );
           try {
             recipes = extractRecipes(parseGeminiJson(again.text));
@@ -166,13 +172,21 @@ CORRECTION : ta réponse précédente n'était pas du JSON utilisable. Renvoie U
             { status: 502 },
           );
         }
-        const slot = dummyDessertSlot();
+        const slot = dummyDessertSlot(dessertSlot);
         let planned = stampDessertMeal(
-          geminiToPlannedMeal(recipes[0], slot, theme),
+          ensureDessertProductInMeal(geminiToPlannedMeal(recipes[0], slot, theme), product),
           body.weekdays ?? [1, 2, 3, 4, 5],
           theme,
+          dessertSlot,
+          product,
         );
-        planned = scaleDessertToGoals(planned, parseMealCoach(body.nutritionCoach));
+        planned = scaleDessertToGoals(planned, parseMealCoach(body.nutritionCoach), dessertSlot, product);
+        if (planned.ingredients.length < 2 || !planned.baseName.trim()) {
+          return NextResponse.json(
+            { error: friendlyGeminiError("Réponse Gemini incomplète"), mock: false },
+            { status: 502 },
+          );
+        }
         console.log("[MEAL GEN] using", used.tier, used.model, "dessert-batch", planned.baseName);
         return NextResponse.json({
           dessert: planned,
