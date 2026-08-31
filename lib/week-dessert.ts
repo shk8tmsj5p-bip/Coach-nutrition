@@ -6,8 +6,8 @@ import { storage } from "@/lib/storage";
 import { WEEKDAYS } from "@/lib/sport-routine";
 import { equalizeSharedSauce } from "@/lib/ingredient-groups";
 import { expandPreparedSauces } from "@/lib/homemade-sauces";
-import { declinationFromIngredients } from "@/lib/recipe-macros";
 import { dummyTodaySwapSlot, isEmptyMeal } from "@/lib/weekly-plan";
+import { visualForIngredient } from "@/lib/visual-quantity";
 import type { MealCoachHousehold } from "@/lib/meal-coach";
 import type { PlannedMeal, ProfileId, SlotTemplate, SlotTemplateKind, Weekday } from "@/lib/types";
 import {
@@ -83,7 +83,6 @@ export function dessertTagOf(slot: DessertSlot = "midi") {
 }
 
 function macrosWithProduct(ingredients: PlannedMeal["ingredients"], profile: "alexis" | "elodie", product?: DessertProduct | null) {
-  if (!product) return declinationFromIngredients(ingredients, profile);
   const rows = ingredients.filter((item) => item.role === "shared" || item.role === profile);
   let calories = 0;
   let protein = 0;
@@ -98,14 +97,99 @@ function macrosWithProduct(ingredients: PlannedMeal["ingredients"], profile: "al
     carbs += macros.carbs;
     fat += macros.fat;
   }
-  const proteinRow = rows.find((item) => item.role === profile);
+  const star =
+    rows.find((item) => /konjac|shirataki|tofu soyeux/i.test(item.name))?.name ??
+    rows.find((item) => item.role === "shared" && (item.gramsAlexis > 0 || item.gramsElodie > 0))?.name;
   return {
-    protein: proteinRow?.name ?? (profile === "alexis" ? "Protéine vegan" : "Protéine"),
+    protein: star ?? "Dessert",
     calories: Math.round(calories) || 0,
     proteinG: Math.round(protein) || 0,
     carbsG: Math.round(carbs) || 0,
     fatG: Math.round(fat) || 0,
   };
+}
+
+function isAnimalDessertIng(name: string) {
+  return /oeuf|œuf|skyr|fromage blanc|mascarpone|miel|creme fraiche|crème fraîche|beurre(?! de)|lait (de vache|entier|demi)/i.test(
+    name,
+  );
+}
+
+function isLightSweetener(name: string) {
+  return /erythritol|érythritol|stevia|stévia|sucralose/i.test(name);
+}
+
+function isDenseDessertExtra(name: string) {
+  return /sirop|puree d.amande|purée d.amande|beurre d.amande|beurre de cajou|pepites|pépites|chocolat|amandes effilees|amandes effilées|noisettes|granola/i.test(
+    name,
+  );
+}
+
+function dessertGramCap(name: string, slot: DessertSlot) {
+  const evening = slot === "soir";
+  if (isBulkLightDessertIng(name)) return evening ? 180 : 200;
+  if (/extrait|vanille liquide|ar[oô]me/i.test(name)) return 3;
+  if (isLightSweetener(name)) return evening ? 6 : 10;
+  if (/sirop/i.test(name)) return evening ? 5 : 10;
+  if (/puree|purée|beurre d.amande|beurre de cajou/i.test(name)) return evening ? 5 : 8;
+  if (/pepites|pépites|chocolat/i.test(name)) return evening ? 0 : 6;
+  if (/amandes|noisettes|noix/i.test(name) && !/lait/.test(name)) return evening ? 0 : 8;
+  if (/lait/.test(name)) return evening ? 50 : 80;
+  if (/tofu soyeux/i.test(name)) return evening ? 100 : 120;
+  return evening ? 80 : 140;
+}
+
+function roundDessertGrams(n: number) {
+  if (n <= 0) return 0;
+  if (n < 8) return Math.round(n);
+  return Math.round(n * 2) / 2;
+}
+
+function withVisual(item: PlannedMeal["ingredients"][number], gramsA: number, gramsE: number) {
+  const ref = Math.max(gramsA, gramsE);
+  return {
+    ...item,
+    gramsAlexis: gramsA,
+    gramsElodie: gramsE,
+    visualQuantity: visualForIngredient(item.name, ref, item.visualQuantity),
+  };
+}
+
+/** Même dessert, visuels = grammes, extras denses plafonnés. Perte n'a jamais plus de sirop / oléagineux. */
+export function repairDessertIntegrity(
+  meal: PlannedMeal,
+  slot: DessertSlot = "midi",
+  coach?: MealCoachHousehold | null,
+): PlannedMeal {
+  const hasLight = meal.ingredients.some((item) => isLightSweetener(item.name));
+  let ingredients = meal.ingredients.filter((item) => {
+    if (hasLight && /sirop/i.test(item.name)) return false;
+    return true;
+  });
+  ingredients = ingredients.map((item) => {
+    const cap = dessertGramCap(item.name, slot);
+    if (isAnimalDessertIng(item.name)) {
+      const a = Math.min(item.gramsAlexis, 0);
+      const e = roundDessertGrams(Math.min(item.gramsElodie || item.gramsAlexis, cap));
+      return withVisual({ ...item, role: "elodie" }, a, e);
+    }
+    const raw = Math.max(item.gramsAlexis, item.gramsElodie);
+    let shared = roundDessertGrams(Math.min(raw || cap * 0.6, cap));
+    if (shared <= 0 && !isDenseDessertExtra(item.name)) shared = 0;
+    let a = shared;
+    let e = shared;
+    if (coach && isDenseDessertExtra(item.name)) {
+      if (coach.alexis.goal === "perte" && coach.elodie.goal !== "perte") a = roundDessertGrams(shared * 0.7);
+      if (coach.elodie.goal === "perte" && coach.alexis.goal !== "perte") e = roundDessertGrams(shared * 0.7);
+      if (coach.alexis.goal === "perte" && coach.elodie.goal === "perte") {
+        a = roundDessertGrams(shared * 0.85);
+        e = roundDessertGrams(shared * 0.85);
+      }
+    }
+    return withVisual({ ...item, role: "shared" }, a, e);
+  });
+  ingredients = ingredients.filter((item) => item.gramsAlexis > 0 || item.gramsElodie > 0);
+  return { ...meal, ingredients };
 }
 
 export function stampDessertMeal(
@@ -114,10 +198,15 @@ export function stampDessertMeal(
   theme: string,
   slot: DessertSlot = "midi",
   product?: DessertProduct | null,
+  coach?: MealCoachHousehold | null,
 ): PlannedMeal {
   const days = asWeekdays(weekdays);
   const n = days.length;
-  const withProduct = ensureDessertProductInMeal(expandPreparedSauces(meal), product);
+  const withProduct = repairDessertIntegrity(
+    ensureDessertProductInMeal(expandPreparedSauces(meal), product),
+    slot,
+    coach,
+  );
   const when = slot === "soir" ? "soir" : "midi";
   return {
     ...withProduct,
@@ -219,16 +308,17 @@ export function dessertTemplateForProfile(
 }
 
 export function dessertKcalTargets(coach: MealCoachHousehold, slot: DessertSlot = "midi") {
-  if (slot === "soir") {
-    return {
-      alexis: clamp(coach.alexis.dessertDinnerKcal || 60, 35, 70),
-      elodie: clamp(coach.elodie.dessertDinnerKcal || 60, 35, 70),
-    };
-  }
-  return {
-    alexis: Math.max(70, coach.alexis.dessertLunchKcal || 120),
-    elodie: Math.max(70, coach.elodie.dessertLunchKcal || 120),
+  const midi = (person: MealCoachHousehold["alexis"]) => {
+    if (person.goal === "perte") return clamp(person.dessertLunchKcal || 90, 70, 100);
+    if (person.goal === "prise") return clamp(person.dessertLunchKcal || 140, 110, 160);
+    return clamp(person.dessertLunchKcal || 120, 90, 130);
   };
+  const soir = (person: MealCoachHousehold["alexis"]) => {
+    if (person.goal === "perte") return clamp(person.dessertDinnerKcal || 50, 35, 55);
+    return clamp(person.dessertDinnerKcal || 60, 40, 70);
+  };
+  const pick = slot === "soir" ? soir : midi;
+  return { alexis: pick(coach.alexis), elodie: pick(coach.elodie) };
 }
 
 export function scaleDessertToGoals(
@@ -237,38 +327,63 @@ export function scaleDessertToGoals(
   slot: DessertSlot = "midi",
   product?: DessertProduct | null,
 ): PlannedMeal {
-  const withProduct = ensureDessertProductInMeal(meal, product);
+  const repaired = repairDessertIntegrity(ensureDessertProductInMeal(meal, product), slot, coach);
   if (!coach) {
     return {
-      ...withProduct,
+      ...repaired,
       servingsPerPerson: 1,
-      alexis: macrosWithProduct(withProduct.ingredients, "alexis", product),
-      elodie: macrosWithProduct(withProduct.ingredients, "elodie", product),
+      alexis: macrosWithProduct(repaired.ingredients, "alexis", product),
+      elodie: macrosWithProduct(repaired.ingredients, "elodie", product),
     };
   }
   const targets = dessertKcalTargets(coach, slot);
-  let ingredients = withProduct.ingredients.map((item) => ({ ...item }));
+  let ingredients = repaired.ingredients.map((item) => ({ ...item }));
   for (const profile of ["alexis", "elodie"] as const) {
-    const current = macrosWithProduct(ingredients, profile, product).calories;
-    const target = targets[profile];
-    if (current <= 0) continue;
+    ingredients = scaleDessertProfile(ingredients, profile, targets[profile], slot, product);
+  }
+  const equalized = equalizeSharedSauce({ ...repaired, ingredients });
+  const withVisuals = {
+    ...equalized,
+    ingredients: equalized.ingredients.map((item) =>
+      withVisual(item, item.gramsAlexis, item.gramsElodie),
+    ),
+  };
+  return {
+    ...withVisuals,
+    servingsPerPerson: 1,
+    alexis: macrosWithProduct(withVisuals.ingredients, "alexis", product),
+    elodie: macrosWithProduct(withVisuals.ingredients, "elodie", product),
+  };
+}
+
+function scaleDessertProfile(
+  ingredients: PlannedMeal["ingredients"],
+  profile: "alexis" | "elodie",
+  target: number,
+  slot: DessertSlot,
+  product?: DessertProduct | null,
+) {
+  const key = profile === "alexis" ? "gramsAlexis" : "gramsElodie";
+  let next = ingredients;
+  for (let pass = 0; pass < 5; pass += 1) {
+    const current = macrosWithProduct(next, profile, product).calories;
+    if (current <= 0) break;
     const ratio = target / current;
-    if (Math.abs(1 - ratio) < 0.08) continue;
-    ingredients = ingredients.map((item) => {
-      const key = profile === "alexis" ? "gramsAlexis" : "gramsElodie";
+    if (Math.abs(1 - ratio) < 0.08) break;
+    const denseLeft = next.some((item) => (item[key] ?? 0) > 0 && isDenseDessertExtra(item.name));
+    next = next.map((item) => {
       const grams = item[key] ?? 0;
       if (grams <= 0) return item;
-      if (ratio > 1 && isBulkLightDessertIng(item.name, product)) return item;
-      return { ...item, [key]: Math.max(0, Math.round(grams * ratio * 10) / 10) };
+      if (ratio < 1 && denseLeft && !isDenseDessertExtra(item.name)) return item;
+      if (ratio > 1 && (isDenseDessertExtra(item.name) || isBulkLightDessertIng(item.name, product))) {
+        return item;
+      }
+      const cap = dessertGramCap(item.name, slot);
+      const scaled = roundDessertGrams(Math.min(cap, Math.max(0, grams * ratio)));
+      return { ...item, [key]: scaled };
     });
   }
-  const equalized = equalizeSharedSauce({ ...withProduct, ingredients });
-  return {
-    ...equalized,
-    servingsPerPerson: 1,
-    alexis: macrosWithProduct(equalized.ingredients, "alexis", product),
-    elodie: macrosWithProduct(equalized.ingredients, "elodie", product),
-  };
+  return next;
 }
 
 export function formatDessertBatchForPrompt(
@@ -279,11 +394,18 @@ export function formatDessertBatchForPrompt(
   const days = formatDessertDays(weekdays);
   const n = Math.max(1, weekdays.length);
   const targets = dessertKcalTargets(coach, slot);
+  const goalLine = (person: MealCoachHousehold["alexis"]) =>
+    `${person.name} · ${person.goal} → ~${targets[person.id]} kcal / part${person.goal === "perte" ? " (extras denses PLUS PETITS, jamais plus)" : ""}`;
+  const shared = `MÊME dessert, MÊMES ingrédients. grams_alexis / grams_elodie = portions, PAS deux recettes.
+INTERDIT érythritol pour l'un et sirop d'érable / purée d'amande / pépites uniquement pour l'autre.
+visual_unit DOIT coller aux grammes : 1 cs sirop ≈ 20 g, 1 cs purée d'amande ≈ 18 g, 1 poignée amandes ≈ 15–18 g, 1 cs pépites ≈ 12 g, 1 cs lait ≈ 15 g, 1 cl lait ≈ 10 g. INTERDIT 2 cs = 99 g.`;
   if (slot === "soir") {
     return `DESSERT SOIR BATCH · TRÈS LIGHT (cette semaine)
 Jours : ${days} (${n} soirs × 2 personnes = ${n * 2} parts).
 JSON = 1 PART / PERSONNE.
-Cible 1 part : Alexis ~${targets.alexis} kcal · Élodie ~${targets.elodie} kcal (plafond 70 kcal, jamais 120).
+${goalLine(coach.alexis)}
+${goalLine(coach.elodie)}
+${shared}
 Base : tofu soyeux et/ou konjac / shirataki. INTERDIT pâte brisée, beurre, crème, mascarpone, plus de 8 g de sucre / sirop par part.
 Gourmand : vanille, cacao, agrume, cannelle, un peu de fruit.
 Le dîner Gem Chef est GÉNÉRÉ À PART — ici UNIQUEMENT le dessert soir.`;
@@ -291,7 +413,9 @@ Le dîner Gem Chef est GÉNÉRÉ À PART — ici UNIQUEMENT le dessert soir.`;
   return `DESSERT MIDI BATCH (cette semaine)
 Jours : ${days} (${n} midis × 2 personnes = ${n * 2} parts à cuisiner).
 JSON = 1 PART / PERSONNE (pas le total fournée).
-Cible 1 part : Alexis ~${targets.alexis} kcal · Élodie ~${targets.elodie} kcal.
+${goalLine(coach.alexis)}
+${goalLine(coach.elodie)}
+${shared}
 Le plat Gem Chef du déjeuner est GÉNÉRÉ À PART — ici UNIQUEMENT le dessert.`;
 }
 

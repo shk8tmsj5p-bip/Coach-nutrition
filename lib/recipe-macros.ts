@@ -41,6 +41,12 @@ const NAMED: Array<{ keys: string[]; macros: Per100 }> = [
   { keys: ["oeuf", "œuf"], macros: { kcal: 143, protein: 13, carbs: 1, fat: 10 } },
   { keys: ["huile"], macros: { kcal: 884, protein: 0, carbs: 0, fat: 100 } },
   { keys: ["tahini", "tahin", "beurre de sesame"], macros: { kcal: 595, protein: 17, carbs: 21, fat: 54 } },
+  { keys: ["puree d'amande", "puree d amande", "beurre d'amande", "beurre d amande"], macros: { kcal: 645, protein: 21, carbs: 19, fat: 53 } },
+  { keys: ["sirop d'erable", "sirop d erable", "sirop d'agave", "sirop d agave", "sirop"], macros: { kcal: 260, protein: 0, carbs: 67, fat: 0 } },
+  { keys: ["pepites", "chocolat noir", "chocolat"], macros: { kcal: 530, protein: 6, carbs: 46, fat: 36 } },
+  { keys: ["amandes effilees", "amandes", "amande"], macros: { kcal: 580, protein: 21, carbs: 10, fat: 50 } },
+  { keys: ["lait d'amande", "lait d amande", "lait d'avoine", "lait de soja"], macros: { kcal: 22, protein: 0.6, carbs: 1.2, fat: 1.5 } },
+  { keys: ["erythritol", "stevia"], macros: { kcal: 20, protein: 0, carbs: 0, fat: 0 } },
   { keys: ["avocat"], macros: { kcal: 160, protein: 2, carbs: 9, fat: 15 } },
   { keys: ["banane"], macros: { kcal: 89, protein: 1.1, carbs: 23, fat: 0.3 } },
   { keys: ["pomme"], macros: { kcal: 52, protein: 0.3, carbs: 14, fat: 0.2 } },
@@ -67,7 +73,10 @@ export function classifyIngredient(name: string): IngredientKind {
     return "herb";
   }
   if (/gingembre|ail|echalote|citronnelle/.test(n)) return "herb";
-  if (/huile|tahini|tahin|beurre de sesame|avocat(?!ier)/.test(n) && !/pousse/.test(n)) {
+  if (
+    /huile|tahini|tahin|beurre de sesame|puree d.amande|beurre d.amande|beurre de cajou|avocat(?!ier)/.test(n) &&
+    !/pousse/.test(n)
+  ) {
     return "oil";
   }
   if (/konjac|shirataki/.test(n)) return "veg";

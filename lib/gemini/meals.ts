@@ -707,13 +707,18 @@ export function dessertBatchPrompt(
 Alexis vegan : tofu soyeux / konjac OK. INTERDIT lait animal, beurre, œufs, fromage, gélatine, miel, pâte brisée, crème.
 Élodie : même base vegan. Pas de mascarpone.
 Tofu soyeux : CUISSON / mixage autorisés. Konjac / shirataki : rincer, égoutter, parfumer (vanille, cacao, agrume) — jamais du vrai riz à côté.
-Plafond ~70 kcal / part. INTERDIT vinaigrette, moutarde, satay, bowl, wrap, falafel, plat salé.`
+Plafond ~70 kcal / part. INTERDIT vinaigrette, moutarde, satay, bowl, wrap, falafel, plat salé.
+MÊME dessert, MÊMES ingrédients. INTERDIT deux versions. Perte = extras denses plus petits. visual_unit = grammes (1 cs sirop ≈ 20 g).`
     : `Tu es Gem Chef pâtissier. Dessert midi batch foyer : condensé, gourmand, actionnable.
 1 SEUL dessert maison pour PLUSIEURS déjeuners. JSON = 1 part / personne (pas le total fournée).
 Alexis vegan : tofu soyeux cuit / mixé / four OK. INTERDIT lait animal, beurre, œufs, fromage, gélatine, miel.
 Élodie : même base vegan de préférence. Sinon œufs / skyr / fromage blanc UNIQUEMENT dans profile_2_ingredients.
 Tofu soyeux : CUISSON autorisée. Tient 3 à 5 jours au frigo, portions individuelles.
-INTERDIT : vinaigrette, moutarde, satay, nuoc, pesto, marinade, sauce soja, vrai riz (sauf konjac du PRODUIT FOYER), tofu ferme, bowl, wrap, falafel, plat salé.`;
+INTERDIT : vinaigrette, moutarde, satay, nuoc, pesto, marinade, sauce soja, vrai riz (sauf konjac du PRODUIT FOYER), tofu ferme, bowl, wrap, falafel, plat salé.
+MÊME dessert pour Alexis et Élodie. MÊMES ingrédients (grammes différents OK). INTERDIT deux recettes (érythritol vs sirop d'érable, purée d'amande / pépites seulement pour Élodie).
+La personne en PERTE a les PLUS PETITES portions des extras denses (sirop, oléagineux, chocolat), jamais plus.
+visual_unit = grammes réels : 1 cs sirop ≈ 20 g, 1 cs purée d'amande ≈ 18 g, 1 poignée amandes ≈ 15 g, 1 cs pépites ≈ 12 g, 1 cs lait ≈ 15 g. INTERDIT 2 cs = 99 g.
+profile_2_ingredients : UNIQUEMENT œufs / skyr / fromage blanc si le dessert le demande. Pas une « version gourmande Élodie ».`;
   return `${head}
 Four / TM seulement s'ils servent. visual_unit sur chaque ingrédient. Titre = le dessert seulement.
 Si un PRODUIT FOYER est fourni, il EST l'ingrédient star (grammes visibles). Thème « riz au lait » + konjac = riz au lait AU KONJAC, sans riz céréale.

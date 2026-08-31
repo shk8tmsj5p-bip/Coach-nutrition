@@ -148,9 +148,37 @@ const SPOON_KINDS: { keys: string[]; gPerCc: number; maxG: number }[] = [
     maxG: 18,
   },
   {
-    keys: ["tahini", "tahin", "moutarde", "miso", "pesto", "beurre de sésame", "beurre de sesame"],
+    keys: ["extrait", "vanille liquide", "arome", "arôme"],
+    gPerCc: 5,
+    maxG: 8,
+  },
+  {
+    keys: [
+      "tahini",
+      "tahin",
+      "moutarde",
+      "miso",
+      "pesto",
+      "beurre de sésame",
+      "beurre de sesame",
+      "puree d'amande",
+      "purée d'amande",
+      "puree d amande",
+      "beurre d'amande",
+      "beurre de cajou",
+    ],
     gPerCc: 6,
     maxG: 40,
+  },
+  {
+    keys: ["erythritol", "érythritol", "stevia", "stévia", "pepites", "pépites", "chocolat"],
+    gPerCc: 4,
+    maxG: 25,
+  },
+  {
+    keys: ["lait d'amande", "lait d amande", "lait d'avoine", "lait de soja", "lait vegetal", "lait végétal"],
+    gPerCc: 5,
+    maxG: 120,
   },
   {
     keys: [
@@ -164,9 +192,34 @@ const SPOON_KINDS: { keys: string[]; gPerCc: number; maxG: number }[] = [
       "nuoc",
     ],
     gPerCc: 5,
-    maxG: 30,
+    maxG: 40,
   },
 ];
+
+/** Grammes réels derrière une unité visuelle dessert / condiment. */
+export function gramsPerVisualUnit(name: string, unit: string): number | null {
+  const u = unit
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim();
+  const n = name
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+  if (/sachet/.test(u) && /konjac|shirataki/.test(n)) return 200;
+  if (/poignee|poignée|pincee|pincee/.test(u)) {
+    if (/amande|noisette|noix|cajou/.test(n)) return 18;
+    return 8;
+  }
+  if (/\bcl\b/.test(u) || /^cl$/.test(u)) return 10;
+  const hit = SPOON_KINDS.find((row) => row.keys.some((key) => n.includes(key)));
+  const gPerCc = hit?.gPerCc ?? (/sirop|huile|lait|eau/.test(n) ? 5 : null);
+  if (!gPerCc) return null;
+  if (/\bcs\b|cuillere a soupe|cuillère à soupe|grosse cs/.test(u)) return gPerCc * 3;
+  if (/\bcc\b|cuillere a cafe|cuillère à café/.test(u)) return gPerCc;
+  return null;
+}
 
 function formatSpoon(cc: number) {
   if (cc < 2.4) {
@@ -194,10 +247,42 @@ export function inferSpoonUnit(name: string, grams: number) {
   return formatSpoon(grams / hit.gPerCc);
 }
 
+function visualMatchesGrams(name: string, grams: number, visual: string) {
+  const parsed = parseVisualQuantity(visual);
+  if (!parsed) return true;
+  if (parsed.amount <= 0) return grams <= 0;
+  const density = gramsPerVisualUnit(name, parsed.unit);
+  if (!density) return true;
+  const implied = parsed.amount * density;
+  if (implied <= 0 || grams <= 0) return true;
+  return grams <= implied * 2.15 && implied <= grams * 2.15;
+}
+
 export function visualForIngredient(name: string, grams: number, visual?: string) {
   const given = visual?.trim().replace(/^(env\.?|environ)\s+/i, "");
-  if (given && /cc|cs|cuill[eè]re|gousse|pièce|piece|botte|cm\b/i.test(given)) return given;
-  return inferSpoonUnit(name, grams) || given || inferVisualUnit(name, grams);
+  const inferred = inferSpoonUnit(name, grams) || inferVisualUnit(name, grams);
+  if (
+    given &&
+    /cc|cs/i.test(given) &&
+    /tofu|konjac|shirataki|riz\b|avoine|farine/i.test(name) &&
+    !/extrait|lait/.test(name)
+  ) {
+    return inferred || given;
+  }
+  if (given && /cc|cs|cuill[eè]re|gousse|pièce|piece|botte|cm\b|cl\b|poignée|poignee|sachet/i.test(given)) {
+    if (visualMatchesGrams(name, grams, given)) return given;
+    return inferred || visualFromDensity(name, grams, given) || given;
+  }
+  return inferred || given;
+}
+
+function visualFromDensity(name: string, grams: number, fallback: string) {
+  const parsed = parseVisualQuantity(fallback);
+  if (!parsed) return undefined;
+  const density = gramsPerVisualUnit(name, parsed.unit);
+  if (!density || grams <= 0) return undefined;
+  const amount = formatAmount(grams / density, parsed.unit);
+  return `${amount}${parsed.unit ? ` ${parsed.unit}` : ""}`.replace(/\s+/g, " ").trim();
 }
 
 export function formatIngredientLine(opts: {

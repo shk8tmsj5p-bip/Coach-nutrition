@@ -172,6 +172,7 @@ CORRECTION : ta réponse précédente n'était pas du JSON utilisable. Renvoie U
             { status: 502 },
           );
         }
+        const coach = parseMealCoach(body.nutritionCoach);
         const slot = dummyDessertSlot(dessertSlot);
         let planned = stampDessertMeal(
           ensureDessertProductInMeal(geminiToPlannedMeal(recipes[0], slot, theme), product),
@@ -179,8 +180,9 @@ CORRECTION : ta réponse précédente n'était pas du JSON utilisable. Renvoie U
           theme,
           dessertSlot,
           product,
+          coach,
         );
-        planned = scaleDessertToGoals(planned, parseMealCoach(body.nutritionCoach), dessertSlot, product);
+        planned = scaleDessertToGoals(planned, coach, dessertSlot, product);
         if (planned.ingredients.length < 2 || !planned.baseName.trim()) {
           return NextResponse.json(
             { error: friendlyGeminiError("Réponse Gemini incomplète"), mock: false },
