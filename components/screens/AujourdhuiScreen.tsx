@@ -39,7 +39,7 @@ import {
   templateForSlot,
   isDessertItemLine,
   isEmptyDessertMarker,
-  stripDessertPrefix,
+  dessertDisplayName,
   appendPlatKeepingDessert,
 } from "@/lib/meal-templates";
 import { createBrowserSupabaseClient } from "@/lib/supabase/client";
@@ -2021,9 +2021,11 @@ function MealCard({
   const skipped = Boolean(meal.isSkipped);
   const adds = coachView?.adds ?? [];
   const highlighted = Boolean(!skipped && adds.length > 0);
-  const displayItems = skipped
+  const dessertLines = skipped
     ? []
-    : (meal.items ?? []).map((text) => ({ text, boosted: false }));
+    : (meal.items ?? [])
+        .filter((line) => isDessertItemLine(line) && !isEmptyDessertMarker(line))
+        .map((line) => dessertDisplayName(line));
   const kcalStatus = skipped
     ? null
     : macroStatus(
@@ -2056,9 +2058,11 @@ function MealCard({
             meal.name.trim().toLowerCase() !== mealTypeLabel(meal.type).toLowerCase() ? (
               <p className="mt-0.5 text-[15px] font-medium leading-snug">{meal.name}</p>
             ) : null}
-            {displayItems.length > 0 && (
-              <MealItemsList items={displayItems} mealType={meal.type} />
-            )}
+            {dessertLines.length > 0 ? (
+              <p className="mt-1.5 text-[12px] leading-snug text-amber-800 dark:text-amber-200">
+                Dessert · {dessertLines.join(" · ")}
+              </p>
+            ) : null}
             {highlighted && (
               <div className="mt-2">
                 <CoachBadge onDismiss={onDismissCoach} />
@@ -2151,66 +2155,6 @@ function MealCard({
           </div>
         </div>
       </Card>
-    </div>
-  );
-}
-
-function MealItemsList({
-  items,
-  mealType,
-}: {
-  items: { text: string; boosted: boolean }[];
-  mealType: MealType;
-}) {
-  const showSplit = mealType === "dejeuner" || mealType === "diner";
-  const plat = items.filter((item) => !isDessertItemLine(item.text) && !isEmptyDessertMarker(item.text));
-  const dessert = items.filter((item) => isDessertItemLine(item.text) && !isEmptyDessertMarker(item.text));
-
-  if (!showSplit || dessert.length === 0) {
-    const visible = items.filter((item) => !isEmptyDessertMarker(item.text));
-    if (visible.length === 0) return null;
-    return (
-      <p className="mt-1 text-[12px] leading-relaxed text-health-muted">
-        {visible.map((item, index) => (
-          <span key={`${item.text}-${index}`}>
-            {index > 0 ? " · " : null}
-            <span className={item.boosted ? "font-medium text-coral-dark" : undefined}>
-              {isDessertItemLine(item.text) ? stripDessertPrefix(item.text) : item.text}
-            </span>
-          </span>
-        ))}
-      </p>
-    );
-  }
-
-  return (
-    <div className="mt-1.5 space-y-1.5">
-      {plat.length > 0 ? (
-        <div>
-          <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-health-muted">Plat</p>
-          <p className="mt-0.5 text-[12px] leading-relaxed text-health-muted">
-            {plat.map((item, index) => (
-              <span key={`plat-${item.text}-${index}`}>
-                {index > 0 ? " · " : null}
-                <span className={item.boosted ? "font-medium text-coral-dark" : undefined}>{item.text}</span>
-              </span>
-            ))}
-          </p>
-        </div>
-      ) : null}
-      <div className="rounded-lg bg-amber-50 px-2 py-1.5 dark:bg-amber-950/40">
-        <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-amber-800 dark:text-amber-200">
-          Dessert · Réglages
-        </p>
-        <p className="mt-0.5 text-[12px] leading-relaxed text-health-ink">
-          {dessert.map((item, index) => (
-            <span key={`dessert-${item.text}-${index}`}>
-              {index > 0 ? " · " : null}
-              {stripDessertPrefix(item.text)}
-            </span>
-          ))}
-        </p>
-      </div>
     </div>
   );
 }

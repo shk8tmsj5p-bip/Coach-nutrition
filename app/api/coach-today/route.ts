@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { parseFeelMoodRequired } from "@/lib/cat-feel";
 import { proposeCoachToday } from "@/lib/gemini/coach-today";
-import { friendlyGeminiError } from "@/lib/gemini/models";
 import { localCoachTodayActions, type CoachTodaySnapshot } from "@/lib/today-coach";
 
 export const maxDuration = 90;
@@ -78,24 +77,24 @@ function asSnapshot(value: unknown): CoachTodaySnapshot | null {
 
 export async function POST(request: Request) {
   const body = (await request.json().catch(() => null)) as { snapshot?: unknown } | null;
-  const snapshot = asSnapshot(body?.snapshot);
+  let snapshot: CoachTodaySnapshot | null = null;
+  try {
+    snapshot = asSnapshot(body?.snapshot);
+  } catch {
+    snapshot = null;
+  }
   if (!snapshot) {
     return NextResponse.json({ error: "Contexte du jour manquant" }, { status: 400 });
   }
   try {
     const advice = await proposeCoachToday(snapshot);
     return NextResponse.json({ advice });
-  } catch (error) {
-    const raw = error instanceof Error ? error.message : "Coach indisponible";
-    return NextResponse.json(
-      {
-        error: friendlyGeminiError(raw),
-        advice: {
-          title: "3 actions (hors ligne)",
-          actions: localCoachTodayActions(snapshot),
-        },
+  } catch {
+    return NextResponse.json({
+      advice: {
+        title: "3 actions",
+        actions: localCoachTodayActions(snapshot),
       },
-      { status: 200 },
-    );
+    });
   }
 }

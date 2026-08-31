@@ -7,6 +7,7 @@ import {
   ESCHENTZWILLER_LON,
   weatherKindFromCode,
   weatherLabel,
+  type WeatherDay,
   type WeatherNow,
 } from "@/lib/season";
 
@@ -14,13 +15,15 @@ export const maxDuration = 15;
 
 type WeatherPayload = WeatherNow & {
   season: ReturnType<typeof currentSeason>;
+  forecast: WeatherDay[];
 };
 
 let cache: { at: number; body: WeatherPayload } | null = null;
 const TTL_MS = 20 * 60 * 1000;
+const FORECAST_DAYS = 7;
 
 function fallback(): WeatherPayload {
-  return { ...emptyWeatherNow(), season: currentSeason() };
+  return { ...emptyWeatherNow(), season: currentSeason(), forecast: [] };
 }
 
 function num(value: unknown): number | null {
@@ -33,6 +36,22 @@ function firstDaily(value: unknown): number | null {
   return num(value);
 }
 
+function dailyForecast(daily: {
+  time?: string[];
+  weather_code?: number[];
+  temperature_2m_max?: number[];
+  temperature_2m_min?: number[];
+}): WeatherDay[] {
+  const dates = daily.time ?? [];
+  return dates.slice(0, FORECAST_DAYS).map((date, index) => {
+    const code = num(daily.weather_code?.[index]);
+    const maxC = num(daily.temperature_2m_max?.[index]);
+    const minC = num(daily.temperature_2m_min?.[index]);
+    const sky = code != null ? applyHeat(weatherKindFromCode(code), maxC) : "unknown";
+    return { date, code, sky, minC, maxC };
+  });
+}
+
 export async function GET() {
   if (cache && Date.now() - cache.at < TTL_MS) {
     return NextResponse.json(cache.body);
@@ -41,15 +60,20 @@ export async function GET() {
   url.searchParams.set("latitude", String(ESCHENTZWILLER_LAT));
   url.searchParams.set("longitude", String(ESCHENTZWILLER_LON));
   url.searchParams.set("current", "weather_code,temperature_2m");
-  url.searchParams.set("daily", "temperature_2m_max,temperature_2m_min");
-  url.searchParams.set("forecast_days", "1");
+  url.searchParams.set("daily", "weather_code,temperature_2m_max,temperature_2m_min");
+  url.searchParams.set("forecast_days", String(FORECAST_DAYS));
   url.searchParams.set("timezone", "Europe/Paris");
   try {
     const res = await fetch(url, { next: { revalidate: 1200 } });
     if (!res.ok) return NextResponse.json(fallback());
     const json = (await res.json()) as {
       current?: { weather_code?: number; temperature_2m?: number };
-      daily?: { temperature_2m_max?: number[]; temperature_2m_min?: number[] };
+      daily?: {
+        time?: string[];
+        weather_code?: number[];
+        temperature_2m_max?: number[];
+        temperature_2m_min?: number[];
+      };
     };
     const code = num(json.current?.weather_code);
     const tempC = num(json.current?.temperature_2m);
@@ -66,6 +90,7 @@ export async function GET() {
       maxC,
       code,
       season: currentSeason(),
+      forecast: dailyForecast(json.daily ?? {}),
     };
     cache = { at: Date.now(), body };
     return NextResponse.json(body);

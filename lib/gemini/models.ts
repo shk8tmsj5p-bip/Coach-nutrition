@@ -82,6 +82,9 @@ export function friendlyGeminiError(raw?: string | null) {
   if (/503|overloaded|UNAVAILABLE/i.test(raw)) {
     return "Gemini est saturé pour le moment. Réessaie dans une minute.";
   }
+  if (/did not match the expected pattern|Invalid URL|URLPattern/i.test(raw)) {
+    return "Gemini n'a pas pu répondre. Réessaie.";
+  }
   return "Gemini n'a pas pu répondre. Réessaie.";
 }
 
@@ -236,7 +239,7 @@ export async function generateGeminiJson(opts: {
     const budgetMs = tier === "pro" ? 120_000 : 75_000;
     try {
       const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
+        `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
         {
           method: "POST",
           cache: "no-store",

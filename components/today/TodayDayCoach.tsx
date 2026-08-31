@@ -16,22 +16,17 @@ export function TodayDayCoach({
   snapshot: CoachTodaySnapshot | null;
 }) {
   const [advice, setAdvice] = useState<CoachTodayAdvice | null>(null);
-  const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     setAdvice(null);
-    setError(null);
   }, [snapshot?.hunger, snapshot?.energy, snapshot?.fatigue, snapshot?.eaten, snapshot?.pendingMin]);
 
   async function ask() {
     if (!snapshot) return;
     setBusy(true);
-    setError(null);
     try {
       setAdvice(await requestCoachToday(snapshot));
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Conseil indisponible");
     } finally {
       setBusy(false);
     }
@@ -61,7 +56,6 @@ export function TodayDayCoach({
           <Sparkles size={14} />
           {busy ? "Le coach prépare 3 actions…" : "Conseil du moment"}
         </button>
-        {error ? <p className="mt-2 text-[12px] text-coral">{error}</p> : null}
         {advice ? (
           <div className="mt-3 space-y-2">
             <p className="text-[12px] font-semibold text-health-muted">{advice.title}</p>

@@ -17,6 +17,14 @@ export type WeatherNow = {
   code: number | null;
 };
 
+export type WeatherDay = {
+  date: string;
+  code: number | null;
+  sky: WeatherKind;
+  minC: number | null;
+  maxC: number | null;
+};
+
 export function emptyWeatherNow(): WeatherNow {
   return {
     kind: "unknown",
@@ -92,4 +100,13 @@ export function weatherLabel(kind: WeatherKind, code?: number | null) {
 export function formatTempC(value: number | null | undefined) {
   if (value == null || !Number.isFinite(value)) return null;
   return `${Math.round(value)}°`;
+}
+
+export function formatForecastWeekday(iso: string, today = todayISO()) {
+  if (iso === today) return "Aujourd’hui";
+  const label = new Date(`${iso}T12:00:00`).toLocaleDateString("fr-FR", {
+    weekday: "short",
+    timeZone: "Europe/Paris",
+  });
+  return label.replace(".", "").replace(/^./, (ch) => ch.toUpperCase());
 }

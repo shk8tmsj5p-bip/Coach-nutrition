@@ -85,6 +85,13 @@ JSON uniquement :
 }
 
 export async function proposeCoachToday(snapshot: CoachTodaySnapshot): Promise<CoachTodayAdvice> {
-  const text = await callGeminiFlashText(coachTodayPrompt(snapshot));
-  return parseCoachTodayAdvice(parseGeminiJson(text), snapshot);
+  try {
+    const text = await callGeminiFlashText(coachTodayPrompt(snapshot));
+    return parseCoachTodayAdvice(parseGeminiJson(text), snapshot);
+  } catch {
+    return {
+      title: "3 actions",
+      actions: localCoachTodayActions(snapshot),
+    };
+  }
 }
