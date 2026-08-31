@@ -5,7 +5,7 @@ import { ChevronLeft, ChevronRight, X } from "lucide-react";
 import { EditMealSheet } from "@/components/today/EditMealSheet";
 import { CompactMacrosRow } from "@/components/ui/MacroProgress";
 import { createBrowserSupabaseClient } from "@/lib/supabase/client";
-import { isStoredMealId, pickCanonicalMeals, setMealSkipped, upsertMeal } from "@/lib/supabase/today-data";
+import { isStoredMealId, pickCanonicalMeals, persistReclassifiedMeal, setMealSkipped, upsertMeal } from "@/lib/supabase/today-data";
 import { energyBalanceLook, formatSignedKcal } from "@/lib/energy-balance";
 import { emptyMacros, mealsOnDate, sumDayMacros } from "@/lib/energy-history";
 import { addDaysISO, formatLongDate, todayISO } from "@/lib/dates";
@@ -14,6 +14,7 @@ import { formatFeelLine } from "@/lib/cat-feel";
 import type { DailyFeelEntry } from "@/lib/daily-feel";
 import type { DatedMeal } from "@/lib/recent-foods";
 import type { DailyMovement, MealEntry, MealType, Profile } from "@/lib/types";
+import { applySlotMoveToMeals, occupantOfSlot, slotTime } from "@/lib/meal-slot";
 import { cn, mealTypeLabel } from "@/lib/utils";
 
 const SLOTS: MealType[] = ["petit-dejeuner", "dejeuner", "diner", "collation"];
@@ -27,7 +28,7 @@ function draftMeal(profileId: Profile["id"], type: MealType, date: string): Meal
     id: `draft-${profileId}-${type}-${date}`,
     name: mealTypeLabel(type),
     type,
-    time: "",
+    time: slotTime(type),
     macros: emptyMacros(),
     profileId,
     source: "text",
@@ -101,9 +102,45 @@ export function DayLogSheet({
   async function saveEdit(next: MealEntry) {
     setSaving(true);
     setNotice(null);
-    const ok = await persist(next);
+    const original = editing;
+    if (!original) {
+      setSaving(false);
+      return;
+    }
+    const dated: DatedMeal = {
+      ...next,
+      date,
+      time: slotTime(next.type),
+      profileId: original.profileId,
+    };
+    if (original.type === next.type) {
+      const ok = await persist(dated);
+      setSaving(false);
+      if (ok) setEditing(null);
+      return;
+    }
+    const supabase = createBrowserSupabaseClient();
+    if (!supabase) {
+      onMealsSaved(applySlotMoveToMeals(meals, { ...original, date }, dated));
+      setSaving(false);
+      setEditing(null);
+      return;
+    }
+    const occupant = occupantOfSlot(dayMeals, original.profileId, next.type, original.id, date);
+    const error = await persistReclassifiedMeal(
+      supabase,
+      { ...original, date },
+      dated,
+      occupant,
+    );
+    if (error) {
+      setNotice(error);
+      setSaving(false);
+      return;
+    }
+    await onReload();
     setSaving(false);
-    if (ok) setEditing(null);
+    setEditing(null);
   }
 
   async function toggleSkip(meal: MealEntry) {
@@ -136,11 +173,16 @@ export function DayLogSheet({
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/30">
-      <div className="max-h-[88vh] w-full max-w-[430px] overflow-y-auto rounded-t-[24px] bg-white p-4 pb-8 shadow-card">
+      <div className="max-h-[calc(100dvh-var(--safe-top)-12px)] w-full max-w-[430px] overflow-y-auto rounded-t-[24px] bg-white p-4 pb-8 shadow-card">
         <div className="mb-3 flex items-center justify-between">
           <h3 className="text-[17px] font-semibold">Journée</h3>
-          <button type="button" onClick={onClose} className="rounded-full bg-health-bg p-1.5">
-            <X size={16} />
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex h-11 w-11 items-center justify-center rounded-full bg-health-bg"
+            aria-label="Fermer"
+          >
+            <X size={18} />
           </button>
         </div>
 
@@ -260,7 +302,9 @@ export function DayLogSheet({
 
       {editing ? (
         <EditMealSheet
+          key={editing.id}
           meal={editing}
+          dayMeals={dayMeals}
           saving={saving}
           onClose={() => setEditing(null)}
           onSave={(next) => void saveEdit(next)}

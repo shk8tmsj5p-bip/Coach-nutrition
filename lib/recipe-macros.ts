@@ -30,6 +30,7 @@ const NAMED: Array<{ keys: string[]; macros: Per100 }> = [
   { keys: ["quinoa"], macros: { kcal: 120, protein: 4.4, carbs: 21, fat: 1.9 } },
   { keys: ["boulgour", "semoule"], macros: { kcal: 110, protein: 4, carbs: 23, fat: 0.4 } },
   { keys: ["pomme de terre", "patate douce", "patate"], macros: { kcal: 86, protein: 1.7, carbs: 20, fat: 0.1 } },
+  { keys: ["galette sarrasin", "galette de sarrasin"], macros: { kcal: 180, protein: 6, carbs: 28, fat: 4 } },
   { keys: ["pain", "naan", "galette", "wrap", "pita", "tortilla"], macros: { kcal: 260, protein: 8, carbs: 48, fat: 4 } },
   { keys: ["tofu soyeux"], macros: { kcal: 55, protein: 5.3, carbs: 2.3, fat: 2.7 } },
   { keys: ["tofu ferme", "tofu"], macros: { kcal: 145, protein: 16, carbs: 2, fat: 9 } },
@@ -105,6 +106,29 @@ export function classifyIngredient(name: string): IngredientKind {
     return "veg";
   }
   return "other";
+}
+
+/** Wrap / pita / naan / galette : 1 pièce, pas un tas de féculent. */
+export function isEnvelopeIngredient(name: string) {
+  const n = fold(name);
+  if (/riz|legume|legumes/.test(n)) return false;
+  return /galette|wrap|pita|naan|tortilla|chapati/.test(n);
+}
+
+/** 1 pièce réelle (CIQUAL / rayon). Galette de blé ≈ wrap 20 cm, pas 120 g. */
+export function envelopePieceGrams(name: string) {
+  const n = fold(name);
+  if (/naan/.test(n)) return 80;
+  if (/sarrasin/.test(n)) return 70;
+  if (/pita/.test(n)) return 60;
+  return 55;
+}
+
+export function envelopeCapGrams(name: string, dinner: boolean, pieces = 1) {
+  const piece = envelopePieceGrams(name);
+  const n = Math.min(2, Math.max(1, pieces));
+  const lunch = n === 1 ? Math.round(piece * 1.1) : piece * n;
+  return dinner ? piece * n : lunch;
 }
 
 function namedMacros(name: string): Per100 | undefined {

@@ -11,7 +11,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   if (pathname === "/unlock") {
     return (
-      <div className="mx-auto min-h-dvh w-full max-w-[430px] bg-health-bg">
+      <div className="mx-auto min-h-dvh w-full max-w-[430px] bg-health-bg pt-[var(--safe-top)]">
         {children}
       </div>
     );

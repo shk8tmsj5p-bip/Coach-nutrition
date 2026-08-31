@@ -28,6 +28,7 @@ import {
   loadWeekLunchDessert,
   type WeekLunchDessert,
 } from "@/lib/week-dessert";
+import { planSlotMove } from "@/lib/meal-slot";
 
 export async function fetchProfils(
   supabase: SupabaseClient<Database>,
@@ -169,6 +170,7 @@ export async function updateMeal(
       lipides_g: meal.macros.fat,
       is_skipped: meal.isSkipped ?? false,
       notes: meal.notes ?? null,
+      heure: meal.time || null,
     })
     .eq("id", meal.id);
   return error?.message;
@@ -192,6 +194,7 @@ export async function upsertMeal(
         lipides_g: meal.macros.fat,
         is_skipped: meal.isSkipped ?? false,
         notes: meal.notes ?? null,
+        heure: meal.time || null,
       })
       .eq("id", meal.id)
       .select("id");
@@ -199,6 +202,24 @@ export async function upsertMeal(
     if (data && data.length > 0) return;
   }
   return insertMeal(supabase, meal);
+}
+
+/** Déplace un repas vers un autre créneau. Si le créneau est pris, échange. */
+export async function persistReclassifiedMeal(
+  supabase: SupabaseClient<Database>,
+  original: MealEntry,
+  next: MealEntry,
+  occupant?: MealEntry | null,
+) {
+  const plan = planSlotMove(original, next, occupant ?? undefined);
+  const movedError = await upsertMeal(supabase, plan.moved);
+  if (movedError) return movedError;
+  if (plan.displaced) {
+    const displacedError = await upsertMeal(supabase, plan.displaced);
+    if (displacedError) return displacedError;
+  } else if (plan.vacated) {
+    return insertMeal(supabase, plan.vacated);
+  }
 }
 
 export async function restorePlannedMeals(

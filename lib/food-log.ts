@@ -17,6 +17,11 @@ type FoodRef = {
 /** Valeurs / 100 g (CIQUAL / USDA). `defaultG` = 1 pièce / portion typique comestible. */
 const FOODS: FoodRef[] = [
   { keys: ["pain bûcheron", "pain bucheron", "pain complet", "pain"], label: "Pain bûcheron", kcal: 255, protein: 9, carbs: 47, fat: 3.5, defaultG: 40, defaultUnit: "tranche" },
+  { keys: ["galette sarrasin", "galette de sarrasin"], label: "Galette sarrasin", kcal: 180, protein: 6, carbs: 28, fat: 4, defaultG: 70, defaultUnit: "piece" },
+  { keys: ["galette de ble", "galette ble", "galette de blé", "galette"], label: "Galette de blé", kcal: 260, protein: 8, carbs: 48, fat: 4, defaultG: 55, defaultUnit: "piece" },
+  { keys: ["wrap", "tortilla de ble", "tortilla"], label: "Wrap", kcal: 260, protein: 8, carbs: 48, fat: 4, defaultG: 55, defaultUnit: "piece" },
+  { keys: ["pita", "pain pita"], label: "Pain pita", kcal: 270, protein: 9, carbs: 50, fat: 3, defaultG: 60, defaultUnit: "piece" },
+  { keys: ["naan"], label: "Naan", kcal: 290, protein: 8, carbs: 50, fat: 7, defaultG: 80, defaultUnit: "piece" },
   { keys: ["lait d avoine", "lait avoine", "lait vegetal d avoine", "lait vegetal avoine"], label: "Lait d'avoine", kcal: 43, protein: 0.8, carbs: 6.6, fat: 1.5, defaultG: 200, defaultUnit: "ml" },
   { keys: ["flocons d avoine", "flocons d'avoine", "flocon d avoine", "flocon d'avoine", "flocons avoine", "flocon avoine", "flocons", "flocon"], label: "Flocons d'avoine", kcal: 370, protein: 13, carbs: 59, fat: 7, defaultG: 50, defaultUnit: "g" },
   { keys: ["avoine"], label: "Flocons d'avoine", kcal: 370, protein: 13, carbs: 59, fat: 7, defaultG: 50, defaultUnit: "g" },

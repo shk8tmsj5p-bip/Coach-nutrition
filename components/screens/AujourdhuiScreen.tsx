@@ -16,6 +16,7 @@ import { useProfile } from "@/context/ProfileContext";
 import { CopyYesterdaySheet } from "@/components/today/CopyYesterdaySheet";
 import { RecentsSheet } from "@/components/today/RecentsSheet";
 import { EditMealSheet } from "@/components/today/EditMealSheet";
+import { MoveMealSheet } from "@/components/repas/MoveMealSheet";
 import { LogSheet } from "@/components/today/LogSheet";
 import { SwapProposalSheet } from "@/components/today/SwapProposalSheet";
 import { TodayPlannedCard } from "@/components/today/TodayPlannedCard";
@@ -67,16 +68,23 @@ import {
   restorePlannedMeals,
   applyWeekPlatsToToday,
   applyTodaySlotTemplates,
+  persistReclassifiedMeal,
   setMealSkipped,
   swapMeal,
   upsertMeal,
 } from "@/lib/supabase/today-data";
-import { loadWeekPlan } from "@/lib/supabase/week-plans";
+import { loadWeekPlan, saveWeekPlan } from "@/lib/supabase/week-plans";
 import { loadWeekLunchDessert, type WeekLunchDessert } from "@/lib/week-dessert";
 import { clearDailyFeel, fetchTodayFeels, upsertDailyFeel } from "@/lib/supabase/daily-feel";
 import { emptyFeel, hasCompleteFeel, hasFeelScore, type DailyFeelScores } from "@/lib/daily-feel";
 import { todayCoachRemark, buildTodayCoachSnapshot } from "@/lib/today-coach";
-import { isFilledMeal, slotOfProfile } from "@/lib/meal-slot";
+import {
+  applySlotMoveToMeals,
+  isFilledMeal,
+  occupantOfSlot,
+  slotOfProfile,
+  slotTime,
+} from "@/lib/meal-slot";
 import { coupleLunchStreak } from "@/lib/couple-streak";
 import {
   buildTodayCatSnapshot,
@@ -112,7 +120,9 @@ import {
   fillMissingPlatsFromWeekPlan,
   isServingThisWeekPlat,
   plannedMealForDay,
+  weekPlanSlotId,
 } from "@/lib/serve-week-plan";
+import { isEmptyMeal, moveMealInPlan } from "@/lib/weekly-plan";
 import { storage } from "@/lib/storage";
 import type {
   DailyMovement,
@@ -147,6 +157,24 @@ import {
 
 const MEAL_SLOTS: MealType[] = ["petit-dejeuner", "dejeuner", "diner"];
 const ALL_MEAL_SLOTS: MealType[] = [...MEAL_SLOTS, "collation"];
+
+function weekSlotForToday(
+  plan: PlannedMeal[],
+  type: "dejeuner" | "diner",
+  date = todayISO(),
+) {
+  const id = weekPlanSlotId(date, type);
+  return (
+    plan.find((item) => item.id === id) ??
+    plan.find((item) => item.dayIndex === isoWeekday(date) - 1 && item.mealType === type) ??
+    null
+  );
+}
+
+function weekHasOtherPlats(plan: PlannedMeal[], currentId?: string) {
+  return plan.some((item) => item.id !== currentId && !isEmptyMeal(item));
+}
+
 const HOUSEHOLD_IDS: ProfileId[] = ["alexis", "elodie"];
 
 function otherProfileId(id: ProfileId): ProfileId {
@@ -208,16 +236,7 @@ function emptyMovement(date = todayISO()): Record<ProfileId, DailyMovement> {
 }
 
 function defaultMealTime(type: MealType) {
-  switch (type) {
-    case "petit-dejeuner":
-      return "08:00";
-    case "dejeuner":
-      return "12:30";
-    case "diner":
-      return "20:00";
-    default:
-      return "16:30";
-  }
+  return slotTime(type);
 }
 
 function emptyMacros(): Macros {
@@ -269,6 +288,8 @@ export default function AujourdhuiScreen() {
   const [workouts, setWorkouts] = useState<Workout[]>([]);
   const [movement, setMovement] = useState<Record<ProfileId, DailyMovement>>(emptyMovement);
   const [weekPlan, setWeekPlan] = useState<PlannedMeal[]>([]);
+  const [weekTheme, setWeekTheme] = useState("");
+  const [swapWeekMeal, setSwapWeekMeal] = useState<PlannedMeal | null>(null);
   const [lunchDessert, setLunchDessert] = useState<WeekLunchDessert | null>(null);
   const [dinnerDessert, setDinnerDessert] = useState<WeekLunchDessert | null>(null);
   const [favorites, setFavorites] = useState<FavoriteRecipe[]>([]);
@@ -361,12 +382,13 @@ export default function AujourdhuiScreen() {
     const supabase = createBrowserSupabaseClient();
     const ids = profileIdsForView(view);
     const date = todayISO();
-    const [{ plan }, dessert, evening] = await Promise.all([
+    const [{ plan, theme }, dessert, evening] = await Promise.all([
       loadWeekPlan(mondayOf(date)),
       loadWeekLunchDessert(mondayOf(date), "midi"),
       loadWeekLunchDessert(mondayOf(date), "soir"),
     ]);
     setWeekPlan(plan);
+    setWeekTheme(theme);
     setLunchDessert(dessert);
     setDinnerDessert(evening);
     const feels = await fetchTodayFeels(supabase, ids);
@@ -794,19 +816,71 @@ export default function AujourdhuiScreen() {
   }
 
   async function persistEditedMeal(next: MealEntry) {
-    const source = meals.find((meal) => meal.id === next.id);
-    const matchType = source?.type ?? next.type;
+    const source = meals.find((meal) => meal.id === next.id) ?? editingMeal;
+    if (!source) return;
     const targets = persistTargets(next.profileId);
     setSavingEdit(true);
-    const ok = await writeSlots(targets, mealFields(next), matchType);
+    if (source.type === next.type) {
+      const ok = await writeSlots(targets, mealFields(next), source.type);
+      setSavingEdit(false);
+      if (!ok) return;
+      setEditingMeal(null);
+      flash(
+        targets.length > 1
+          ? "Repas enregistré pour Alexis et Élodie"
+          : "Repas enregistré",
+      );
+      return;
+    }
+    const supabase = createBrowserSupabaseClient();
+    const payloadFields = { ...mealFields(next), time: slotTime(next.type) };
+    if (!supabase) {
+      setMeals((prev) => {
+        let result = prev;
+        for (const id of targets) {
+          const original = slotOfProfile(result, id, source.type);
+          if (!original) continue;
+          result = applySlotMoveToMeals(result, original, {
+            ...original,
+            ...payloadFields,
+            id: original.id,
+            profileId: id,
+            type: next.type,
+          });
+        }
+        return result;
+      });
+      setSavingEdit(false);
+      setEditingMeal(null);
+      flash(targets.length > 1 ? "Créneaux mis à jour pour les deux" : "Créneau mis à jour");
+      return;
+    }
+    for (const id of targets) {
+      const original = slotOfProfile(meals, id, source.type);
+      if (!original) continue;
+      const occupant = occupantOfSlot(meals, id, next.type, original.id);
+      const error = await persistReclassifiedMeal(
+        supabase,
+        original,
+        {
+          ...original,
+          ...payloadFields,
+          id: original.id,
+          profileId: id,
+          type: next.type,
+        },
+        occupant,
+      );
+      if (error) {
+        setSavingEdit(false);
+        flash(error);
+        return;
+      }
+    }
+    await reload();
     setSavingEdit(false);
-    if (!ok) return;
     setEditingMeal(null);
-    flash(
-      targets.length > 1
-        ? "Repas enregistré pour Alexis et Élodie"
-        : "Repas enregistré",
-    );
+    flash(targets.length > 1 ? "Créneaux mis à jour pour les deux" : "Créneau mis à jour");
   }
 
   async function persistMealFromCoach(next: MealEntry) {
@@ -821,6 +895,54 @@ export default function AujourdhuiScreen() {
     );
     if (!ok) return;
     flash(`Repas copié pour ${profileShortName(targetId)}`);
+  }
+
+  function openSwapWeek(type: "dejeuner" | "diner") {
+    const from = weekSlotForToday(weekPlan, type);
+    if (!from) {
+      flash("Pas de créneau dans le plan de la semaine");
+      return;
+    }
+    if (!weekHasOtherPlats(weekPlan, from.id)) {
+      flash("Aucun autre plat prévu cette semaine");
+      return;
+    }
+    setEditingMeal(null);
+    setSwapWeekMeal(from);
+  }
+
+  async function confirmSwapWeek(target: { dayIndex: number; mealType: "dejeuner" | "diner" }) {
+    if (!swapWeekMeal) return;
+    const date = todayISO();
+    const next = moveMealInPlan(weekPlan, swapWeekMeal.id, target);
+    const error = await saveWeekPlan(mondayOf(date), next, weekTheme);
+    setWeekPlan(next);
+    setSwapWeekMeal(null);
+    if (error) {
+      flash(error);
+      return;
+    }
+    const todayIndex = isoWeekday(date) - 1;
+    const types: Array<"dejeuner" | "diner"> = [swapWeekMeal.mealType];
+    if (target.dayIndex === todayIndex && target.mealType !== swapWeekMeal.mealType) {
+      types.push(target.mealType);
+    }
+    const supabase = createBrowserSupabaseClient();
+    if (!supabase) {
+      setMeals((prev) => fillMissingPlatsFromWeekPlan(prev, next, HOUSEHOLD_IDS, date, { force: true }));
+      flash("Plat échangé avec la semaine");
+      return;
+    }
+    setBusy(true);
+    await applyWeekPlatsToToday(supabase, date, {
+      profileIds: HOUSEHOLD_IDS,
+      types,
+      force: true,
+    });
+    await applyTodaySlotTemplates(supabase, date);
+    setBusy(false);
+    await reload();
+    flash("Plat échangé avec la semaine");
   }
 
   async function serveWeekPlat(profileId: ProfileId, type: "dejeuner" | "diner") {
@@ -963,6 +1085,7 @@ export default function AujourdhuiScreen() {
           onResetMeal={(type) => void restoreMeals(profile.id, [type])}
           onResetAll={() => void restoreMeals(profile.id, ALL_MEAL_SLOTS)}
           onServeWeekPlat={(type) => void serveWeekPlat(profile.id, type)}
+          onSwapWeek={(type) => openSwapWeek(type)}
           onDuplicateToOther={(meal) => void duplicateMealTo(meal, otherProfileId(meal.profileId))}
           onCopyFromOther={(type) => {
             const source = slotOfProfile(meals, otherProfileId(profile.id), type);
@@ -1113,13 +1236,36 @@ export default function AujourdhuiScreen() {
 
       {editingMeal && (
         <EditMealSheet
+          key={editingMeal.id}
           meal={editingMeal}
+          dayMeals={meals.filter((row) => row.profileId === editingMeal.profileId)}
           saving={savingEdit}
           onClose={() => setEditingMeal(null)}
           onSave={(next) => void persistEditedMeal(next)}
           onAdd={(mode) => startLog(editingMeal.profileId, editingMeal.type, mode)}
+          onSwapWeek={
+            (editingMeal.type === "dejeuner" || editingMeal.type === "diner") &&
+            weekHasOtherPlats(
+              weekPlan,
+              weekSlotForToday(weekPlan, editingMeal.type)?.id,
+            )
+              ? () => openSwapWeek(editingMeal.type as "dejeuner" | "diner")
+              : undefined
+          }
         />
       )}
+
+      {swapWeekMeal ? (
+        <MoveMealSheet
+          meal={swapWeekMeal}
+          plan={weekPlan}
+          title="Échanger avec"
+          caption="Choisis un autre plat prévu cette semaine. Les deux créneaux s’échangent, y compris dans l’onglet Repas."
+          hideEmpty
+          onClose={() => setSwapWeekMeal(null)}
+          onConfirm={(target) => void confirmSwapWeek(target)}
+        />
+      ) : null}
 
       <TodayDelight
         profiles={delightProfiles}
@@ -1175,6 +1321,7 @@ function ProfileToday({
   onResetMeal,
   onResetAll,
   onServeWeekPlat,
+  onSwapWeek,
   onDuplicateToOther,
   onCopyFromOther,
   yesterdayMeals,
@@ -1205,6 +1352,7 @@ function ProfileToday({
   onResetMeal: (type: MealType) => void;
   onResetAll: () => void;
   onServeWeekPlat: (type: "dejeuner" | "diner") => void;
+  onSwapWeek: (type: "dejeuner" | "diner") => void;
   onDuplicateToOther: (meal: MealEntry) => void;
   onCopyFromOther: (type: MealType) => void;
   yesterdayMeals: MealEntry[];
@@ -1451,6 +1599,9 @@ function ProfileToday({
           })[0];
           const weekDish =
             slot === "dejeuner" ? weekLunch : slot === "diner" ? weekDinner : null;
+          const canSwapWeek =
+            (slot === "dejeuner" || slot === "diner") &&
+            weekHasOtherPlats(weekPlan, weekSlotForToday(weekPlan, slot)?.id);
           const otherMeal = slotOfProfile(householdMeals, otherId, slot);
           const copyFromOther = !isFilledMeal(meal) && isFilledMeal(otherMeal);
           if (!meal) {
@@ -1472,6 +1623,15 @@ function ProfileToday({
                         >
                           Mettre le plat de la semaine
                         </button>
+                        {canSwapWeek ? (
+                          <button
+                            type="button"
+                            onClick={() => onSwapWeek(slot as "dejeuner" | "diner")}
+                            className="mt-1.5 block text-[12px] font-semibold"
+                          >
+                            Échanger avec un plat de la semaine
+                          </button>
+                        ) : null}
                       </>
                     ) : (
                       <button type="button" className="w-full text-left" onClick={() => onAddToSlot(slot)}>
@@ -1557,6 +1717,11 @@ function ProfileToday({
               onServeWeek={
                 weekDish && !fromWeek && !meal.isSkipped
                   ? () => onServeWeekPlat(slot as "dejeuner" | "diner")
+                  : undefined
+              }
+              onSwapWeek={
+                canSwapWeek && !meal.isSkipped
+                  ? () => onSwapWeek(slot as "dejeuner" | "diner")
                   : undefined
               }
               favoriteOn={
@@ -1824,6 +1989,7 @@ function MealCard({
   copyFromOtherLabel,
   onCopyYesterday,
   onServeWeek,
+  onSwapWeek,
   favoriteOn,
   onToggleFavorite,
   rejectedOn,
@@ -1846,6 +2012,7 @@ function MealCard({
   copyFromOtherLabel?: string;
   onCopyYesterday?: () => void;
   onServeWeek?: () => void;
+  onSwapWeek?: () => void;
   favoriteOn?: boolean;
   onToggleFavorite?: () => void;
   rejectedOn?: boolean;
@@ -1915,6 +2082,18 @@ function MealCard({
                 className="mt-2 inline-flex items-center gap-1 text-[11px] font-semibold"
               >
                 Mettre le plat de la semaine
+              </button>
+            ) : null}
+            {onSwapWeek ? (
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onSwapWeek();
+                }}
+                className="mt-2 inline-flex items-center gap-1 text-[11px] font-semibold"
+              >
+                Échanger avec un plat de la semaine
               </button>
             ) : null}
             {onDuplicate && duplicateLabel ? (

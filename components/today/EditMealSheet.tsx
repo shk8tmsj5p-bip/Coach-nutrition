@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Camera, Clock, Plus, ScanBarcode, Sparkles, X } from "lucide-react";
+import { ArrowLeftRight, Camera, Clock, Plus, ScanBarcode, Sparkles, X } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import {
   MEAL_TYPE_OPTIONS,
@@ -16,7 +16,8 @@ import {
 import { QtyEditRow } from "@/components/today/QtyEditRow";
 import { requestLogText } from "@/lib/gemini/client";
 import type { MealEntry, MealType } from "@/lib/types";
-import { cn } from "@/lib/utils";
+import { cn, mealTypeLabel } from "@/lib/utils";
+import { isFilledMeal, occupantOfSlot, slotTime } from "@/lib/meal-slot";
 
 export type QuickLogMode = "text" | "barcode" | "photo" | "recent";
 
@@ -26,16 +27,20 @@ function hasDessertSlot(type: MealType) {
 
 export function EditMealSheet({
   meal,
+  dayMeals,
   saving,
   onClose,
   onSave,
   onAdd,
+  onSwapWeek,
 }: {
   meal: MealEntry;
+  dayMeals?: MealEntry[];
   saving: boolean;
   onClose: () => void;
   onSave: (next: MealEntry) => void;
   onAdd?: (mode: QuickLogMode) => void;
+  onSwapWeek?: () => void;
 }) {
   const [type, setType] = useState<MealType>(meal.type);
   const [items, setItems] = useState<EditableItem[]>(() => parseMealItems(meal));
@@ -52,6 +57,8 @@ export function EditMealSheet({
   const showDessert = hasDessertSlot(type);
   const platItems = showDessert ? items.filter((item) => !item.dessert) : items;
   const dessertItems = showDessert ? items.filter((item) => item.dessert) : [];
+  const occupant = occupantOfSlot(dayMeals ?? [], meal.profileId, type, meal.id, meal.date);
+  const moving = type !== meal.type;
 
   function patch(id: string, next: EditableItem) {
     setItems((list) => list.map((row) => (row.id === id ? next : row)));
@@ -110,6 +117,7 @@ export function EditMealSheet({
     onSave({
       ...meal,
       type,
+      time: slotTime(type),
       items: serializeItems(
         showDessert ? items : items.map((item) => ({ ...item, dessert: false })),
         {
@@ -127,17 +135,22 @@ export function EditMealSheet({
 
   return (
     <div className="fixed inset-0 z-[60] flex items-end justify-center bg-black/30">
-      <div className="w-full max-w-[430px] rounded-t-[24px] bg-white p-4 pb-8 shadow-card">
+      <div className="max-h-[calc(100dvh-var(--safe-top)-12px)] w-full max-w-[430px] overflow-y-auto rounded-t-[24px] bg-white p-4 pb-8 shadow-card">
         <div className="mb-3 flex items-center justify-between">
           <h3 className="text-[17px] font-semibold">Modifier le repas</h3>
-          <button type="button" onClick={onClose} className="rounded-full bg-health-bg p-1.5">
-            <X size={16} />
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex h-11 w-11 items-center justify-center rounded-full bg-health-bg"
+            aria-label="Fermer"
+          >
+            <X size={18} />
           </button>
         </div>
         <p className="mb-3 text-[13px] leading-snug text-health-muted">{meal.name}</p>
 
         <p className="mb-2 text-[12px] font-medium text-health-muted">Type de repas</p>
-        <div className="mb-4 grid grid-cols-2 gap-1.5">
+        <div className="mb-3 grid grid-cols-2 gap-1.5">
           {MEAL_TYPE_OPTIONS.map((option) => (
             <button
               key={option.id}
@@ -152,6 +165,25 @@ export function EditMealSheet({
             </button>
           ))}
         </div>
+
+        {onSwapWeek ? (
+          <button
+            type="button"
+            onClick={onSwapWeek}
+            className="mb-4 flex w-full items-center justify-center gap-1.5 rounded-2xl bg-health-bg py-2.5 text-[13px] font-semibold"
+          >
+            <ArrowLeftRight size={14} />
+            Échanger avec un plat de la semaine
+          </button>
+        ) : null}
+
+        {moving ? (
+          <p className="mb-3 text-[12px] leading-snug text-health-muted">
+            {occupant && isFilledMeal(occupant)
+              ? `Tu échanges avec « ${occupant.name} » — ce plat passera en ${mealTypeLabel(meal.type).toLowerCase()}.`
+              : `Le créneau ${mealTypeLabel(meal.type).toLowerCase()} restera sauté (tu pourras y remettre un plat).`}
+          </p>
+        ) : null}
 
         <div className="max-h-[36vh] space-y-1 overflow-y-auto">
           {showDessert ? (

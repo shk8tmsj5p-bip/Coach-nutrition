@@ -19,7 +19,7 @@ export function ProfileToggle() {
   const { toggleScheme } = useTheme();
 
   return (
-    <header className="sticky top-0 z-30 bg-health-bg/85 px-4 pb-3 pt-3 backdrop-blur-xl">
+    <header className="sticky top-0 z-30 bg-health-bg/85 px-4 pb-3 pt-[calc(var(--safe-top)+10px)] backdrop-blur-xl">
       <div className="flex items-center gap-2">
         <div className="flex min-w-0 flex-1 rounded-full bg-health-card p-1 shadow-card">
           {VIEW_ORDER.map((id) => {

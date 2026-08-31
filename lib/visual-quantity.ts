@@ -1,3 +1,5 @@
+import { envelopePieceGrams, isEnvelopeIngredient } from "@/lib/recipe-macros";
+
 function formatGrams(grams: number) {
   if (grams <= 0) return "";
   if (grams >= 1000 && grams % 1000 === 0) return `${grams / 1000}kg`;
@@ -97,6 +99,10 @@ const PRODUCE_UNITS: { keys: string[]; unit: string; gramsPer: number }[] = [
   { keys: ["ail"], unit: "gousse", gramsPer: 5 },
   { keys: ["gingembre"], unit: "cm", gramsPer: 8 },
   { keys: ["champignon"], unit: "barquette", gramsPer: 250 },
+  { keys: ["naan"], unit: "pièce", gramsPer: 80 },
+  { keys: ["pita"], unit: "pièce", gramsPer: 60 },
+  { keys: ["galette sarrasin"], unit: "pièce", gramsPer: 70 },
+  { keys: ["galette", "wrap", "tortilla"], unit: "pièce", gramsPer: 55 },
   { keys: ["tofu"], unit: "bloc", gramsPer: 400 },
   { keys: ["citronnelle"], unit: "tige", gramsPer: 20 },
   { keys: ["pak choi", "pakchoi"], unit: "pièce", gramsPer: 150 },
@@ -208,6 +214,9 @@ export function gramsPerVisualUnit(name: string, unit: string): number | null {
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "");
   if (/sachet/.test(u) && /konjac|shirataki/.test(n)) return 200;
+  if (isEnvelopeIngredient(name) && /piece|galette|wrap|pita|naan|tortilla|chapati/.test(u)) {
+    return envelopePieceGrams(name);
+  }
   if (/poignee|poignée|pincee|pincee/.test(u)) {
     if (/amande|noisette|noix|cajou/.test(n)) return 18;
     return 8;
@@ -261,6 +270,13 @@ function visualMatchesGrams(name: string, grams: number, visual: string) {
 export function visualForIngredient(name: string, grams: number, visual?: string) {
   const given = visual?.trim().replace(/^(env\.?|environ)\s+/i, "");
   const inferred = inferSpoonUnit(name, grams) || inferVisualUnit(name, grams);
+  if (isEnvelopeIngredient(name)) {
+    const parsed = given ? parseVisualQuantity(given) : null;
+    const piece = envelopePieceGrams(name);
+    if ((!parsed || parsed.amount <= 1.2) && grams > piece * 1.35) {
+      return given || "1 pièce";
+    }
+  }
   if (
     given &&
     /cc|cs/i.test(given) &&

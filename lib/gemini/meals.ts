@@ -86,6 +86,7 @@ PAS-À-PAS : uniquement les blocs utiles, phrases courtes et chargées :
 5. Assemblage — légumes + féculent + protéine marinée (si marinade) dans les boîtes. Sauce / mayo au pot. INTERDIT d'y lister soja / gingembre / lait de soja / citron de la sauce. INTERDIT d'y mettre une cuisson (lentilles, riz) ou une découpe (trancher les tomates).
 
 visual_unit obligatoire : légumes en pièces ("1 pièce", "1/3 concombre", "1/2 botte"), sauces/épices en cc/cs. JAMAIS le préfixe « env. ».
+Galette / wrap / pita / tortilla : visual_unit « 1 pièce » = 50–60 g. INTERDIT 120 g sur 1 wrap.
 Légumes : 1–2 pièces par personne par plat (ex. 1 carotte 80 g, 1/3 concombre 100 g). INTERDIT 3+ carottes ou 1 concombre entier par assiette. Total légumes ~200–280 g / pers. midi, moins le soir.
 Houmous / nuoc / pesto / satay / vinaigrette = sous-recette maison (ingrédients séparés). TM seulement si on mixe.
 
@@ -96,6 +97,7 @@ LOIS CUISINE
 ════════════════════════════════
 - Riz : cuiseur à riz. Cookeo = lentilles, quinoa, vapeur.
 - Galette / naan / pain / wrap : poêle ou four. JAMAIS de cuisson à l'eau.
+- Galette / wrap / pita / tortilla : 1 pièce / pers. ≈ 50–60 g (~140 kcal). Naan ≈ 80 g. INTERDIT 120 g pour 1 wrap. Plus de féculent = plus de riz, pas un 2e wrap.
 - Wrap falafel / falafel : falafels dans shared_ingredients ET dans les étapes (airfryer °C + min). Alexis ET Élodie. INTERDIT un titre falafel sans falafel, INTERDIT crevettes à la place.
 - Dîners low cal savoureux si les prefs l'exigent (huile ≤ 8 g pour la perte ; la prise garde la protéine).
 - Tofu Lun–Ven : presser, mariner cru, frais — jamais cuit pendant le batch (sauf dessert).

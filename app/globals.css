@@ -23,6 +23,13 @@
   --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.04), 0 8px 24px rgba(28, 28, 30, 0.04);
 }
 
+/* PWA plein écran : env() peut valoir 0 — on garde au moins la hauteur encoche / Dynamic Island. */
+@media (display-mode: standalone), (display-mode: fullscreen) {
+  :root {
+    --safe-top: max(env(safe-area-inset-top, 0px), 48px);
+  }
+}
+
 html.dark {
   color-scheme: dark;
   --c-bg: 0 0 0;
@@ -76,7 +83,8 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
-body {
+/* Le bandeau sticky et les sheets gèrent l’encoche. Le padding body est ignoré par `fixed` / `sticky top-0`. */
+.fixed.inset-0 {
   padding-top: var(--safe-top);
 }
 

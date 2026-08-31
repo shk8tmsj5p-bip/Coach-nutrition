@@ -3,10 +3,14 @@ import { SLOT_KCAL_SHARE } from "@/lib/macro-status";
 import {
   classifyIngredient,
   declinationFromIngredients,
+  envelopeCapGrams,
+  envelopePieceGrams,
   estimateIngredientMacros,
+  isEnvelopeIngredient,
   type IngredientKind,
 } from "@/lib/recipe-macros";
 import { equalizeSharedSauce, isDressingIngredient, sharedSauceGrams } from "@/lib/ingredient-groups";
+import { parseVisualQuantity, visualForIngredient } from "@/lib/visual-quantity";
 import type {
   DietType,
   Macros,
@@ -260,14 +264,20 @@ function scaleSharedItem(
   }
 
   if (kind === "starch") {
-    const refCarbs = Math.max(1, (aSlot.carbs + eSlot.carbs) / 2);
-    a = base * (aSlot.carbs / refCarbs);
-    e = base * (eSlot.carbs / refCarbs);
-    const dinnerCut = (goal: PrimaryGoal) =>
-      goal === "perte" ? 0.55 : goal === "prise" ? 0.85 : 0.7;
-    if (dinner) {
-      a *= dinnerCut(coach.alexis.goal);
-      e *= dinnerCut(coach.elodie.goal);
+    if (isEnvelopeIngredient(item.name)) {
+      const cap = envelopeCapGrams(item.name, dinner, wrapCount(item));
+      a = Math.min(base || envelopePieceGrams(item.name), cap);
+      e = a;
+    } else {
+      const refCarbs = Math.max(1, (aSlot.carbs + eSlot.carbs) / 2);
+      a = base * (aSlot.carbs / refCarbs);
+      e = base * (eSlot.carbs / refCarbs);
+      const dinnerCut = (goal: PrimaryGoal) =>
+        goal === "perte" ? 0.55 : goal === "prise" ? 0.85 : 0.7;
+      if (dinner) {
+        a *= dinnerCut(coach.alexis.goal);
+        e *= dinnerCut(coach.elodie.goal);
+      }
     }
   } else if (kind === "veg") {
     const vol = (goal: PrimaryGoal) => (goal === "perte" ? 1.1 : 1);
@@ -315,6 +325,7 @@ function scaleKinds(
   return ingredients.map((item) => {
     if (item.role !== "shared" && item.role !== profile) return item;
     if (isDressingIngredient(item, meal)) return item;
+    if (isEnvelopeIngredient(item.name)) return item;
     const kind = classifyIngredient(item.name);
     if (!kinds.includes(kind)) return item;
     const grams = gramsOf(item, profile);
@@ -379,9 +390,40 @@ function vegItemCap(name: string, dinner: boolean) {
   return base;
 }
 
+function wrapCount(item: RecipeIngredient) {
+  const parsed = parseVisualQuantity(item.visualQuantity);
+  if (
+    parsed &&
+    parsed.amount >= 1.6 &&
+    /piece|galette|wrap|pita|naan|tortilla|chapati/i.test(parsed.unit)
+  ) {
+    return Math.min(2, Math.round(parsed.amount));
+  }
+  return 1;
+}
+
+function capEnvelopePortions(meal: PlannedMeal): PlannedMeal {
+  const dinner = meal.lowCalorie || meal.mealType === "diner";
+  const ingredients = meal.ingredients.map((item) => {
+    if (!isEnvelopeIngredient(item.name)) return item;
+    const cap = envelopeCapGrams(item.name, dinner, wrapCount(item));
+    const a = item.gramsAlexis > 0 ? Math.min(item.gramsAlexis, cap) : 0;
+    const e = item.gramsElodie > 0 ? Math.min(item.gramsElodie, cap) : 0;
+    const visual = visualForIngredient(item.name, Math.max(a, e), item.visualQuantity);
+    return { ...item, gramsAlexis: a, gramsElodie: e, visualQuantity: visual };
+  });
+  return { ...meal, ingredients };
+}
+
 /** Assiette réelle : ~1–2 légumes, pas des kilos. Appliqué au load et après scale. */
 export function capVegetablePortions(meal: PlannedMeal): PlannedMeal {
   if (!meal.ingredients.length || meal.baseName === "Aucun repas") return meal;
+  const vegged = capVegetablePortionsInner(meal);
+  const wrapped = capEnvelopePortions(vegged);
+  return withMacros(wrapped, wrapped.ingredients);
+}
+
+function capVegetablePortionsInner(meal: PlannedMeal): PlannedMeal {
   const dinner = meal.lowCalorie || meal.mealType === "diner";
   const maxTotal = dinner ? 220 : 280;
   let ingredients = meal.ingredients.map((item) => {
@@ -408,7 +450,7 @@ export function capVegetablePortions(meal: PlannedMeal): PlannedMeal {
       return profile === "alexis" ? { ...item, gramsAlexis: grams } : { ...item, gramsElodie: grams };
     });
   }
-  return withMacros(meal, ingredients);
+  return { ...meal, ingredients };
 }
 
 export function scaleMealToGoals(meal: PlannedMeal, coach: MealCoachHousehold): PlannedMeal {
