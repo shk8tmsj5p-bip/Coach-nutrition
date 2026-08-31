@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { X } from "lucide-react";
 import { ingredientsForView, pairForSlot } from "@/lib/weekly-plan";
+import { isWeekLunchDessert } from "@/lib/week-dessert";
 import type { PlannedMeal, ViewMode } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -26,7 +27,8 @@ export function SwapIngredientSheet({
   const [suggestions, setSuggestions] = useState<string[] | null>(null);
   const [loading, setLoading] = useState(false);
   const selected = options.find((item) => item.id === selectedId);
-  const pair = pairForSlot(meal.id);
+  const dessert = isWeekLunchDessert(meal);
+  const pair = dessert ? null : pairForSlot(meal.id);
 
   async function loadAlts(id: string, name: string) {
     setLoading(true);
@@ -50,7 +52,11 @@ export function SwapIngredientSheet({
         </div>
         <p className="mb-3 text-[13px] leading-snug text-health-muted">
           {meal.baseName}
-          {pair ? ` · le batch ${pair.label} sera réadapté.` : ""}
+          {dessert
+            ? " · 3 idées, les plus light d'abord (ex. sirop → érythritol)."
+            : pair
+              ? ` · le batch ${pair.label} sera réadapté.`
+              : ""}
         </p>
 
         <p className="mb-1.5 text-[12px] font-medium text-health-muted">Ingrédient à retirer</p>
@@ -80,7 +86,7 @@ export function SwapIngredientSheet({
 
         {loading && (
           <p className="rounded-card bg-health-bg py-3 text-center text-[14px] text-health-muted">
-            3 alternatives cohérentes…
+            {dessert ? "3 alternatives plus light…" : "3 alternatives cohérentes…"}
           </p>
         )}
 

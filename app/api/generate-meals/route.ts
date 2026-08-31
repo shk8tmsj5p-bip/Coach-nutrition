@@ -8,6 +8,8 @@ import {
   geminiToPlannedMeal,
   parseGeminiJson,
   dessertBatchPrompt,
+  dessertSuggestSwapPrompt,
+  dessertApplySwapPrompt,
   singlePrompt,
   suggestSwapPrompt,
   todaySwapPrompt,
@@ -18,11 +20,20 @@ import {
 import type { MealType, PlannedMeal, Weekday } from "@/lib/types";
 import type { HouseholdCoachBias } from "@/lib/coach-apply";
 import { parseMealCoach, scalePlanToGoals, type MealCoachHousehold } from "@/lib/meal-coach";
-import { dummyDessertSlot, scaleDessertToGoals, stampDessertMeal } from "@/lib/week-dessert";
+import {
+  dummyDessertSlot,
+  dessertSlotOf,
+  dessertWeekdaysOf,
+  isWeekLunchDessert,
+  LUNCH_DESSERT_ID,
+  DINNER_DESSERT_ID,
+  scaleDessertToGoals,
+  stampDessertMeal,
+} from "@/lib/week-dessert";
 import { ensureDessertProductInMeal, isDessertSlot, parseDessertProduct, type DessertSlot } from "@/lib/dessert-product";
 import { diversityProblems } from "@/lib/recipe-diversity";
 import { themeMismatchProblems } from "@/lib/theme-kits";
-import { suggestionsFitRecipe } from "@/lib/swap-coherence";
+import { mockSuggestDessertSwap, suggestionsFitRecipe } from "@/lib/swap-coherence";
 import { swapProposalsFromPlanned } from "@/lib/swap-proposals";
 import {
   emptyWeekPlan,
@@ -53,7 +64,20 @@ type Body = {
   weekdays?: Weekday[];
   dessertSlot?: DessertSlot;
   dessertProduct?: unknown;
+  dessert?: PlannedMeal;
 };
+
+function dessertSwapMeal(body: Body): PlannedMeal | null {
+  const meal = body.dessert;
+  if (!meal || typeof meal !== "object" || !Array.isArray(meal.ingredients)) return null;
+  const id = body.slotId ?? meal.id;
+  if (isWeekLunchDessert(meal) || id === LUNCH_DESSERT_ID || id === DINNER_DESSERT_ID) return meal;
+  return null;
+}
+
+function resolveDessertSlot(body: Body, meal: PlannedMeal): DessertSlot {
+  return isDessertSlot(body.dessertSlot) ? body.dessertSlot : dessertSlotOf(meal);
+}
 
 function applyRecipes(
   plan: PlannedMeal[],
@@ -127,6 +151,43 @@ export async function POST(request: Request) {
   try {
     if (body.mode === "suggest-swap") {
       const name = body.ingredientName ?? "";
+      const dessertMeal = dessertSwapMeal(body);
+      if (dessertMeal) {
+        const slot = resolveDessertSlot(body, dessertMeal);
+        let suggestions: string[] = [];
+        let warning: string | undefined;
+        let mock = false;
+        try {
+          const first = await callGeminiDessert(
+            dessertSuggestSwapPrompt(dessertMeal, name, body.kitchenContext, slot),
+          );
+          warning = first.warning;
+          suggestions = extractSuggestions(parseGeminiJson(first.text));
+          const skip = new Set(
+            dessertMeal.ingredients.map((item) => item.name.trim().toLowerCase()),
+          );
+          skip.add(name.trim().toLowerCase());
+          suggestions = suggestions.filter((item) => !skip.has(item.trim().toLowerCase()));
+        } catch {
+          suggestions = [];
+        }
+        if (suggestions.length < 3) {
+          suggestions = mockSuggestDessertSwap(name, dessertMeal);
+          mock = true;
+          warning = warning || "Idées light locales.";
+        }
+        if (suggestions.length >= 3) {
+          return NextResponse.json({
+            suggestions: suggestions.slice(0, 3),
+            mock,
+            warning,
+          });
+        }
+        return NextResponse.json(
+          { error: friendlyGeminiError("Réponse Gemini incomplète"), mock: false },
+          { status: 502 },
+        );
+      }
       const meal = plan.find((item) => item.id === body.slotId) ?? plan[0];
       const { text, warning } = await callGeminiPro(suggestSwapPrompt(meal, name, body.kitchenContext));
       const suggestions = extractSuggestions(parseGeminiJson(text));
@@ -269,6 +330,82 @@ CORRECTION : ta réponse précédente n'était pas du JSON utilisable. Renvoie U
     }
 
     if (body.mode === "apply-swap") {
+      const dessertMeal = dessertSwapMeal(body);
+      if (dessertMeal) {
+        if (!body.ingredientName || !body.replacement) {
+          return NextResponse.json({ error: "Swap incomplet" }, { status: 400 });
+        }
+        const dessertSlot = resolveDessertSlot(body, dessertMeal);
+        const product = parseDessertProduct(body.dessertProduct);
+        const prompt = dessertApplySwapPrompt(
+          dessertMeal,
+          body.ingredientName,
+          body.replacement,
+          body.pastMeals,
+          body.kitchenContext,
+          dessertSlot,
+        );
+        try {
+          const first = await callGeminiDessert(prompt);
+          let used = first;
+          let recipes: ReturnType<typeof extractRecipes> = [];
+          try {
+            recipes = extractRecipes(parseGeminiJson(first.text));
+          } catch {
+            /* retry */
+          }
+          if (recipes.length === 0) {
+            const again = await callGeminiDessert(
+              `${prompt}
+
+CORRECTION : ta réponse précédente n'était pas du JSON utilisable. Renvoie UNIQUEMENT le JSON dessert demandé, complet.`,
+            );
+            try {
+              recipes = extractRecipes(parseGeminiJson(again.text));
+              used = again;
+            } catch {
+              /* fall through */
+            }
+          }
+          if (!recipes[0]) {
+            return NextResponse.json(
+              { error: friendlyGeminiError("Réponse Gemini incomplète"), mock: false },
+              { status: 502 },
+            );
+          }
+          const coach = parseMealCoach(body.nutritionCoach);
+          const themeUsed = theme.trim() || dessertMeal.theme;
+          let planned = stampDessertMeal(
+            ensureDessertProductInMeal(
+              geminiToPlannedMeal(recipes[0], dummyDessertSlot(dessertSlot), themeUsed),
+              product,
+            ),
+            body.weekdays ?? dessertWeekdaysOf(dessertMeal),
+            themeUsed,
+            dessertSlot,
+            product,
+            coach,
+          );
+          planned = scaleDessertToGoals(planned, coach, dessertSlot, product);
+          if (planned.ingredients.length < 2 || !planned.baseName.trim()) {
+            return NextResponse.json(
+              { error: friendlyGeminiError("Réponse Gemini incomplète"), mock: false },
+              { status: 502 },
+            );
+          }
+          console.log("[MEAL GEN] using", used.tier, used.model, "apply-swap dessert", planned.baseName);
+          return NextResponse.json({
+            dessert: planned,
+            mock: false,
+            model: used.model,
+            warning: used.warning,
+          });
+        } catch (error) {
+          const raw = error instanceof Error ? error.message : "Gemini indisponible";
+          console.error("[MEAL GEN] apply-swap dessert —", raw);
+          return NextResponse.json({ error: friendlyGeminiError(raw), mock: false }, { status: 502 });
+        }
+      }
       const slot = plan.find((item) => item.id === body.slotId);
       if (!slot || !body.ingredientName || !body.replacement) {
         return NextResponse.json({ error: "Swap incomplet" }, { status: 400 });

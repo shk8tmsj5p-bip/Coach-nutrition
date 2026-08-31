@@ -745,6 +745,91 @@ Réponds UNIQUEMENT en JSON valide, sans markdown :
 }`;
 }
 
+function dessertIngredientBrief(meal: PlannedMeal) {
+  return meal.ingredients
+    .map(
+      (item) =>
+        `${item.name} · A ${item.gramsAlexis}g / É ${item.gramsElodie}g${item.visualQuantity ? ` (${item.visualQuantity})` : ""}`,
+    )
+    .join(" ; ");
+}
+
+export function dessertSuggestSwapPrompt(
+  meal: PlannedMeal,
+  ingredientName: string,
+  kitchenContext?: string,
+  slot: "midi" | "soir" = "midi",
+) {
+  const others = meal.ingredients
+    .map((item) => item.name)
+    .filter((name) => name.toLowerCase() !== ingredientName.trim().toLowerCase())
+    .join(", ");
+  const evening = slot === "soir";
+  return `Tu es Gem Chef pâtissier${evening ? " light" : ""}. Dessert foyer : « ${meal.baseName} »${meal.theme ? ` (thème « ${meal.theme} »)` : ""}.
+JSON = 1 part / personne. Alexis vegan.
+Ingrédients actuels : ${dessertIngredientBrief(meal) || "—"}.
+Déjà dans la recette (NE PAS les reproposer) : ${others || "—"}.
+Ingrédient à remplacer : « ${ingredientName} ».
+
+Propose EXACTEMENT 3 alternatives pâtisserie pour CE dessert, pas 3 aliments au hasard.
+PRIORITÉ n°1 : plus light / moins calorique, tout en restant gourmand et cuisinable.
+Exemples (si ça correspond au rôle) :
+- sirop d'érable / miel / agave / sucre → Érythritol, Stévia, Extrait de vanille
+- purée d'amande / beurre de cajou → tofu soyeux, compote de pomme, yaourt soja
+- pépites / chocolat → cacao non sucré, zeste d'agrume, cannelle
+- oléagineux en morceaux → fruits rouges, cacao, amandes effilées (moins dense)
+
+INTERDIT plat salé, vinaigrette, moutarde, satay, bowl.
+INTERDIT de proposer le même ingrédient, ou un simple « moins de X » sans autre aliment.
+Si un STOCK FOYER a le même rôle, mets-le en suggestion n°1.
+N'écris aucune formule négative (« sans X »).
+
+${kitchenContext ? `${kitchenContext}\n` : ""}
+JSON : { "suggestions": ["alt1", "alt2", "alt3"] }`;
+}
+
+export function dessertApplySwapPrompt(
+  meal: PlannedMeal,
+  ingredientName: string,
+  replacement: string,
+  pastMeals?: string[],
+  kitchenContext?: string,
+  slot: "midi" | "soir" = "midi",
+) {
+  const evening = slot === "soir";
+  const memory = formatPastMealsForPrompt(pastMeals);
+  const head = evening
+    ? `Tu es Gem Chef pâtissier light. Dessert SOIR. Plafond ~70 kcal / part. Tofu soyeux / konjac OK.`
+    : `Tu es Gem Chef pâtissier. Dessert midi maison.`;
+  return `${head}
+Réadapte TOUT le dessert « ${meal.baseName} » en remplaçant « ${ingredientName} » par « ${replacement} ».
+Ingrédients actuels : ${dessertIngredientBrief(meal)}.
+Garde le même dessert (titre proche OK si le remplacant change le goût). Recalcule grammes ET visual_unit.
+visual_unit = grammes réels : 1 cs sirop ≈ 20 g, 1 cs érythritol ≈ 8 g, 1 cs purée d'amande ≈ 18 g, 1 cs cacao ≈ 5 g. INTERDIT 2 cs = 99 g.
+MÊME dessert, MÊMES ingrédients pour Alexis et Élodie (grammes différents OK). INTERDIT deux versions.
+Si le remplacant est un édulcorant light (érythritol, stévia), RETIRE sirop / miel / sucre / agave.
+Perte = extras denses plus petits. Tofu soyeux cuisson OK. INTERDIT vinaigrette, moutarde, plat salé.
+Alexis vegan : pas de lait animal, beurre, œufs, miel.
+Four / TM seulement s'ils servent. Titre = le dessert seulement.
+
+${kitchenContext ? `${kitchenContext}\n` : ""}
+${memory ? `\n${memory}\n` : ""}
+Réponds UNIQUEMENT en JSON valide, sans markdown :
+{
+  "title": "${meal.baseName.replace(/"/g, "")}",
+  "shared_ingredients": [
+    { "name": "Tofu soyeux", "grams_alexis": 80, "grams_elodie": 80, "visual_unit": "1/3 bloc" }
+  ],
+  "profile_1_ingredients": [],
+  "profile_2_ingredients": [],
+  "step_groups": [
+    { "section": "${evening ? "Plaque" : "Four"}", "steps": ["${evening ? "Rincer le konjac. Vanille + lait : 3 min à frémissement. Lier." : "180°C chaleur tournante · 25 min."}"] },
+    { "section": "Assemblage", "steps": ["${evening ? "Portions individuelles, frigo 4 j." : "Moules individuels. Frigo 4 j."}"] }
+  ],
+  "tips_and_cautions": ["Conserve 4 jours au frigo, portions individuelles."]
+}`;
+}
+
 export function todaySwapPrompt(
   mealType: MealType,
   theme: string,

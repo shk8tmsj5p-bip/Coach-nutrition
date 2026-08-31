@@ -37,16 +37,25 @@ export async function requestGenerateMeals(body: {
   weekdays?: Weekday[];
   dessertSlot?: DessertSlot;
   dessertProduct?: DessertProduct | null;
+  dessert?: PlannedMeal;
 }): Promise<GenerateMealsResponse> {
+  const dessertSwap =
+    Boolean(body.dessert) ||
+    body.slotId === "week-lunch-dessert" ||
+    body.slotId === "week-dinner-dessert";
   const label =
     body.mode === "weekdays"
       ? "Gem Chef prépare Lun–Ven…"
       : body.mode === "weekend"
         ? "Gem Chef prépare le week-end…"
         : body.mode === "suggest-swap"
-          ? "Gem Chef cherche 3 idées…"
+          ? dessertSwap
+            ? "Gem Chef cherche 3 idées plus light…"
+            : "Gem Chef cherche 3 idées…"
           : body.mode === "apply-swap"
-            ? "Gem Chef réadapte la recette…"
+            ? dessertSwap
+              ? "Gem Chef allège le dessert…"
+              : "Gem Chef réadapte la recette…"
             : body.mode === "today-swap"
               ? "Gem Chef propose un plat…"
               : body.mode === "dessert-batch"
@@ -62,7 +71,13 @@ export async function requestGenerateMeals(body: {
       body: JSON.stringify(body),
     });
     const payload = (await response.json()) as GenerateMealsResponse;
-    if (!response.ok && !payload.plan && !payload.proposals && !payload.dessert) {
+    if (
+      !response.ok &&
+      !payload.plan &&
+      !payload.proposals &&
+      !payload.dessert &&
+      !payload.suggestions
+    ) {
       throw new Error(payload.error ?? "Génération impossible");
     }
     return payload;

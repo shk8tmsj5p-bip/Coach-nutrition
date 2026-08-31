@@ -9,6 +9,7 @@ import { FavoriteHeart } from "@/components/today/FavoriteHeart";
 import { RejectMealButton } from "@/components/today/RejectMealButton";
 import type { QtyMode } from "@/lib/qty-scale";
 import type { PlannedMeal, ViewMode } from "@/lib/types";
+import { isWeekLunchDessert } from "@/lib/week-dessert";
 
 export function RecipeDetailSheet({
   meal,
@@ -101,9 +102,13 @@ export function RecipeDetailSheet({
 
           {regenOpen && (
             <div className="mt-3 rounded-card bg-white p-3 shadow-card">
-              <p className="text-[13px] font-semibold">Régénérer ce plat</p>
+              <p className="text-[13px] font-semibold">
+                {isWeekLunchDessert(meal) ? "Régénérer ce dessert" : "Régénérer ce plat"}
+              </p>
               <p className="mt-1 text-[12px] leading-snug text-health-muted">
-                Tu peux imposer un thème pour cette recette seulement (ex. Français, Tomate, Bowl).
+                {isWeekLunchDessert(meal)
+                  ? "Tu peux imposer un thème pour ce dessert seulement (ex. Chocolat, Fruits, Tofu soyeux)."
+                  : "Tu peux imposer un thème pour cette recette seulement (ex. Français, Tomate, Bowl)."}
               </p>
               <input
                 value={regenTheme}

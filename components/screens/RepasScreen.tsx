@@ -88,7 +88,9 @@ import type { QtyMode } from "@/lib/qty-scale";
 import {
   DEFAULT_DESSERT_DAYS,
   dessertTagOf,
+  dessertSlotOf,
   formatDessertBatchForPrompt,
+  isWeekLunchDessert,
   loadWeekLunchDessert,
   persistWeekLunchDessert,
   scaleDessertToGoals,
@@ -96,6 +98,7 @@ import {
   type WeekLunchDessert,
 } from "@/lib/week-dessert";
 import { formatDessertProductForPrompt, type DessertProduct, type DessertSlot } from "@/lib/dessert-product";
+import { mockSuggestDessertSwap } from "@/lib/swap-coherence";
 
 type Tab = "plan" | "courses" | "batch" | "favoris";
 
@@ -440,6 +443,77 @@ export default function RepasScreen() {
       replacePlan: true,
       slots: [slot === "soir" ? "dessert-soir" : "dessert-midi"],
     });
+  }
+
+  function dessertMealOnScreen() {
+    const source = dessertPane.draft ?? dessertPane.saved?.meal;
+    if (!source) return null;
+    return stampDessertMeal(
+      source,
+      dessertPane.weekdays,
+      dessertPane.theme || dessertPane.saved?.theme || "",
+      dessertSlot,
+      dessertPane.product,
+    );
+  }
+
+  function dessertSwapRequest(meal: PlannedMeal) {
+    const slot = dessertSlotOf(meal);
+    const pane = slot === "soir" ? soirPane : midiPane;
+    return {
+      theme: pane.theme || meal.theme,
+      dessert: meal,
+      slotId: meal.id,
+      kitchenContext: kitchenContext({
+        dessertBatch: true,
+        dessertDays: pane.weekdays,
+        dessertSlot: slot,
+        product: pane.product,
+      }),
+      nutritionCoach: nutritionCoach(),
+      weekdays: pane.weekdays,
+      dessertSlot: slot,
+      dessertProduct: pane.product,
+    };
+  }
+
+  async function persistDessertSwap(current: PlannedMeal, nextMeal: PlannedMeal, warning?: string) {
+    const slot = dessertSlotOf(current);
+    const pane = slot === "soir" ? soirPane : midiPane;
+    const setPane = slot === "soir" ? setSoirPane : setMidiPane;
+    const stamped = stampDessertMeal(
+      scaleDessertToGoals(nextMeal, nutritionCoach(), slot, pane.product),
+      pane.weekdays,
+      pane.theme.trim() || nextMeal.theme || current.theme,
+      slot,
+      pane.product,
+    );
+    if (pane.draft) {
+      setPane({ ...pane, draft: stamped, warning: warning ?? null });
+      flash(warning ? `Dessert réadapté. ${warning}` : "Dessert réadapté");
+      return;
+    }
+    const next: WeekLunchDessert = {
+      weekdays: pane.weekdays,
+      theme: pane.theme.trim() || stamped.theme,
+      meal: stamped,
+      product: pane.product,
+      slot,
+    };
+    const error = await persistWeekLunchDessert(weekStart, next, slot);
+    if (slot === "soir") setDinnerDessert(next);
+    else setLunchDessert(next);
+    setPane({ ...pane, saved: next, draft: null, warning: null });
+    const used = await consumeStockFromMeals([stamped]);
+    await serveDessertToday(slot);
+    const stockNote = used.length ? ` · stock : ${used.map(formatStockItem).join(", ")}` : "";
+    flash(
+      error
+        ? `Dessert réadapté en local · ${error}${stockNote}`
+        : warning
+          ? `Dessert réadapté. ${warning}${stockNote}`
+          : `Dessert réadapté${stockNote}`,
+    );
   }
 
   async function proposeDessert(themeOverride?: string) {
@@ -895,6 +969,20 @@ export default function RepasScreen() {
           busy={busy}
           onClose={() => setSwapMeal(null)}
           onSuggest={async (ingredientId, ingredientName) => {
+            if (isWeekLunchDessert(swapMeal)) {
+              try {
+                const result = await requestGenerateMeals({
+                  mode: "suggest-swap",
+                  ...dessertSwapRequest(swapMeal),
+                  ingredientId,
+                  ingredientName,
+                });
+                if (result.suggestions && result.suggestions.length >= 3) return result.suggestions;
+              } catch {
+                /* fallback local */
+              }
+              return mockSuggestDessertSwap(ingredientName, swapMeal);
+            }
             const result = await requestGenerateMeals({
               mode: "suggest-swap",
               theme,
@@ -910,6 +998,23 @@ export default function RepasScreen() {
           onPick={async (ingredientId, replacement) => {
             setBusy(true);
             try {
+              if (isWeekLunchDessert(swapMeal)) {
+                const ingredient = swapMeal.ingredients.find((item) => item.id === ingredientId);
+                const result = await requestGenerateMeals({
+                  mode: "apply-swap",
+                  ...dessertSwapRequest(swapMeal),
+                  ingredientId,
+                  ingredientName: ingredient?.name,
+                  replacement,
+                });
+                if (result.dessert) {
+                  await persistDessertSwap(swapMeal, result.dessert, result.warning);
+                  setSwapMeal(null);
+                } else {
+                  flash(result.error ?? "Échange impossible");
+                }
+                return;
+              }
               const ingredient = swapMeal.ingredients.find((item) => item.id === ingredientId);
               const result = await requestGenerateMeals({
                 mode: "apply-swap",
@@ -934,8 +1039,10 @@ export default function RepasScreen() {
                     ? `Recette réadaptée. ${result.warning}${stockNote}`
                     : `Recette réadaptée · Gemini Pro${stockNote}`,
                 );
+                setSwapMeal(null);
+              } else {
+                flash(result.error ?? "Échange impossible");
               }
-              setSwapMeal(null);
             } catch (error) {
               flash(error instanceof Error ? error.message : "Échange impossible");
             } finally {
@@ -1013,6 +1120,10 @@ export default function RepasScreen() {
           onRegenerate={(regenTheme) => {
             setOpenDessert(false);
             void proposeDessert(regenTheme);
+          }}
+          onSwapIngredient={() => {
+            const meal = dessertMealOnScreen();
+            if (meal) setSwapMeal(meal);
           }}
           onDelete={() => void removeDessert()}
         />

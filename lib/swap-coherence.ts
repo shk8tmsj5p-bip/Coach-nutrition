@@ -204,6 +204,43 @@ export function describeIngredientUse(name: string, meal?: PlannedMeal) {
   }, cuisson ${useLabel[use]}.`;
 }
 
+const LIGHT_DESSERT_ALTS = [
+  "Érythritol",
+  "Tofu soyeux",
+  "Cacao non sucré",
+  "Stévia",
+  "Extrait de vanille",
+  "Konjac",
+  "Cannelle",
+];
+
+export function mockSuggestDessertSwap(ingredientName: string, meal?: PlannedMeal): string[] {
+  const n = ingredientName.toLowerCase();
+  let pool: string[];
+  if (/sirop|miel|agave|sucre|cassonade/.test(n)) {
+    pool = ["Érythritol", "Stévia", "Extrait de vanille"];
+  } else if (/puree|purée|beurre d.amande|beurre de cajou/.test(n)) {
+    pool = ["Tofu soyeux", "Compote de pomme", "Yaourt soja nature"];
+  } else if (/pepites|pépites|chocolat/.test(n) && !/cacao/.test(n)) {
+    pool = ["Cacao non sucré", "Zeste d'agrume", "Cannelle"];
+  } else if (/(amandes|noisettes|noix)/.test(n) && !/lait|puree|purée|beurre/.test(n)) {
+    pool = ["Framboises", "Cacao non sucré", "Amandes effilées"];
+  } else if (/lait/.test(n)) {
+    pool = ["Lait d'amande non sucré", "Lait de soja", "Eau vanillée"];
+  } else if (/farine/.test(n)) {
+    pool = ["Farine de konjac", "Son d'avoine", "Poudre d'amande"];
+  } else {
+    pool = LIGHT_DESSERT_ALTS;
+  }
+  const picked = takeThree([...pool, ...LIGHT_DESSERT_ALTS], ingredientName, meal);
+  if (picked.length >= 3) return picked;
+  return takeThree(
+    [...picked, ...pool, ...LIGHT_DESSERT_ALTS, "Vanille", "Zeste de citron"],
+    ingredientName,
+    meal,
+  );
+}
+
 export function mockSuggestSwap(ingredientName: string, meal?: PlannedMeal): string[] {
   const n = ingredientName.toLowerCase();
   if (/galette|wrap|tortilla/.test(n)) {
