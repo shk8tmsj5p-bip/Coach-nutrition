@@ -46,7 +46,7 @@ export function FeelStickerRow({
               aria-pressed={on}
               aria-label={`${label} ${CAT_FEEL_LABELS[mood]}`}
             >
-              <CatSticker mood={mood} className="h-7 w-8" />
+              <CatSticker mood={mood} selected={on} className="h-8 w-8" />
               <span className="mt-0.5 text-[9px] font-semibold leading-none">
                 {CAT_FEEL_LABELS[mood]}
               </span>

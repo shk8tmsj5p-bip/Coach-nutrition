@@ -66,7 +66,7 @@ export function TodayDelight({
   return (
     <div className="pointer-events-none fixed inset-x-0 bottom-[calc(var(--nav-height)+var(--safe-bottom)+20px)] z-[70] flex justify-center px-4">
       <div className="today-delight-pop flex max-w-[430px] items-center gap-2.5 rounded-card bg-health-ink px-3.5 py-2.5 text-health-on-fill shadow-card">
-        <CatSticker mood="ok" className="h-8 w-9 shrink-0 text-health-on-fill" />
+        <CatSticker mood="ok" className="h-8 w-8 shrink-0 text-health-on-fill" />
         <p className="text-[13px] font-semibold leading-snug">{message}</p>
       </div>
     </div>

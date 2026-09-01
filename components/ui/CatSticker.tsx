@@ -5,74 +5,100 @@ export function CatSticker({
   mood,
   className,
   title,
+  selected = false,
 }: {
   mood: CatFeelMood;
   className?: string;
   title?: string;
+  selected?: boolean;
 }) {
+  const faceFill = selected
+    ? "fill-[#1C1C1E]/70 dark:fill-white/90"
+    : "fill-[#1C1C1E]/70";
+  const faceStroke = selected
+    ? "stroke-[#1C1C1E]/70 dark:stroke-white/90"
+    : "stroke-[#1C1C1E]/70";
+
   return (
     <svg
-      viewBox="0 0 48 40"
-      className={cn("h-8 w-9", className)}
+      viewBox="0 0 32 32"
+      className={cn("h-8 w-8", className)}
       aria-hidden={title ? undefined : true}
       role={title ? "img" : undefined}
     >
       {title ? <title>{title}</title> : null}
-      {mood === "ok" ? <OkCat /> : mood === "bof" ? <BofCat /> : <CreveCat />}
+      {mood === "ok" ? (
+        <OkCat faceFill={faceFill} faceStroke={faceStroke} />
+      ) : mood === "bof" ? (
+        <BofCat faceFill={faceFill} faceStroke={faceStroke} />
+      ) : (
+        <CreveCat faceFill={faceFill} faceStroke={faceStroke} />
+      )}
     </svg>
   );
 }
 
-function OkCat() {
+function OkCat({ faceFill, faceStroke }: { faceFill: string; faceStroke: string }) {
   return (
     <>
       <g fill="currentColor">
-        <ellipse cx="22" cy="26" rx="14" ry="10" />
-        <circle cx="32" cy="16" r="8" />
-        <polygon points="26,11 28,3 32,12" />
-        <polygon points="32,12 38,2 40,13" />
-        <path d="M10 22 C4 16 2 10 7 6 C8 14 10 18 14 24 Z" />
+        <polygon points="7.5,13 9.2,2 15.6,11" />
+        <polygon points="16.4,11 22.8,2 24.5,13" />
+        <circle cx="16" cy="19.4" r="10.4" />
       </g>
-      <g className="fill-black/50 dark:fill-white/70">
-        <circle cx="34" cy="16" r="1.2" />
-        <circle cx="29.5" cy="16.2" r="1.2" />
+      <g className={faceFill}>
+        <circle cx="12.1" cy="17.6" r="1.95" />
+        <circle cx="19.9" cy="17.6" r="1.95" />
+        <ellipse cx="16" cy="20.7" rx="1.2" ry="0.8" />
       </g>
+      <path
+        d="M12.4 23 C14.1 25.6 17.9 25.6 19.6 23"
+        className={faceStroke}
+        fill="none"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+      />
     </>
   );
 }
 
-function BofCat() {
+function BofCat({ faceFill, faceStroke }: { faceFill: string; faceStroke: string }) {
   return (
     <>
       <g fill="currentColor">
-        <ellipse cx="22" cy="27" rx="14.5" ry="9" />
-        <ellipse cx="31" cy="18" rx="8" ry="7.2" />
-        <polygon points="24,14 23,7 30,15" />
-        <polygon points="32,15 39,8 39,16" />
-        <path d="M9 24 C3 20 2 14 6 11 C8 17 10 20 13 25 Z" />
+        <polygon points="5.2,14.5 3.4,5.4 14,12.2" />
+        <polygon points="18,12.2 28.6,5.4 26.8,14.5" />
+        <circle cx="16" cy="19.6" r="10.4" />
       </g>
-      <g className="fill-black/50 dark:fill-white/70">
-        <rect x="27.2" y="17.2" width="3.4" height="1.15" rx="0.6" />
-        <rect x="32.4" y="17.2" width="3.4" height="1.15" rx="0.6" />
+      <g className={faceFill}>
+        <rect x="9.8" y="17.3" width="4.6" height="1.85" rx="0.9" />
+        <rect x="17.6" y="17.3" width="4.6" height="1.85" rx="0.9" />
+        <ellipse cx="16" cy="21" rx="1.15" ry="0.7" />
       </g>
+      <path
+        d="M13.6 23.6 H18.4"
+        className={faceStroke}
+        fill="none"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+      />
     </>
   );
 }
 
-function CreveCat() {
+function CreveCat({ faceStroke }: { faceFill: string; faceStroke: string }) {
   return (
-    <>
+    <g transform="rotate(-9 16 19)">
+      <circle cx="16" cy="19.2" r="10.4" fill="currentColor" />
       <g fill="currentColor">
-        <ellipse cx="24" cy="28" rx="16" ry="7.5" />
-        <ellipse cx="12" cy="24" rx="7.5" ry="6.5" />
-        <polygon points="6,20 5,13 11,21" />
-        <polygon points="12,21 16,12 18,22" />
-        <path d="M38 26 C44 22 46 16 42 13 C41 20 40 23 36 27 Z" />
+        <polygon points="5,16.2 2.2,27 12,20.2" />
+        <polygon points="20,20.2 29.8,27 27,16.2" />
       </g>
-      <g className="stroke-black/50 dark:stroke-white/70" fill="none" strokeWidth="1.2" strokeLinecap="round">
-        <path d="M8.5 23.5 L11.5 26.2 M11.5 23.5 L8.5 26.2" />
-        <path d="M13.2 23.2 L16 25.8 M16 23.2 L13.2 25.8" />
+      <g className={faceStroke} fill="none" strokeWidth="1.7" strokeLinecap="round">
+        <path d="M10.2 16.2 L14.4 20.2 M14.4 16.2 L10.2 20.2" />
+        <path d="M17.6 16.2 L21.8 20.2 M21.8 16.2 L17.6 20.2" />
+        <path d="M13.2 23.8 C14.6 22.4 17.4 22.4 18.8 23.8" />
       </g>
-    </>
+    </g>
   );
 }

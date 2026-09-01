@@ -13,7 +13,7 @@ export function TodayCatBanner({
   return (
     <div className="mt-2 flex items-start gap-2.5">
       <div className="mt-0.5 shrink-0 text-health-ink">
-        <CatSticker mood="ok" className="h-7 w-8" />
+        <CatSticker mood="ok" className="h-7 w-7" />
       </div>
       <div className="min-w-0 flex-1">
         <p className="text-[14px] leading-snug text-health-ink">{line}</p>

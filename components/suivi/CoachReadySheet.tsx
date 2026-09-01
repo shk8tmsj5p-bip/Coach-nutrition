@@ -32,7 +32,7 @@ export function CoachReadySheet({
             <p className="text-[11px] font-semibold uppercase tracking-wide text-health-muted">
               Semaine · {payload.profileName}
             </p>
-            <CatSticker mood="ok" className="h-7 w-8 text-health-ink" />
+            <CatSticker mood="ok" className="h-7 w-7 text-health-ink" />
           </div>
           <div className="mt-3 aspect-[4/3] rounded-sm bg-health-bg px-3 py-4">
             <p className="text-[16px] font-semibold leading-snug">{lines.line1}</p>

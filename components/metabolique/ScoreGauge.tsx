@@ -47,7 +47,7 @@ export function ScoreGauge({
           />
         </svg>
         <div className="absolute inset-0 flex flex-col items-center justify-center" style={{ color }}>
-          <CatSticker mood={mood} className="h-6 w-7" />
+          <CatSticker mood={mood} className="h-7 w-7" />
           <span className="mt-0.5 text-[10px] font-semibold leading-none">
             {CAT_FEEL_LABELS[mood]}
           </span>
