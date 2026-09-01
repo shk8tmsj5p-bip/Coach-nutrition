@@ -6,12 +6,14 @@ import { templateForSlot } from "@/lib/meal-templates";
 import { macrosFromPlanned, plannedMealForDay } from "@/lib/serve-week-plan";
 import { isSessionValidated, loadSessionValidations, matchWorkoutsToPlanned } from "@/lib/strava-match";
 import { activityLabel, effortLabel, parseSportRoutine, sessionsForWeekday } from "@/lib/sport-routine";
+import { storage } from "@/lib/storage";
 import type {
   DailyMovement,
   MealEntry,
   MealType,
   PlannedMeal,
   Profile,
+  ProfileId,
   SlotTemplateKind,
   Workout,
 } from "@/lib/types";
@@ -450,4 +452,40 @@ export function localCoachTodayActions(snapshot: CoachTodaySnapshot): CoachToday
     });
   }
   return actions.slice(0, 3);
+}
+
+function adviceKey(profileId: ProfileId, date: string) {
+  return `coach-today-advice:${profileId}:${date}`;
+}
+
+function parseStoredAdvice(value: unknown): { title: string; actions: CoachTodayAction[] } | null {
+  if (!value || typeof value !== "object") return null;
+  const rec = value as Record<string, unknown>;
+  const title = typeof rec.title === "string" ? rec.title.trim() : "";
+  if (!title || !Array.isArray(rec.actions)) return null;
+  const actions: CoachTodayAction[] = [];
+  for (const item of rec.actions) {
+    if (!item || typeof item !== "object") continue;
+    const row = item as Record<string, unknown>;
+    const label = typeof row.label === "string" ? row.label.trim() : "";
+    const detail = typeof row.detail === "string" ? row.detail.trim() : "";
+    if (!label || !detail) continue;
+    actions.push({ label, detail });
+    if (actions.length >= 3) break;
+  }
+  if (actions.length === 0) return null;
+  return { title, actions };
+}
+
+/** Conseil du moment for this profile + Paris day. Empty after midnight. */
+export function loadCoachTodayAdvice(profileId: ProfileId, date = todayISO()) {
+  return parseStoredAdvice(storage.getJSON(adviceKey(profileId, date), null));
+}
+
+export function persistCoachTodayAdvice(
+  profileId: ProfileId,
+  advice: { title: string; actions: CoachTodayAction[] },
+  date = todayISO(),
+) {
+  storage.setJSON(adviceKey(profileId, date), advice);
 }

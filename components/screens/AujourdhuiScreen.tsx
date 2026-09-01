@@ -1884,7 +1884,7 @@ function ProfileToday({
         )}
       </Card>
 
-      <TodayDayCoach remark={remark} snapshot={coachSnapshot} />
+      <TodayDayCoach profileId={profile.id} remark={remark} snapshot={coachSnapshot} />
 
       <TodayPlannedCard
         profile={profile}
