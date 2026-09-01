@@ -1,5 +1,5 @@
 import { todayISO } from "@/lib/dates";
-import { activityLabel, defaultEffort, effortAllowed } from "@/lib/sport-routine";
+import { activityLabel, defaultEffort, effortAllowed, effortLabel } from "@/lib/sport-routine";
 import { storage } from "@/lib/storage";
 import { deleteManualWorkout, upsertManualWorkout } from "@/lib/supabase/health-logs";
 import {
@@ -133,6 +133,18 @@ export function mergeLoggedWorkouts(
   return extras.length === 0 ? workouts : [...workouts, ...extras];
 }
 
+export function todayActivityHeadline(
+  activity: SportActivity,
+  effort: SportEffort,
+  elevationM?: number,
+) {
+  if (activity === "muscu") {
+    return `${activityLabel(activity)} · ${effortLabel(effort)}`;
+  }
+  const meters = Math.max(0, Math.round(elevationM ?? 0));
+  return `${activityLabel(activity)} · Dénivelé ${meters} m`;
+}
+
 export function validationLabel(log: LoggedTodaySession) {
   if (log.source === "strava") return log.workoutName || "Strava";
   if (log.source === "apple-health") return log.workoutName || "Santé";
@@ -221,6 +233,7 @@ export async function saveTodaySport(
   profileId: ProfileId,
   draft: LoggedTodaySession,
   date = todayISO(),
+  opts?: { validate?: boolean },
 ): Promise<{ log: LoggedTodaySession; error?: string }> {
   let next = { ...draft };
   if (next.source === "manual") {
@@ -235,11 +248,11 @@ export async function saveTodaySport(
     });
     next = { ...next, workoutId: saved.id, workoutName: next.workoutName || activityLabel(next.activity) };
     persistLoggedToday(profileId, upsertLoggedList(loadLoggedToday(profileId, date), next), date);
-    applyLoggedValidation(profileId, next, date);
+    if (opts?.validate) applyLoggedValidation(profileId, next, date);
     return { log: next, error: saved.error };
   }
   persistLoggedToday(profileId, upsertLoggedList(loadLoggedToday(profileId, date), next), date);
-  applyLoggedValidation(profileId, next, date);
+  if (opts?.validate) applyLoggedValidation(profileId, next, date);
   return { log: next };
 }
 

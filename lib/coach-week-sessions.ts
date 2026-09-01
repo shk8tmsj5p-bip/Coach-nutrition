@@ -68,8 +68,7 @@ export function sessionsLast7Days(
     );
     for (const session of daySessions) {
       const overlay = loggedForPlanned(logs, session.id);
-      const completed =
-        Boolean(overlay) || isSessionValidated(validations[session.id]) || hits.has(session.id);
+      const completed = isSessionValidated(validations[session.id]) || hits.has(session.id);
       out.push({
         date,
         weekday,

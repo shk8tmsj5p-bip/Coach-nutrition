@@ -73,24 +73,40 @@ export function LogTodaySessionSheet({
           ))}
         </div>
 
-        <p className="mb-2 text-[12px] font-medium text-health-muted">Type d’effort</p>
-        <div className="mb-3 grid grid-cols-2 gap-1.5">
-          {efforts.map((option) => (
-            <button
-              key={option.id}
-              type="button"
-              onClick={() => setNext((current) => ({ ...current, effort: option.id }))}
-              className={cn(
-                "rounded-full px-2 py-2 text-[11px] font-semibold leading-tight",
-                next.effort === option.id
-                  ? "bg-health-ink text-white"
-                  : "bg-health-bg text-health-muted",
-              )}
-            >
-              {option.label}
-            </button>
-          ))}
-        </div>
+        {next.activity === "muscu" ? (
+          <>
+            <p className="mb-2 text-[12px] font-medium text-health-muted">Type d’effort</p>
+            <div className="mb-3 grid grid-cols-2 gap-1.5">
+              {efforts.map((option) => (
+                <button
+                  key={option.id}
+                  type="button"
+                  onClick={() => setNext((current) => ({ ...current, effort: option.id }))}
+                  className={cn(
+                    "rounded-full px-2 py-2 text-[11px] font-semibold leading-tight",
+                    next.effort === option.id
+                      ? "bg-health-ink text-white"
+                      : "bg-health-bg text-health-muted",
+                  )}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+          </>
+        ) : (
+          <div className="mb-3">
+            <Stepper
+              label="Dénivelé"
+              value={next.elevationM ?? 0}
+              onChange={(elevationM) => setNext((current) => ({ ...current, elevationM }))}
+              step={10}
+              min={0}
+              max={next.activity === "velo" ? 4000 : 1200}
+              suffix=" m"
+            />
+          </div>
+        )}
 
         <Stepper
           label="Durée"

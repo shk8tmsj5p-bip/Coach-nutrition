@@ -5,7 +5,7 @@ import { type Season, type WeatherKind } from "@/lib/season";
 import { plannedMealForDay } from "@/lib/serve-week-plan";
 import { parseSportRoutine, sessionsForWeekday } from "@/lib/sport-routine";
 import { isSessionValidated, loadSessionValidations, matchWorkoutsToPlanned } from "@/lib/strava-match";
-import { extrasLogged, loadLoggedToday, loggedForPlanned } from "@/lib/today-sport";
+import { extrasLogged, loadLoggedToday } from "@/lib/today-sport";
 import type {
   DailyMovement,
   MealEntry,
@@ -60,10 +60,7 @@ export function todaySessionFlags(profile: Profile, workouts: Workout[], date = 
   const vals = loadSessionValidations(profile.id, date);
   const hits = matchWorkoutsToPlanned(workouts, planned, date);
   const done = planned.some(
-    (session) =>
-      Boolean(loggedForPlanned(logs, session.id)) ||
-      isSessionValidated(vals[session.id]) ||
-      hits.has(session.id),
+    (session) => isSessionValidated(vals[session.id]) || hits.has(session.id),
   );
   return { planned: true, done: done || extraDone };
 }

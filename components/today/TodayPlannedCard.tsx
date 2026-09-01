@@ -17,7 +17,6 @@ import { isoWeekday, todayISO } from "@/lib/dates";
 import {
   activityLabel,
   defaultEffort,
-  effortLabel,
   formatExerciseLine,
   formatHoursMinutes,
   parseSportRoutine,
@@ -41,6 +40,7 @@ import {
   newExtraId,
   removeTodaySport,
   saveTodaySport,
+  todayActivityHeadline,
   type LoggedTodaySession,
 } from "@/lib/today-sport";
 import type { Profile, SportActivity, SportSession, Workout } from "@/lib/types";
@@ -138,7 +138,9 @@ export function TodayPlannedCard({
 
   function openEdit(session: SportSession) {
     const existing = loggedForPlanned(logs, session.id);
-    setPlannedHint(`${activityLabel(session.activity)} · ${effortLabel(session.effort)}`);
+    setPlannedHint(
+      todayActivityHeadline(session.activity, session.effort, session.elevationM),
+    );
     setEditor(
       existing ??
         draftFromPlanned({
@@ -185,7 +187,7 @@ export function TodayPlannedCard({
     }
     setPlannedHint(
       freePlanned
-        ? `${activityLabel(freePlanned.activity)} · ${effortLabel(freePlanned.effort)}`
+        ? todayActivityHeadline(freePlanned.activity, freePlanned.effort, freePlanned.elevationM)
         : undefined,
     );
     setEditor(draft);
@@ -193,7 +195,12 @@ export function TodayPlannedCard({
 
   async function saveEditor(next: LoggedTodaySession) {
     setSaving(true);
-    const result = await saveTodaySport(profile.id, next, date);
+    const alreadyLogged = logs.some(
+      (item) => item.id === next.id || (next.workoutId != null && item.workoutId === next.workoutId),
+    );
+    const result = await saveTodaySport(profile.id, next, date, {
+      validate: Boolean(next.workoutId && next.source !== "manual" && !alreadyLogged),
+    });
     setSaving(false);
     setEditor(null);
     refreshLogs();
@@ -239,7 +246,7 @@ export function TodayPlannedCard({
             {planned.map((session) => {
               const entry = validations[session.id];
               const overlay = loggedForPlanned(logs, session.id);
-              const validated = isSessionValidated(entry) || Boolean(overlay);
+              const validated = isSessionValidated(entry);
               return (
                 <PlannedRow
                   key={session.id}
@@ -377,7 +384,9 @@ function PlannedRow({
   const highlighted = Boolean(coachDiff);
   const changed =
     overlay &&
-    (overlay.activity !== session.activity || overlay.durationMin !== session.durationMin);
+    (overlay.activity !== session.activity ||
+      overlay.durationMin !== session.durationMin ||
+      (overlay.elevationM ?? 0) !== session.elevationM);
   return (
     <div className={cn("rounded-2xl bg-health-bg px-3 py-2.5", highlighted && "ring-1 ring-coral/35")}>
       <div className="flex items-start justify-between gap-2">
@@ -385,14 +394,11 @@ function PlannedRow({
           <p className="flex items-center gap-1.5 text-[14px] font-semibold">
             <Icon size={15} />
             {overlay
-              ? `${activityLabel(overlay.activity)} · ${effortLabel(overlay.effort)}`
-              : `${activityLabel(session.activity)} · ${effortLabel(session.effort)}`}
+              ? todayActivityHeadline(overlay.activity, overlay.effort, overlay.elevationM)
+              : todayActivityHeadline(session.activity, session.effort, session.elevationM)}
           </p>
           <p className="mt-0.5 text-[13px] text-health-muted">
             {formatHoursMinutes(overlay?.durationMin ?? session.durationMin)}
-            {(overlay?.activity ?? session.activity) !== "muscu"
-              ? ` · D+ ${overlay?.elevationM ?? session.elevationM} m`
-              : ""}
             {overlay && overlay.calories > 0 ? ` · ${overlay.calories} kcal` : ""}
           </p>
           {changed ? (
@@ -458,7 +464,7 @@ function ExtraRow({
         <div className="min-w-0">
           <p className="flex items-center gap-1.5 text-[14px] font-semibold">
             <Icon size={15} />
-            {activityLabel(log.activity)} · {effortLabel(log.effort)}
+            {todayActivityHeadline(log.activity, log.effort, log.elevationM)}
           </p>
           <p className="mt-0.5 text-[13px] text-health-muted">
             {formatHoursMinutes(log.durationMin)}
