@@ -1,5 +1,5 @@
 import { applyTrustedNutrition, formatDetectedLine, parseLogLine } from "@/lib/food-log";
-import { isDessertItemLine, isEmptyDessertMarker } from "@/lib/meal-templates";
+import { isDessertItemLine, isEmptyDessertMarker, stripDessertPrefix } from "@/lib/meal-templates";
 import type { DetectedIngredient, MealEntry, ProfileId, QtyUnit } from "@/lib/types";
 
 export type DatedMeal = MealEntry & { date: string };
@@ -14,6 +14,7 @@ export type RecentFood = {
   protein: number;
   carbs: number;
   fat: number;
+  fromDessert?: boolean;
 };
 
 function foldName(value: string) {
@@ -34,7 +35,7 @@ function linesOf(meal: MealEntry): string[] {
 
 export function recentFoodsFromMeals(meals: DatedMeal[], profileId: ProfileId, limit = 12): RecentFood[] {
   const ordered = [...meals]
-    .filter((meal) => meal.profileId === profileId && !meal.isSkipped && meal.source !== "plan")
+    .filter((meal) => meal.profileId === profileId && !meal.isSkipped)
     .sort((a, b) => {
       const byDate = b.date.localeCompare(a.date);
       if (byDate) return byDate;
@@ -43,8 +44,10 @@ export function recentFoodsFromMeals(meals: DatedMeal[], profileId: ProfileId, l
   const byKey = new Map<string, RecentFood>();
   for (const meal of ordered) {
     for (const line of linesOf(meal)) {
-      if (!line.trim() || isDessertItemLine(line) || isEmptyDessertMarker(line)) continue;
-      const parsed = parseLogLine(line);
+      if (!line.trim() || isEmptyDessertMarker(line)) continue;
+      const dessert = isDessertItemLine(line);
+      if (meal.source === "plan" && !dessert) continue;
+      const parsed = parseLogLine(dessert ? stripDessertPrefix(line) : line);
       const name = parsed.name.trim();
       const key = foldName(name);
       if (!key || key === "aliment" || key === "repas saute") continue;
@@ -70,6 +73,7 @@ export function recentFoodsFromMeals(meals: DatedMeal[], profileId: ProfileId, l
         protein: trusted.protein,
         carbs: trusted.carbs ?? 0,
         fat: trusted.fat ?? 0,
+        fromDessert: dessert,
       });
       if (byKey.size >= limit) {
         return [...byKey.values()];

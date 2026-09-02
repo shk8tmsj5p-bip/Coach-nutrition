@@ -41,6 +41,7 @@ import {
   isEmptyDessertMarker,
   dessertDisplayName,
   appendPlatKeepingDessert,
+  withDessertPrefix,
 } from "@/lib/meal-templates";
 import { createBrowserSupabaseClient } from "@/lib/supabase/client";
 import { profileIdsForView } from "@/lib/supabase/filters";
@@ -614,6 +615,8 @@ export default function AujourdhuiScreen() {
     setBusy(true);
     try {
       const detected = recentFoodToDetected(food);
+      const line = recentFoodLine(food);
+      const dessertSlot = logMealType === "dejeuner" || logMealType === "diner";
       const ok = await persistLoggedFood("text", {
         name: food.name,
         macros: {
@@ -622,7 +625,7 @@ export default function AujourdhuiScreen() {
           carbs: detected.carbs ?? 0,
           fat: detected.fat ?? 0,
         },
-        items: [recentFoodLine(food)],
+        items: food.fromDessert && dessertSlot ? [withDessertPrefix(line)] : [line],
       });
       if (!ok) return;
       setRecentsOpen(false);
