@@ -17,7 +17,7 @@ import type {
   Workout,
 } from "@/lib/types";
 
-const SLOTS: MealType[] = ["petit-dejeuner", "dejeuner", "diner", "collation"];
+const SLOTS: MealType[] = ["petit-dejeuner", "dejeuner", "collation", "diner"];
 
 export type CatSignal =
   | "stressed"
@@ -72,7 +72,7 @@ export function mealsAccountedToday(meals: MealEntry[], profileId: ProfileId) {
 function firstEmpty(meals: MealEntry[], profileId: ProfileId, period: TodayCatSnapshot["period"]) {
   const order: MealType[] =
     period === "matin"
-      ? ["petit-dejeuner", "dejeuner", "diner", "collation"]
+      ? ["petit-dejeuner", "dejeuner", "collation", "diner"]
       : period === "midi"
         ? ["dejeuner", "petit-dejeuner", "collation", "diner"]
         : ["diner", "dejeuner", "collation", "petit-dejeuner"];

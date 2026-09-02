@@ -156,8 +156,8 @@ import {
   type MealIngredientView,
 } from "@/lib/coach-ingredients";
 
-const MEAL_SLOTS: MealType[] = ["petit-dejeuner", "dejeuner", "diner"];
-const ALL_MEAL_SLOTS: MealType[] = [...MEAL_SLOTS, "collation"];
+const MEAL_SLOTS: MealType[] = ["petit-dejeuner", "dejeuner", "collation", "diner"];
+const ALL_MEAL_SLOTS: MealType[] = MEAL_SLOTS;
 
 function weekSlotForToday(
   plan: PlannedMeal[],
@@ -1416,8 +1416,6 @@ function ProfileToday({
         date: today,
       })
     : null;
-  const collations = meals.filter((m) => m.type === "collation");
-  const collation = collations[0];
   const nutritionAdj = visibleNutrition(profile.appliedAdjustments);
   const presentTypes = useMemo(
     () => meals.filter((meal) => !meal.isSkipped).map((meal) => meal.type),
@@ -1608,6 +1606,42 @@ function ProfileToday({
           const otherMeal = slotOfProfile(householdMeals, otherId, slot);
           const copyFromOther = !isFilledMeal(meal) && isFilledMeal(otherMeal);
           if (!meal) {
+            if (slot === "collation") {
+              return (
+                <Card key={slot}>
+                  <div className="flex items-start justify-between gap-3">
+                    <button
+                      type="button"
+                      className="min-w-0 flex-1 text-left"
+                      onClick={() => onAddToSlot("collation")}
+                    >
+                      <p className="text-[11px] font-semibold uppercase tracking-wide text-health-muted">
+                        Collation (reste macros)
+                      </p>
+                      <p className="mt-0.5 text-[15px] font-medium">{snack.name}</p>
+                      <p className="mt-2 text-[13px] font-semibold tabular-nums">
+                        {formatKcal(snack.macros.calories)} · {snack.macros.protein}g P
+                      </p>
+                      <p className="mt-1 text-[12px] font-medium text-health-muted">Toucher pour ajouter</p>
+                    </button>
+                    <SkipToggle skipped={false} onClick={() => onSkipEmpty("collation")} />
+                  </div>
+                  {copyFromOther ? (
+                    <DuplicateMealBtn
+                      label={`Copier celui ${otherId === "elodie" ? "d’Élodie" : "d’Alexis"}`}
+                      onClick={() => onCopyFromOther("collation")}
+                    />
+                  ) : null}
+                  {yesterdayHasSlot(yesterdayMeals, profile.id, "collation") ? (
+                    <DuplicateMealBtn
+                      label="Comme hier"
+                      onClick={() => onCopyYesterday("collation")}
+                    />
+                  ) : null}
+                  <RestorePlannedBtn disabled={resetting} onClick={() => onResetMeal("collation")} />
+                </Card>
+              );
+            }
             return (
               <Card key={slot}>
                 <div className="flex items-start justify-between gap-3">
@@ -1742,88 +1776,6 @@ function ProfileToday({
             />
           );
         })}
-        {collation ? (
-          <MealCard
-            key={collation.id}
-            meal={collation}
-            dailyCalories={profile.targets.calories}
-            goal={goal}
-            coachView={mealCoachViews.get(collation.id)}
-            onDismissCoach={nutritionAdj ? () => void hideNutrition() : undefined}
-            onAutreIdee={
-              nutritionAdj ? (kind) => void autreIdeeRapide(collation, kind) : undefined
-            }
-            onValidateCoach={
-              nutritionAdj ? (picks) => void validateCoachAdds(collation, picks) : undefined
-            }
-            onClick={() => onEditMeal(collation)}
-            onToggleSkip={() => onToggleSkip(collation)}
-            onReset={() => onResetMeal(collation.type)}
-            onDuplicate={
-              isFilledMeal(collation) &&
-              !isFilledMeal(slotOfProfile(householdMeals, otherId, "collation"))
-                ? () => onDuplicateToOther(collation)
-                : undefined
-            }
-            duplicateLabel={
-              isFilledMeal(collation) &&
-              !isFilledMeal(slotOfProfile(householdMeals, otherId, "collation"))
-                ? `Pour ${otherName}`
-                : undefined
-            }
-            onCopyFromOther={
-              !isFilledMeal(collation) &&
-              isFilledMeal(slotOfProfile(householdMeals, otherId, "collation"))
-                ? () => onCopyFromOther("collation")
-                : undefined
-            }
-            copyFromOtherLabel={
-              !isFilledMeal(collation) &&
-              isFilledMeal(slotOfProfile(householdMeals, otherId, "collation"))
-                ? `Copier celui ${otherId === "elodie" ? "d’Élodie" : "d’Alexis"}`
-                : undefined
-            }
-            onCopyYesterday={
-              yesterdayHasSlot(yesterdayMeals, profile.id, "collation") &&
-              (isTemplateSlot(collation) || !isFilledMeal(collation))
-                ? () => onCopyYesterday("collation")
-                : undefined
-            }
-          />
-        ) : (
-          <Card>
-            <div className="flex items-start justify-between gap-3">
-              <button
-                type="button"
-                className="min-w-0 flex-1 text-left"
-                onClick={() => onAddToSlot("collation")}
-              >
-                <p className="text-[11px] font-semibold uppercase tracking-wide text-health-muted">
-                  Collation (reste macros)
-                </p>
-                <p className="mt-0.5 text-[15px] font-medium">{snack.name}</p>
-                <p className="mt-2 text-[13px] font-semibold tabular-nums">
-                  {formatKcal(snack.macros.calories)} · {snack.macros.protein}g P
-                </p>
-                <p className="mt-1 text-[12px] font-medium text-health-muted">Toucher pour ajouter</p>
-              </button>
-              <SkipToggle skipped={false} onClick={() => onSkipEmpty("collation")} />
-            </div>
-            {isFilledMeal(slotOfProfile(householdMeals, otherId, "collation")) ? (
-              <DuplicateMealBtn
-                label={`Copier celui ${otherId === "elodie" ? "d’Élodie" : "d’Alexis"}`}
-                onClick={() => onCopyFromOther("collation")}
-              />
-            ) : null}
-            {yesterdayHasSlot(yesterdayMeals, profile.id, "collation") ? (
-              <DuplicateMealBtn
-                label="Comme hier"
-                onClick={() => onCopyYesterday("collation")}
-              />
-            ) : null}
-            <RestorePlannedBtn disabled={resetting} onClick={() => onResetMeal("collation")} />
-          </Card>
-        )}
       </div>
 
       <SectionTitle

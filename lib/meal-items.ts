@@ -16,8 +16,8 @@ import {
 export const MEAL_TYPE_OPTIONS: { id: MealType; label: string }[] = [
   { id: "petit-dejeuner", label: "Petit-déjeuner" },
   { id: "dejeuner", label: "Déjeuner" },
-  { id: "diner", label: "Dîner" },
   { id: "collation", label: "Collation" },
+  { id: "diner", label: "Dîner" },
 ];
 
 export interface EditableItem extends DetectedIngredient {

@@ -17,7 +17,7 @@ import type { DailyMovement, MealEntry, MealType, Profile } from "@/lib/types";
 import { applySlotMoveToMeals, occupantOfSlot, slotTime } from "@/lib/meal-slot";
 import { cn, mealTypeLabel } from "@/lib/utils";
 
-const SLOTS: MealType[] = ["petit-dejeuner", "dejeuner", "diner", "collation"];
+const SLOTS: MealType[] = ["petit-dejeuner", "dejeuner", "collation", "diner"];
 
 function kcal(value: number) {
   return Math.round(value).toLocaleString("fr-FR");

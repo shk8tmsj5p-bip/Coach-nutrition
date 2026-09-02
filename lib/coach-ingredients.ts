@@ -38,8 +38,8 @@ export type MealIngredientView = {
 export const FULL_DAY_SLOTS: MealType[] = [
   "petit-dejeuner",
   "dejeuner",
-  "diner",
   "collation",
+  "diner",
 ];
 
 type FoodDef = {

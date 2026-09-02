@@ -57,7 +57,7 @@ export type CoachTodaySnapshot = {
   workouts: Array<{ name: string; durationMin: number; kcal: number }>;
 };
 
-const SLOTS: MealType[] = ["petit-dejeuner", "dejeuner", "diner", "collation"];
+const SLOTS: MealType[] = ["petit-dejeuner", "dejeuner", "collation", "diner"];
 
 function kcal(n: number) {
   return Math.round(n).toLocaleString("fr-FR");

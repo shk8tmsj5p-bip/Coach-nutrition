@@ -107,7 +107,7 @@
 
 ### Swap / Remplacement (Aujourd'hui)
 - NEVER confirm a swap with a toast only. Always show a proposal sheet first.
-- Step 1: user picks WHICH meal to replace (Petit-déjeuner, Déjeuner, Dîner, Collation). Only slots that exist today and are not skipped.
+- Step 1: user picks WHICH meal to replace (Petit-déjeuner, Déjeuner, Collation, Dîner). Only slots that exist today and are not skipped.
 - Step 2: show current meal vs proposed meal (double declination if Couple view).
 - Engine: Gemini **Pro** `POST /api/generate-meals` mode **`today-swap`**. One fresh meal for **today only** (1 portion / person). Does **not** rewrite `plans_semaine`. Do **not** use mode `single` (that regenerates Lun+Mer / Mar+Jeu pairs).
 - Same brain as Gem Chef: `formatKitchenPrefsForPrompt` + `formatMealCoachForPrompt` / `nutritionCoach` + **stock** (`formatStockForPrompt`) when **Utiliser le stock** is on. Couple = **same dish**, `grams_alexis` / `grams_elodie`. Dinner low-cal; lunch/dinner `scalePlanToGoals`. No dessert in the recipe (templates already on the row).
@@ -129,14 +129,14 @@
 ## 4. TRACKING, STRAVA & LOGGING
 
 ### Screen order (Aujourd’hui, per profile)
-- **Repas** (PD / déjeuner / dîner / collation) → **Faim / Motivation / Fatigue** → **Coach du jour** (only after **Validé**) → **Séance du jour** → **Activité**.
+- **Repas** (PD / déjeuner / **collation / dîner**) → **Faim / Motivation / Fatigue** → **Coach du jour** (only after **Validé**) → **Séance du jour** → **Activité**. On Aujourd’hui the cards are **Petit-déjeuner, Déjeuner, Collation, Dîner** (`MEAL_SLOTS` + `MEAL_TYPE_OPTIONS`) so the goûter sits with the evening, not after dinner. Same order on Suivi `DayLogSheet` and the add / copy / swap pickers.
 - Header: date + **chat du matin** (`lib/today-cat.ts` `pickTodayCatLine`) — phrase encourageante selon heure, repas, séance, feels, plat de la semaine, copie foyer, météo/saison. Copy = conseil, **never** recap kcal already on the rings. Couple = one foyer line. Flamme couple (`lib/couple-streak.ts`) = jours consécutifs **les deux** ont un déjeuner réel ; si cassée, pas de honte (on masque).
 - **Micro-célébrations** (`TodayDelight`) : petite overlay chat ~2,6 s. Base = les **4 créneaux rangés** (remplis **ou** sautés). **+1** si séance du jour **Validé**. **+1** si journal du jour **Validé**. Combiner dans un toast si plusieurs d’un coup. Une fois / jour / profil (`today-delight:{profileId}:{date}`). Pas de points / ligues.
 - Energy card here is `TodayEnergyCard`: open-bottom 270° arc like Suivi `WeightJourneyChart` (`lib/open-bottom-arc.ts` — start bottom-left, end bottom-right, gap at the bottom). Fill = mangées / cible, color via `macro-status` vs `primaryGoal`. Center = déficit/surplus (mangées − brûlées Santé, signed +/−, color vs `primaryGoal`). Flanks at mid-height: Mangées + Brûlées (large). Macros in 3 columns (`CompactMacrosRow`, same tones). **Détails** opens vs plan / vs Santé bars. Do not reuse Métabolisme copy (Cible / Dépense estimée).
 
 ### Meal slots & skip (NO global Jeûne)
 - There is NO global "Jeûne 🌙" toggle. Fasting is per meal.
-- Each meal card (Petit-déjeuner, Déjeuner, Dîner, Collation) has a discrete **Sauter / Sauté** control.
+- Each meal card (Petit-déjeuner, Déjeuner, Collation, Dîner) has a discrete **Sauter / Sauté** control.
 - Skipped meals: macros/calories are EXCLUDED from the daily rings; the card dims / shows a Skipped badge; tapping again restores instantly.
 - Persist `repas.is_skipped`. Empty slots can be skipped by inserting a placeholder ("Repas sauté").
 - Rings / daily totals always ignore `is_skipped = true`.
@@ -158,7 +158,7 @@
 
 ### Fast logging (Onglet Aujourd'hui)
 - 4 tiles on **Ajouter · [repas]** and **Ajouter au plat**: Text/AI, OpenFoodFacts Barcode, Vision Photo, **Récents**.
-- MANDATORY first step for ALL four from the dashboard tiles: "À quel repas souhaitez-vous ajouter cet aliment ?" (Petit-déjeuner, Déjeuner, Dîner, Collation). Never skip this.
+- MANDATORY first step for ALL four from the dashboard tiles: "À quel repas souhaitez-vous ajouter cet aliment ?" (Petit-déjeuner, Déjeuner, Collation, Dîner). Never skip this.
 - After confirm, merge into that slot: append items + macros if a meal already exists (**plat lines before dessert lines** on déjeuner/dîner); REPLACE if the slot is a skipped placeholder; INSERT if empty.
     - Text/AI: Gemini Flash identifies the food and a realistic **portion in grams**. **kcal / macros always come from the local CIQUAL table** (`lib/food-log.ts` `applyTrustedNutrition`) — never from Gemini calorie guesses. Unknown food → `estimateIngredientMacros` (kind) or Gemini density only if 20–900 kcal/100 g. Then the same editable review as photo: **grams** (decimals with comma, e.g. `1,5g`, **no 1 g / 75 g floor**) **or kcal** (`QtyEditRow` + `scaleDetected` / `scaleDetectedKcal`). Line format `Poulet : 40g` / `Banane : 55g`. Never pièce / tranche / « fruit » chips — meat is grams. « Une demi banane » still estimates ≈ 55 g, never a 200 g+ hallucination.
     - **Récents** (`lib/recent-foods.ts`): last 14 days of `repas.items` for that profile (include today). Skip sauté and empty `Dessert : —`. **Include dessert lines** (Yaourt soja, chocolat…) with prefix stripped. Skip plat ingredients of `source === "plan"` (week recipe / PD template) so the salad is not listed — desserts on those meals still appear. Logged meals (texte / photo / code-barres) list every line. Merge by canonical name, keep the **last grammage**. Tap saves immediately via `persistLoggedFood`; a dessert pick on déjeuner/dîner stays a `Dessert :` line. 8–12 lines. Couple writes both profiles.
@@ -179,7 +179,7 @@
 
 ### Copy Yesterday
 - NEVER copy the whole day blindly.
-- Open a picker: user selects which yesterday slots to copy (Petit-déjeuner, Déjeuner, Dîner, Collation). Multi-select allowed.
+- Open a picker: user selects which yesterday slots to copy (Petit-déjeuner, Déjeuner, Collation, Dîner). Multi-select allowed.
 - Slots with no yesterday meal are disabled. Do not copy skipped yesterday meals.
 - Selected meals REPLACE today’s same profile + type (no duplicate breakfasts).
 - **Comme hier**: 1 tap on **petit-déj and collation** only, when the slot is empty **or** a template (`source === "plan"`). Copies yesterday’s non-skipped same slot via `copyYesterdayMeals`. Hide if yesterday is empty. Hide on a logged filled slot. Does **not** replace **Copier hier** for lunch/dinner.
