@@ -51,6 +51,7 @@ type ConnectionsStatus = {
   stravaToken: boolean;
   healthWebhook: boolean;
   supabase: boolean;
+  alerts: boolean;
 };
 
 function emptyKeys(): StoredKeys {
@@ -208,7 +209,7 @@ export default function ParametresScreen() {
         Cuisine foyer, petit-déj, collations & desserts, connexions
       </p>
 
-      <HouseholdLockCard />
+      <HouseholdLockCard alertsOn={Boolean(connections?.alerts)} />
 
       <SectionTitle className="mb-1.5 mt-3">Règles à respecter</SectionTitle>
       <Card compact>

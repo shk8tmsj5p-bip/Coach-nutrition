@@ -5,6 +5,7 @@ import {
   LOCK_COOKIE,
   LOCK_MS,
   MAX_PASSWORD_TRIES,
+  PASSKEY_COOKIE,
   SESSION_MS,
   cookieBase,
   householdPassword,
@@ -13,8 +14,10 @@ import {
   makeSessionToken,
   passwordsMatch,
   readLock,
+  readPasskey,
   waitLabel,
 } from "@/lib/auth/household";
+import { notifyAuthAlert, recordPasswordFailure } from "@/lib/auth/alerts";
 import { establishHouseholdSupabaseSession } from "@/lib/auth/supabase-session";
 
 export const runtime = "nodejs";
@@ -51,11 +54,13 @@ export async function POST(request: Request) {
       maxAge: Math.ceil((LOCK_MS + 60_000) / 1000),
     });
     if (lockedOut) {
+      recordPasswordFailure(request, true);
       return NextResponse.json(
         { error: waitLabel(nextLock.until), remaining: 0, lockedUntil: nextLock.until },
         { status: 429 },
       );
     }
+    recordPasswordFailure(request, false);
     return NextResponse.json(
       {
         error: nextLock.n === 2 ? "Encore 1 essai" : `Encore ${MAX_PASSWORD_TRIES - nextLock.n} essais`,
@@ -71,5 +76,7 @@ export async function POST(request: Request) {
     maxAge: Math.ceil(SESSION_MS / 1000),
   });
   await establishHouseholdSupabaseSession();
+  const passkey = await readPasskey(store.get(PASSKEY_COOKIE)?.value);
+  if (!passkey) notifyAuthAlert("password_unlock_new_device", request);
   return NextResponse.json({ ok: true });
 }

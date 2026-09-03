@@ -293,6 +293,26 @@ export interface Database {
           },
         ];
       };
+      auth_events: {
+        Row: {
+          id: number;
+          created_at: string;
+          kind: string;
+          ip_hash: string | null;
+          user_agent: string | null;
+          emailed: boolean;
+        };
+        Insert: {
+          id?: number;
+          created_at?: string;
+          kind: string;
+          ip_hash?: string | null;
+          user_agent?: string | null;
+          emailed?: boolean;
+        };
+        Update: Partial<Database["public"]["Tables"]["auth_events"]["Insert"]>;
+        Relationships: [];
+      };
     };
     Views: Record<string, never>;
     Functions: Record<string, never>;

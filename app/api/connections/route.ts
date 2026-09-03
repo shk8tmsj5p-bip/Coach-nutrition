@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { alertsConfigured } from "@/lib/auth/alerts";
 import { resolvedGeminiLabels } from "@/lib/gemini/models";
 
 function present(value: string | undefined) {
@@ -18,5 +19,6 @@ export async function GET() {
     stravaToken: present(process.env.STRAVA_REFRESH_TOKEN),
     healthWebhook: present(process.env.HEALTH_WEBHOOK_SECRET),
     supabase: present(process.env.NEXT_PUBLIC_SUPABASE_URL) && present(process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY),
+    alerts: alertsConfigured(),
   });
 }

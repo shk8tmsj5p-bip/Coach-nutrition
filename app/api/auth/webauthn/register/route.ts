@@ -21,6 +21,7 @@ import {
   requestOrigin,
 } from "@/lib/auth/household";
 import { bytesToB64url } from "@/lib/auth/crypto-cookie";
+import { notifyAuthAlert } from "@/lib/auth/alerts";
 
 export const runtime = "nodejs";
 
@@ -97,5 +98,6 @@ export async function POST(request: Request) {
     }),
     { ...cookieBase(), maxAge: Math.ceil(PASSKEY_MS / 1000) },
   );
+  notifyAuthAlert("face_id_register", request);
   return NextResponse.json({ ok: true });
 }

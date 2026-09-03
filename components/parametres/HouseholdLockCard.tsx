@@ -10,7 +10,7 @@ import {
 import { Card, SectionTitle } from "@/components/ui/Card";
 import { FACEID_STORAGE_KEY } from "@/lib/auth/constants";
 
-export function HouseholdLockCard() {
+export function HouseholdLockCard({ alertsOn }: { alertsOn?: boolean }) {
   const [faceOn, setFaceOn] = useState(false);
   const [canFace, setCanFace] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -88,6 +88,11 @@ export function HouseholdLockCard() {
         <p className="text-[13px] font-semibold">Un seul code, pas d’identifiant</p>
         <p className="mt-0.5 text-[11px] leading-snug text-health-muted">
           Session gardée sur cet iPhone. Face ID remplace le code après activation.
+        </p>
+        <p className="mt-2 text-[11px] leading-snug text-health-muted">
+          {alertsOn
+            ? "Mail d’alerte actif : 3 codes faux, ouverture sans Face ID, Face ID ajouté/retiré, webhook Santé refusé."
+            : "Mail d’alerte inactif — RESEND_API_KEY + HOUSEHOLD_ALERT_EMAILS dans Vercel."}
         </p>
         {canFace ? (
           <button
