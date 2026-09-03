@@ -120,9 +120,12 @@ export function LogSheet({
     }
   }
 
+  const pinSave = (mode === "text" && textReview) || (mode === "photo" && photoReady);
+
   return (
     <div className="fixed inset-0 z-[70] flex items-end justify-center bg-black/30">
-      <div className="max-h-[90vh] w-full max-w-[430px] overflow-y-auto rounded-t-[24px] bg-white p-4 pb-8 shadow-card">
+      <div className="flex max-h-[calc(100dvh-var(--safe-top)-12px)] w-full max-w-[430px] flex-col overflow-hidden rounded-t-[24px] bg-white shadow-card">
+        <div className={cn("min-h-0 overflow-y-auto p-4", pinSave ? "pb-3" : "pb-8")}>
         <div className="mb-3 flex items-center justify-between">
           <h3 className="text-[17px] font-semibold">
             {mode === "text" && (textReview ? "Relecture texte / IA" : "Saisie texte / IA")}
@@ -169,6 +172,7 @@ export function LogSheet({
             newGrams={newGrams}
             setNewGrams={setNewGrams}
             confirmLabel={confirmLabel}
+            hideSave
             onSave={onSaveText}
           />
         )}
@@ -250,10 +254,23 @@ export function LogSheet({
               newGrams={newGrams}
               setNewGrams={setNewGrams}
               confirmLabel={confirmLabel}
+              hideSave
               onSave={onSavePhoto}
             />
           </>
         )}
+        </div>
+        {pinSave ? (
+          <div className="shrink-0 border-t border-health-line/80 bg-white px-4 pt-3 pb-[max(16px,var(--safe-bottom))]">
+            <button
+              type="button"
+              onClick={mode === "text" ? onSaveText : onSavePhoto}
+              className="w-full rounded-card bg-health-ink py-3 text-[15px] font-semibold text-white"
+            >
+              {confirmLabel ?? "Confirmer & enregistrer"}
+            </button>
+          </div>
+        ) : null}
       </div>
     </div>
   );
@@ -419,6 +436,7 @@ function IngredientReview({
   newGrams,
   setNewGrams,
   confirmLabel,
+  hideSave,
   onSave,
 }: {
   diet: DietType;
@@ -429,6 +447,7 @@ function IngredientReview({
   newGrams: string;
   setNewGrams: (value: string) => void;
   confirmLabel?: string;
+  hideSave?: boolean;
   onSave: () => void;
 }) {
   const totals = macrosFromIngredients(ingredients);
@@ -455,7 +474,7 @@ function IngredientReview({
       <p className="mb-2 text-[12px] leading-relaxed text-health-muted">
         Ajuste la quantité, les grammes ou les kcal. Rien n&apos;est enregistré tant que tu n&apos;as pas confirmé.
       </p>
-      <div className="max-h-[38vh] space-y-1 overflow-y-auto">
+      <div className="space-y-1">
         {ingredients.map((ing) => (
           <QtyEditRow
             key={ing.id}
@@ -517,13 +536,15 @@ function IngredientReview({
           <Plus size={16} />
         </button>
       </div>
-      <button
-        type="button"
-        onClick={onSave}
-        className="mt-3 w-full rounded-card bg-health-ink py-3 text-[15px] font-semibold text-white"
-      >
-        {confirmLabel ?? "Confirmer & enregistrer"}
-      </button>
+      {hideSave ? null : (
+        <button
+          type="button"
+          onClick={onSave}
+          className="mt-3 w-full rounded-card bg-health-ink py-3 text-[15px] font-semibold text-white"
+        >
+          {confirmLabel ?? "Confirmer & enregistrer"}
+        </button>
+      )}
     </>
   );
 }

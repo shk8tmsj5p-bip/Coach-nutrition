@@ -135,7 +135,8 @@ export function EditMealSheet({
 
   return (
     <div className="fixed inset-0 z-[60] flex items-end justify-center bg-black/30">
-      <div className="max-h-[calc(100dvh-var(--safe-top)-12px)] w-full max-w-[430px] overflow-y-auto rounded-t-[24px] bg-white p-4 pb-8 shadow-card">
+      <div className="flex max-h-[calc(100dvh-var(--safe-top)-12px)] w-full max-w-[430px] flex-col overflow-hidden rounded-t-[24px] bg-white shadow-card">
+        <div className="min-h-0 overflow-y-auto p-4 pb-3">
         <div className="mb-3 flex items-center justify-between">
           <h3 className="text-[17px] font-semibold">Modifier le repas</h3>
           <button
@@ -185,7 +186,7 @@ export function EditMealSheet({
           </p>
         ) : null}
 
-        <div className="max-h-[36vh] space-y-1 overflow-y-auto">
+        <div className="space-y-1">
           {showDessert ? (
             <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-health-muted">Plat</p>
           ) : null}
@@ -278,22 +279,24 @@ export function EditMealSheet({
             </div>
           )}
         </div>
+        </div>
 
-        <Card className="mt-3 bg-health-bg shadow-none">
-          <p className="text-[13px] font-semibold tabular-nums">
-            {Math.round(totals.calories)} kcal · {Math.round(totals.protein)}g P ·{" "}
-            {Math.round(totals.carbs)}g G · {Math.round(totals.fat)}g L
-          </p>
-        </Card>
-
-        <button
-          type="button"
-          disabled={saving}
-          onClick={commit}
-          className="mt-3 w-full rounded-card bg-health-ink py-3 text-[15px] font-semibold text-white disabled:opacity-50"
-        >
-          {saving ? "Enregistrement…" : "Enregistrer"}
-        </button>
+        <div className="shrink-0 border-t border-health-line/80 bg-white px-4 pt-3 pb-[max(16px,var(--safe-bottom))]">
+          <Card className="bg-health-bg shadow-none">
+            <p className="text-[13px] font-semibold tabular-nums">
+              {Math.round(totals.calories)} kcal · {Math.round(totals.protein)}g P ·{" "}
+              {Math.round(totals.carbs)}g G · {Math.round(totals.fat)}g L
+            </p>
+          </Card>
+          <button
+            type="button"
+            disabled={saving}
+            onClick={commit}
+            className="mt-3 w-full rounded-card bg-health-ink py-3 text-[15px] font-semibold text-white disabled:opacity-50"
+          >
+            {saving ? "Enregistrement…" : "Enregistrer"}
+          </button>
+        </div>
       </div>
     </div>
   );
