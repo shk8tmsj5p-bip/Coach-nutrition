@@ -1,3 +1,4 @@
+import nodemailer from "nodemailer";
 import { householdSecret } from "@/lib/auth/household";
 import { createAdminSupabaseClient } from "@/lib/supabase/admin";
 
@@ -23,7 +24,7 @@ const DEDUP_MS: Record<AuthAlertKind, number> = {
 const lastSent = new Map<string, number>();
 
 export function alertsConfigured() {
-  return Boolean(resendKey() && alertEmails().length);
+  return Boolean(alertEmails().length && (smtpConfigured() || resendKey()));
 }
 
 export async function notifyAuthAlert(kind: AuthAlertKind, request: Request) {
@@ -40,14 +41,14 @@ export async function sendTestAlert(request: Request) {
   if (!alertsConfigured()) {
     return {
       ok: false,
-      error: "Clé Resend ou adresses manquantes dans Vercel (RESEND_API_KEY + HOUSEHOLD_ALERT_EMAILS).",
+      error: "Ajoute ALERT_SMTP_USER + ALERT_SMTP_PASS (Gmail) dans Vercel, ou un domaine Resend.",
     };
   }
   const result = await sendAlertEmail("password_unlock_new_device", request, { skipDedup: true, test: true });
   await persist("password_unlock_new_device", request, result.ok);
   return result.ok
     ? { ok: true as const, error: null, sent: result.sent }
-    : { ok: false as const, error: result.error ?? "Resend a refusé l’envoi.", sent: result.sent };
+    : { ok: false as const, error: result.error ?? "Envoi du mail refusé.", sent: result.sent };
 }
 
 async function deliver(kind: AuthAlertKind, request: Request, email: boolean) {
@@ -82,12 +83,15 @@ async function sendAlertEmail(
   request: Request,
   opts?: { skipDedup?: boolean; test?: boolean },
 ) {
-  if (kind === "password_fail") return { ok: false, sent: 0 };
-  const key = resendKey();
+  if (kind === "password_fail") return { ok: false, sent: 0, error: undefined };
   const to = alertEmails();
-  if (!key || !to.length) {
-    console.error("[auth-alert] Resend non configuré (clé ou adresses manquantes)");
-    return { ok: false, sent: 0, error: "Clé Resend ou adresses manquantes." };
+  if (!to.length) {
+    console.error("[auth-alert] HOUSEHOLD_ALERT_EMAILS manquant");
+    return { ok: false, sent: 0, error: "Adresses d’alerte manquantes." };
+  }
+  if (!smtpConfigured() && !resendKey()) {
+    console.error("[auth-alert] ni Gmail SMTP ni Resend");
+    return { ok: false, sent: 0, error: "Ajoute ALERT_SMTP_USER + ALERT_SMTP_PASS dans Vercel." };
   }
   const ip = clientIp(request);
   const windowMs = DEDUP_MS[kind];
@@ -101,6 +105,35 @@ async function sendAlertEmail(
     ? `Ceci est un test depuis Paramètres. Si tu lis ça, l’alerte arrive bien.\n\n${copy.text}`
     : copy.text;
 
+  if (smtpConfigured()) return sendViaGmail(to, subject, text);
+  return sendViaResend(to, subject, text);
+}
+
+async function sendViaGmail(to: string[], subject: string, text: string) {
+  const user = smtpUser();
+  const pass = smtpPass();
+  try {
+    const transport = nodemailer.createTransport({
+      service: "gmail",
+      auth: { user, pass },
+    });
+    const info = await transport.sendMail({
+      from: `Coach Nutrition <${user}>`,
+      to: to.join(", "),
+      subject,
+      text,
+    });
+    const sent = Array.isArray(info.accepted) ? info.accepted.length : to.length;
+    return { ok: true, sent: sent || to.length, error: undefined };
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : "SMTP";
+    console.error("[auth-alert] Gmail", detail.slice(0, 220));
+    return { ok: false, sent: 0, error: explainSmtp(detail) };
+  }
+}
+
+async function sendViaResend(to: string[], subject: string, text: string) {
+  const key = resendKey();
   let sent = 0;
   let lastError = "";
   for (const recipient of to) {
@@ -129,6 +162,13 @@ async function sendAlertEmail(
     sent,
     error: sent > 0 ? undefined : explainResend(lastError),
   };
+}
+
+function explainSmtp(raw: string) {
+  if (/invalid login|username and password|eauth/i.test(raw)) {
+    return "Gmail a refusé le mot de passe. Utilise un « mot de passe d’application » (16 caractères), pas ton mot de passe Gmail.";
+  }
+  return "Gmail n’a pas pu envoyer. Vérifie ALERT_SMTP_USER / ALERT_SMTP_PASS.";
 }
 
 function explainResend(raw: string) {
@@ -190,6 +230,18 @@ function emailCopy(kind: AuthAlertKind, request: Request, ip: string) {
         text: `${meta}${footer}`,
       };
   }
+}
+
+function smtpUser() {
+  return process.env.ALERT_SMTP_USER?.trim() ?? "";
+}
+
+function smtpPass() {
+  return (process.env.ALERT_SMTP_PASS ?? "").replace(/\s+/g, "");
+}
+
+function smtpConfigured() {
+  return Boolean(smtpUser() && smtpPass());
 }
 
 function resendKey() {

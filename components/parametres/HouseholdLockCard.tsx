@@ -114,7 +114,7 @@ export function HouseholdLockCard({ alertsOn }: { alertsOn?: boolean }) {
         <p className="mt-2 text-[11px] leading-snug text-health-muted">
           {alertsOn
             ? "Mail d’alerte actif : 3 codes faux, ouverture sans Face ID, Face ID ajouté/retiré, webhook Santé refusé."
-            : "Mail d’alerte inactif — RESEND_API_KEY + HOUSEHOLD_ALERT_EMAILS dans Vercel."}
+            : "Mail d’alerte inactif — Gmail : ALERT_SMTP_USER + ALERT_SMTP_PASS dans Vercel."}
         </p>
         {canFace ? (
           <button
