@@ -10,6 +10,6 @@ export async function POST(request: Request) {
   }
   const hadPasskey = Boolean(store.get(PASSKEY_COOKIE)?.value);
   store.set(PASSKEY_COOKIE, "", { ...cookieBase(), maxAge: 0 });
-  if (hadPasskey) notifyAuthAlert("face_id_removed", request);
+  if (hadPasskey) await notifyAuthAlert("face_id_removed", request);
   return NextResponse.json({ ok: true });
 }

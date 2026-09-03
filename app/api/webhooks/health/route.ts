@@ -49,7 +49,7 @@ function discovery() {
 
 async function ingest(request: Request, body: unknown) {
   if (!isWebhookAuthorized(request, body)) {
-    notifyAuthAlert("health_webhook_denied", request);
+    await notifyAuthAlert("health_webhook_denied", request);
     return NextResponse.json({ error: "Secret webhook invalide" }, { status: 401, headers: corsHeaders });
   }
 

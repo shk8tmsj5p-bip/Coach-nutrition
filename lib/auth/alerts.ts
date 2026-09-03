@@ -1,4 +1,3 @@
-import { after } from "next/server";
 import { householdSecret } from "@/lib/auth/household";
 import { createAdminSupabaseClient } from "@/lib/supabase/admin";
 
@@ -27,33 +26,32 @@ export function alertsConfigured() {
   return Boolean(resendKey() && alertEmails().length);
 }
 
-export function notifyAuthAlert(kind: AuthAlertKind, request: Request) {
-  runAfter(() => deliver(kind, request, true));
+export async function notifyAuthAlert(kind: AuthAlertKind, request: Request) {
+  await deliver(kind, request, true);
 }
 
-export function recordPasswordFailure(request: Request, lockedOut: boolean) {
-  runAfter(async () => {
-    const fails = await persist("password_fail", request, false);
-    if (lockedOut) await deliver("password_lockout", request, true);
-    if (fails >= 9) await deliver("password_fail_burst", request, true);
-  });
+export async function recordPasswordFailure(request: Request, lockedOut: boolean) {
+  const fails = await persist("password_fail", request, false);
+  if (lockedOut) await deliver("password_lockout", request, true);
+  if (fails >= 9) await deliver("password_fail_burst", request, true);
 }
 
-function runAfter(work: () => Promise<void>) {
-  const run = () => {
-    void work().catch((error) => {
-      console.error("[auth-alert]", error instanceof Error ? error.message : "échec");
-    });
-  };
-  try {
-    after(run);
-  } catch {
-    run();
+export async function sendTestAlert(request: Request) {
+  if (!alertsConfigured()) {
+    return {
+      ok: false,
+      error: "Clé Resend ou adresses manquantes dans Vercel (RESEND_API_KEY + HOUSEHOLD_ALERT_EMAILS).",
+    };
   }
+  const result = await sendAlertEmail("password_unlock_new_device", request, { skipDedup: true, test: true });
+  await persist("password_unlock_new_device", request, result.ok);
+  return result.ok
+    ? { ok: true as const, error: null, sent: result.sent }
+    : { ok: false as const, error: result.error ?? "Resend a refusé l’envoi.", sent: result.sent };
 }
 
 async function deliver(kind: AuthAlertKind, request: Request, email: boolean) {
-  const emailed = email && (await sendAlertEmail(kind, request));
+  const emailed = email ? (await sendAlertEmail(kind, request)).ok : false;
   await persist(kind, request, emailed);
 }
 
@@ -79,35 +77,66 @@ async function persist(kind: AuthAlertKind, request: Request, emailed: boolean) 
   return count ?? 0;
 }
 
-async function sendAlertEmail(kind: AuthAlertKind, request: Request) {
-  if (kind === "password_fail") return false;
+async function sendAlertEmail(
+  kind: AuthAlertKind,
+  request: Request,
+  opts?: { skipDedup?: boolean; test?: boolean },
+) {
+  if (kind === "password_fail") return { ok: false, sent: 0 };
   const key = resendKey();
   const to = alertEmails();
-  if (!key || !to.length) return false;
+  if (!key || !to.length) {
+    console.error("[auth-alert] Resend non configuré (clé ou adresses manquantes)");
+    return { ok: false, sent: 0, error: "Clé Resend ou adresses manquantes." };
+  }
   const ip = clientIp(request);
   const windowMs = DEDUP_MS[kind];
-  if (windowMs > 0 && !claimSend(`${kind}:${await hashIp(ip)}`, windowMs)) return false;
+  if (!opts?.skipDedup && windowMs > 0 && !claimSend(`${kind}:${await hashIp(ip)}`, windowMs)) {
+    return { ok: false, sent: 0, error: "Déjà envoyé récemment." };
+  }
 
   const copy = emailCopy(kind, request, ip);
-  const response = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${key}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      from: resendFrom(),
-      to,
-      subject: copy.subject,
-      text: copy.text,
-    }),
-  });
-  if (!response.ok) {
-    const detail = await response.text().catch(() => "");
-    console.error("[auth-alert] Resend", response.status, detail.slice(0, 180));
-    return false;
+  const subject = opts?.test ? "Coach Nutrition · mail test" : copy.subject;
+  const text = opts?.test
+    ? `Ceci est un test depuis Paramètres. Si tu lis ça, l’alerte arrive bien.\n\n${copy.text}`
+    : copy.text;
+
+  let sent = 0;
+  let lastError = "";
+  for (const recipient of to) {
+    const response = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${key}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        from: resendFrom(),
+        to: [recipient],
+        subject,
+        text,
+      }),
+    });
+    if (response.ok) {
+      sent += 1;
+      continue;
+    }
+    lastError = await response.text().catch(() => "");
+    console.error("[auth-alert] Resend", response.status, lastError.slice(0, 220));
   }
-  return true;
+  return {
+    ok: sent > 0,
+    sent,
+    error: sent > 0 ? undefined : explainResend(lastError),
+  };
+}
+
+function explainResend(raw: string) {
+  if (/only send testing emails|verify a domain|resend\.dev/i.test(raw)) {
+    return "Resend n’envoie vers Gmail que si tu as un domaine à toi (Resend → Domains). Le relais Apple du compte ne suffit pas.";
+  }
+  if (!raw.trim()) return "Resend a refusé l’envoi.";
+  return "Resend a refusé l’envoi. Ouvre Resend → Logs.";
 }
 
 function claimSend(slot: string, windowMs: number) {

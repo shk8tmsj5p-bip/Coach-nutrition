@@ -23,9 +23,31 @@ export function HouseholdLockCard({ alertsOn }: { alertsOn?: boolean }) {
     });
   }, []);
 
-  function flash(message: string) {
+  async function sendTestMail() {
+    setBusy(true);
+    try {
+      const response = await fetch("/api/auth/alert-test", { method: "POST", credentials: "include" });
+      const payload = (await response.json()) as { error?: string; sent?: number };
+      if (!response.ok) {
+        flash(payload.error ?? "Mail test refusé", 10000);
+        return;
+      }
+      flash(
+        payload.sent && payload.sent > 1
+          ? `Mail test envoyé (${payload.sent} destinataires). Regarde aussi les spams.`
+          : "Mail test envoyé. Regarde aussi les spams.",
+        8000,
+      );
+    } catch {
+      flash("Impossible d’envoyer le mail test");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function flash(message: string, ms = 2400) {
     setToast(message);
-    window.setTimeout(() => setToast(null), 2400);
+    window.setTimeout(() => setToast(null), ms);
   }
 
   async function enableFace() {
@@ -107,6 +129,14 @@ export function HouseholdLockCard({ alertsOn }: { alertsOn?: boolean }) {
         ) : (
           <p className="mt-2 text-[11px] text-health-muted">Face ID indisponible sur cet appareil.</p>
         )}
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => void sendTestMail()}
+          className="mt-1.5 w-full rounded-card bg-health-bg py-2.5 text-[13px] font-semibold text-health-muted disabled:opacity-50"
+        >
+          Envoyer un mail test
+        </button>
         <button
           type="button"
           disabled={busy}

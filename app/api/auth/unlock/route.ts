@@ -54,13 +54,13 @@ export async function POST(request: Request) {
       maxAge: Math.ceil((LOCK_MS + 60_000) / 1000),
     });
     if (lockedOut) {
-      recordPasswordFailure(request, true);
+      await recordPasswordFailure(request, true);
       return NextResponse.json(
         { error: waitLabel(nextLock.until), remaining: 0, lockedUntil: nextLock.until },
         { status: 429 },
       );
     }
-    recordPasswordFailure(request, false);
+    await recordPasswordFailure(request, false);
     return NextResponse.json(
       {
         error: nextLock.n === 2 ? "Encore 1 essai" : `Encore ${MAX_PASSWORD_TRIES - nextLock.n} essais`,
@@ -77,6 +77,6 @@ export async function POST(request: Request) {
   });
   await establishHouseholdSupabaseSession();
   const passkey = await readPasskey(store.get(PASSKEY_COOKIE)?.value);
-  if (!passkey) notifyAuthAlert("password_unlock_new_device", request);
+  if (!passkey) await notifyAuthAlert("password_unlock_new_device", request);
   return NextResponse.json({ ok: true });
 }

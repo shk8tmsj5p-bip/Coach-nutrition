@@ -98,6 +98,6 @@ export async function POST(request: Request) {
     }),
     { ...cookieBase(), maxAge: Math.ceil(PASSKEY_MS / 1000) },
   );
-  notifyAuthAlert("face_id_register", request);
+  await notifyAuthAlert("face_id_register", request);
   return NextResponse.json({ ok: true });
 }
