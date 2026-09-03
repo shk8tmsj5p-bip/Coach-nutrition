@@ -11,13 +11,14 @@ export const SESSION_MS = 180 * 24 * 60 * 60 * 1000;
 export const PASSKEY_MS = 400 * 24 * 60 * 60 * 1000;
 export const CHALLENGE_MS = 5 * 60 * 1000;
 
-export type FoyerSession = { t: number };
+export type FoyerSession = { t: number; e?: number };
 export type LockState = { n: number; until: number };
 export type StoredPasskey = {
   id: string;
   publicKey: string;
   counter: number;
   transports?: string[];
+  e?: number;
 };
 export type WebAuthnChallenge = {
   type: "register" | "login";
@@ -72,8 +73,8 @@ export async function readSession(token: string | undefined) {
   return session;
 }
 
-export async function makeSessionToken() {
-  return sealJson(householdSecret(), { t: Date.now() } satisfies FoyerSession);
+export async function makeSessionToken(epoch: number) {
+  return sealJson(householdSecret(), { t: Date.now(), e: epoch } satisfies FoyerSession);
 }
 
 export async function readLock(token: string | undefined): Promise<LockState> {
@@ -116,6 +117,7 @@ export async function makeChallengeToken(type: WebAuthnChallenge["type"], challe
 
 export function isPublicPath(pathname: string) {
   if (pathname === "/unlock") return true;
+  if (pathname === "/urgence") return true;
   if (pathname.startsWith("/api/auth/")) return true;
   if (pathname === "/api/webhooks/health" || pathname.startsWith("/api/webhooks/health/")) return true;
   if (pathname === "/api/health-webhook") return true;

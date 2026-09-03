@@ -211,6 +211,7 @@ export interface Database {
           favorite_recipes: Json;
           rejected_recipes: Json;
           pantry_stock: Json;
+          foyer_lock: Json | null;
           updated_at: string;
         };
         Insert: {
@@ -230,6 +231,7 @@ export interface Database {
           favorite_recipes?: Json;
           rejected_recipes?: Json;
           pantry_stock?: Json;
+          foyer_lock?: Json | null;
           updated_at?: string;
         };
         Update: Partial<Database["public"]["Tables"]["parametres"]["Insert"]>;

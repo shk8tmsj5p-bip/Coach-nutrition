@@ -23,6 +23,7 @@ import {
   requestOrigin,
 } from "@/lib/auth/household";
 import { b64urlToBytes } from "@/lib/auth/crypto-cookie";
+import { loadFoyerLock } from "@/lib/auth/foyer-lock";
 import { establishHouseholdSupabaseSession } from "@/lib/auth/supabase-session";
 
 export const runtime = "nodejs";
@@ -30,7 +31,8 @@ export const runtime = "nodejs";
 export async function GET(request: Request) {
   const store = await cookies();
   const passkey = await readPasskey(store.get(PASSKEY_COOKIE)?.value);
-  if (!passkey) {
+  const foyer = await loadFoyerLock();
+  if (!passkey || (passkey.e ?? 0) !== foyer.epoch) {
     return NextResponse.json({ error: "Face ID pas encore activé sur cet iPhone" }, { status: 404 });
   }
   const options = await generateAuthenticationOptions({
@@ -72,9 +74,13 @@ export async function POST(request: Request) {
   if (!verification.verified) {
     return NextResponse.json({ error: "Face ID refusé" }, { status: 401 });
   }
+  const foyer = await loadFoyerLock();
+  if ((passkey.e ?? 0) !== foyer.epoch) {
+    return NextResponse.json({ error: "Face ID à réactiver avec le code foyer" }, { status: 401 });
+  }
   store.set(CHALLENGE_COOKIE, "", { ...cookieBase(), maxAge: 0 });
   store.set(LOCK_COOKIE, "", { ...cookieBase(), maxAge: 0 });
-  store.set(FOYER_COOKIE, await makeSessionToken(), {
+  store.set(FOYER_COOKIE, await makeSessionToken(foyer.epoch), {
     ...cookieBase(),
     maxAge: Math.ceil(SESSION_MS / 1000),
   });
@@ -83,6 +89,7 @@ export async function POST(request: Request) {
     await makePasskeyToken({
       ...passkey,
       counter: verification.authenticationInfo.newCounter,
+      e: foyer.epoch,
     }),
     { ...cookieBase(), maxAge: Math.ceil(PASSKEY_MS / 1000) },
   );

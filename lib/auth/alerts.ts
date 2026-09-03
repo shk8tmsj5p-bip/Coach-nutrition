@@ -1,5 +1,6 @@
 import nodemailer from "nodemailer";
-import { householdSecret } from "@/lib/auth/household";
+import { householdSecret, requestOrigin } from "@/lib/auth/household";
+import { makeUrgenceToken, urgenceKind } from "@/lib/auth/urgence";
 import { createAdminSupabaseClient } from "@/lib/supabase/admin";
 
 export type AuthAlertKind =
@@ -105,8 +106,15 @@ async function sendAlertEmail(
     ? `Ceci est un test depuis Paramètres. Si tu lis ça, l’alerte arrive bien.\n\n${copy.text}`
     : copy.text;
 
-  if (smtpConfigured()) return sendViaGmail(to, subject, text);
-  return sendViaResend(to, subject, text);
+  if (smtpConfigured()) return sendViaGmail(to, subject, await withUrgenceLink(kind, request, text, opts?.test));
+  return sendViaResend(to, subject, await withUrgenceLink(kind, request, text, opts?.test));
+}
+
+async function withUrgenceLink(kind: AuthAlertKind, request: Request, text: string, test?: boolean) {
+  if (test || !urgenceKind(kind)) return text;
+  const token = await makeUrgenceToken(kind);
+  const url = `${requestOrigin(request)}/urgence?k=${encodeURIComponent(token)}`;
+  return `${text}\n\nAgir depuis l’iPhone (lien valable 48 h) :\n${url}\nTu tapes un nouveau code foyer. Ça bloque l’ancien et déconnecte tous les appareils. Ensuite rouvre l’app avec le nouveau code et réactive Face ID.`;
 }
 
 async function sendViaGmail(to: string[], subject: string, text: string) {
@@ -191,7 +199,7 @@ function emailCopy(kind: AuthAlertKind, request: Request, ip: string) {
   const device = uaSummary(request.headers.get("user-agent") ?? "");
   const meta = `Quand : ${when}\nAppareil : ${device}\nAdresse : ${ip}\n`;
   const footer =
-    "\nSi c’est toi ou Élodie (Safari, nouvel iPhone, Face ID pas encore activé), tu peux ignorer.\nSinon change HOUSEHOLD_PASSWORD dans Vercel, puis reconnecte tes deux iPhones.\nLe code tapé n’est jamais envoyé dans ce mail.";
+    "\nSi c’est toi ou Élodie, tu peux ignorer.\nSinon ouvre le lien d’action dans ce mail (ou Paramètres → Accès foyer sur un iPhone déjà à vous).\nLe code tapé n’est jamais envoyé dans ce mail.";
 
   switch (kind) {
     case "password_lockout":

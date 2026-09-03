@@ -22,12 +22,14 @@ import {
 } from "@/lib/auth/household";
 import { bytesToB64url } from "@/lib/auth/crypto-cookie";
 import { notifyAuthAlert } from "@/lib/auth/alerts";
+import { foyerSessionCurrent, loadFoyerLock } from "@/lib/auth/foyer-lock";
 
 export const runtime = "nodejs";
 
 async function requireSession() {
   const store = await cookies();
-  return readSession(store.get(FOYER_COOKIE)?.value);
+  const session = await readSession(store.get(FOYER_COOKIE)?.value);
+  return foyerSessionCurrent(session);
 }
 
 export async function GET(request: Request) {
@@ -87,6 +89,7 @@ export async function POST(request: Request) {
     credential.publicKey instanceof Uint8Array
       ? credential.publicKey
       : new Uint8Array(credential.publicKey);
+  const foyer = await loadFoyerLock();
   store.set(CHALLENGE_COOKIE, "", { ...cookieBase(), maxAge: 0 });
   store.set(
     PASSKEY_COOKIE,
@@ -95,6 +98,7 @@ export async function POST(request: Request) {
       publicKey: bytesToB64url(publicKey),
       counter: credential.counter,
       transports: credential.transports,
+      e: foyer.epoch,
     }),
     { ...cookieBase(), maxAge: Math.ceil(PASSKEY_MS / 1000) },
   );

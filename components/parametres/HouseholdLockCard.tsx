@@ -15,6 +15,8 @@ export function HouseholdLockCard({ alertsOn }: { alertsOn?: boolean }) {
   const [canFace, setCanFace] = useState(false);
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
 
   useEffect(() => {
     setFaceOn(localStorage.getItem(FACEID_STORAGE_KEY) === "1");
@@ -93,6 +95,47 @@ export function HouseholdLockCard({ alertsOn }: { alertsOn?: boolean }) {
     }
   }
 
+  async function changeCode() {
+    setBusy(true);
+    try {
+      const response = await fetch("/api/auth/foyer-lock", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password, confirm }),
+      });
+      const payload = (await response.json()) as { error?: string };
+      if (!response.ok) {
+        flash(payload.error ?? "Impossible de changer le code", 8000);
+        return;
+      }
+      setPassword("");
+      setConfirm("");
+      flash("Code changé. Les autres appareils sont déconnectés. Dis le nouveau code à Élodie.", 8000);
+    } catch {
+      flash("Impossible de changer le code");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function kickOthers() {
+    setBusy(true);
+    try {
+      const response = await fetch("/api/auth/foyer-lock", { method: "PUT", credentials: "include" });
+      const payload = (await response.json()) as { error?: string };
+      if (!response.ok) {
+        flash(payload.error ?? "Impossible d’éjecter", 8000);
+        return;
+      }
+      flash("Les autres appareils sont déconnectés. Celui-ci reste ouvert.", 8000);
+    } catch {
+      flash("Impossible d’éjecter");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function lockNow() {
     setBusy(true);
     try {
@@ -113,8 +156,48 @@ export function HouseholdLockCard({ alertsOn }: { alertsOn?: boolean }) {
         </p>
         <p className="mt-2 text-[11px] leading-snug text-health-muted">
           {alertsOn
-            ? "Mail d’alerte actif : 3 codes faux, ouverture sans Face ID, Face ID ajouté/retiré, webhook Santé refusé."
+            ? "Mail d’alerte : lien « Bloquer l’accès » valable 48 h, ou les boutons ci-dessous."
             : "Mail d’alerte inactif — Gmail : ALERT_SMTP_USER + ALERT_SMTP_PASS dans Vercel."}
+        </p>
+        <label className="mt-3 block">
+          <span className="text-[12px] font-medium text-health-muted">Nouveau code foyer</span>
+          <input
+            type="password"
+            autoComplete="new-password"
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
+            className="mt-1 w-full rounded-card bg-health-bg px-3 py-2.5 text-[16px] outline-none"
+          />
+        </label>
+        <label className="mt-1.5 block">
+          <span className="text-[12px] font-medium text-health-muted">Encore une fois</span>
+          <input
+            type="password"
+            autoComplete="new-password"
+            value={confirm}
+            onChange={(event) => setConfirm(event.target.value)}
+            className="mt-1 w-full rounded-card bg-health-bg px-3 py-2.5 text-[16px] outline-none"
+          />
+        </label>
+        <button
+          type="button"
+          disabled={busy || password.length < 8}
+          onClick={() => void changeCode()}
+          className="mt-2 w-full rounded-card bg-health-ink py-2.5 text-[13px] font-semibold text-health-on-fill disabled:opacity-40"
+        >
+          Changer le code et éjecter les autres
+        </button>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => void kickOthers()}
+          className="mt-1.5 w-full rounded-card bg-health-bg py-2.5 text-[13px] font-semibold disabled:opacity-50"
+        >
+          Éjecter les autres appareils (même code)
+        </button>
+        <p className="mt-1.5 text-[11px] leading-snug text-health-muted">
+          Code ouvert sans Face ID → change le code. Essais ratés seulement → éjecter peut suffire. Le
+          mail a le même changement de code (tu te recos ensuite).
         </p>
         {canFace ? (
           <button

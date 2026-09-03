@@ -12,11 +12,11 @@ import {
   lockStatus,
   makeLockToken,
   makeSessionToken,
-  passwordsMatch,
   readLock,
   readPasskey,
   waitLabel,
 } from "@/lib/auth/household";
+import { foyerPasswordOk, loadFoyerLock } from "@/lib/auth/foyer-lock";
 import { notifyAuthAlert, recordPasswordFailure } from "@/lib/auth/alerts";
 import { establishHouseholdSupabaseSession } from "@/lib/auth/supabase-session";
 
@@ -26,9 +26,9 @@ export async function POST(request: Request) {
   const body = (await request.json().catch(() => null)) as { password?: string } | null;
   const password = body?.password ?? "";
   const store = await cookies();
-  const lock = await readLock(store.get(LOCK_COOKIE)?.value);
+  const tries = await readLock(store.get(LOCK_COOKIE)?.value);
   const now = Date.now();
-  const status = lockStatus(lock, now);
+  const status = lockStatus(tries, now);
 
   if (status.locked) {
     return NextResponse.json(
@@ -37,14 +37,14 @@ export async function POST(request: Request) {
     );
   }
 
-  const expected = householdPassword();
-  if (!expected) {
+  const foyer = await loadFoyerLock();
+  if (!foyer.password_hash && !householdPassword()) {
     return NextResponse.json({ error: "Code foyer non configuré" }, { status: 500 });
   }
 
-  const ok = await passwordsMatch(password, expected);
+  const ok = await foyerPasswordOk(password);
   if (!ok) {
-    const nextN = lock.n + 1;
+    const nextN = tries.n + 1;
     const lockedOut = nextN >= MAX_PASSWORD_TRIES;
     const nextLock = lockedOut
       ? { n: MAX_PASSWORD_TRIES, until: now + LOCK_MS }
@@ -71,7 +71,7 @@ export async function POST(request: Request) {
   }
 
   store.set(LOCK_COOKIE, "", { ...cookieBase(), maxAge: 0 });
-  store.set(FOYER_COOKIE, await makeSessionToken(), {
+  store.set(FOYER_COOKIE, await makeSessionToken(foyer.epoch), {
     ...cookieBase(),
     maxAge: Math.ceil(SESSION_MS / 1000),
   });

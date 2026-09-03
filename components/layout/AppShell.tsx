@@ -9,7 +9,7 @@ import { SeasonWeatherProvider } from "@/context/SeasonContext";
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  if (pathname === "/unlock") {
+  if (pathname === "/unlock" || pathname === "/urgence") {
     return (
       <div className="mx-auto min-h-dvh w-full max-w-[430px] bg-health-bg pt-[var(--safe-top)]">
         {children}
