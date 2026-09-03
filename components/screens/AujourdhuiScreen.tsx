@@ -1686,7 +1686,7 @@ function ProfileToday({
                         onClick={() => onCopyFromOther(slot)}
                       />
                     ) : null}
-                    {(slot === "petit-dejeuner" || slot === "collation") &&
+                    {slot === "petit-dejeuner" &&
                     yesterdayHasSlot(yesterdayMeals, profile.id, slot) ? (
                       <DuplicateMealBtn
                         label="Comme hier"
