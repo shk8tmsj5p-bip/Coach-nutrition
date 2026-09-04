@@ -30,10 +30,10 @@ import {
   clearMealsInPlan,
   emptyWeekPlan,
   isEmptyMeal,
-  isWeekendSlot,
   moveMealInPlan,
   pairForSlot,
   placeRecipeInSlots,
+  weekendReplayNotice,
 } from "@/lib/weekly-plan";
 import { planTagByMealId, taggedUniqueMeals } from "@/lib/meal-tags";
 import { QtyScaleToggle } from "@/components/repas/QtyScaleToggle";
@@ -1397,7 +1397,7 @@ export default function RepasScreen() {
           loading={historyLoading}
           busy={busy}
           initialKind={historyKind}
-          caption="Un titre = la dernière version. Cherche un plat déjà fait. Le cœur (Favoris) est à part. Plus jamais n’apparaît pas ici."
+          caption="Un même plat peut avoir plusieurs semaines. Tape la version. Le cœur (Favoris) reste à part. Plus jamais n’apparaît pas ici."
           onClose={() => setHistoryOpen(false)}
           onPick={(item) => {
             if (item.kind === "dessert") {
@@ -1414,11 +1414,7 @@ export default function RepasScreen() {
           plan={plan}
           title="Où poser ce plat ?"
           hint="Recette d’origine, quantités d’aujourd’hui. Lun–Ven : les deux créneaux. Week-end : ce repas seulement."
-          notice={
-            isWeekendSlot(placeHistory.meal)
-              ? "Plat de week-end : en semaine, même recette, quantités recalées. Ce n’est pas un nouveau batch."
-              : undefined
-          }
+          notice={weekendReplayNotice(placeHistory.meal)}
           onClose={() => setPlaceHistory(null)}
           onSelect={(slotId) => void placeHistoryPlat(placeHistory, slotId)}
         />

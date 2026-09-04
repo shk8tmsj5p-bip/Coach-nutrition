@@ -47,7 +47,7 @@ function localWeek(weekStart: string): MealHistoryItem[] {
   return [...fromPlan, ...(midi ? [midi] : []), ...(soir ? [soir] : [])];
 }
 
-/** Tous les plats + desserts déjà générés (`plans_semaine` + cache local), uniques par titre. */
+/** Tous les plats + desserts déjà générés (`plans_semaine` + cache local). Une entrée par titre × semaine. */
 export async function loadMealHistory(): Promise<MealHistoryItem[]> {
   const local = localWeekStarts().flatMap((start) => localWeek(start));
 

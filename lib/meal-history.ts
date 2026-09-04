@@ -4,7 +4,8 @@ import { isRejectedTitle, type RejectedRecipe } from "@/lib/rejected";
 import { mergeDessertIntoMeal } from "@/lib/meal-templates";
 import { slotTime } from "@/lib/meal-slot";
 import { macrosFromPlanned, mergeWeekPlatIntoMeal, platLinesFromPlanned } from "@/lib/serve-week-plan";
-import { isEmptyMeal } from "@/lib/weekly-plan";
+import { isoWeekday, todayISO } from "@/lib/dates";
+import { adaptReplayMeal, isEmptyMeal } from "@/lib/weekly-plan";
 import {
   dessertSlotOf,
   dessertTemplateForProfile,
@@ -26,14 +27,13 @@ export type MealHistoryItem = {
   dessertSlot?: DessertSlot;
 };
 
-export function historyId(kind: HistoryKind, title: string) {
-  return `${kind}:${normalizeTitle(title) || "sans-titre"}`;
+export function historyId(kind: HistoryKind, title: string, weekStart = "") {
+  return `${kind}:${normalizeTitle(title) || "sans-titre"}:${weekStart || "sans-semaine"}`;
 }
 
 export function upsertHistoryItem(map: Map<string, MealHistoryItem>, item: MealHistoryItem) {
-  const id = historyId(item.kind, item.title);
-  const prev = map.get(id);
-  if (prev && prev.weekStart > item.weekStart) return;
+  const id = historyId(item.kind, item.title, item.weekStart);
+  if (map.has(id)) return;
   map.set(id, { ...item, id });
 }
 
@@ -51,7 +51,7 @@ export function historyFromPlan(
     if (isEmptyMeal(meal) || !meal.ingredients.length) continue;
     const dessert = isWeekLunchDessert(meal);
     out.push({
-      id: historyId(dessert ? "dessert" : "plat", meal.baseName),
+      id: historyId(dessert ? "dessert" : "plat", meal.baseName, weekStart),
       kind: dessert ? "dessert" : "plat",
       title: meal.baseName.trim() || "Sans titre",
       theme: themeLabel(meal.theme || weekTheme),
@@ -70,7 +70,7 @@ export function historyFromDessert(
   if (!dessert || isEmptyMeal(dessert.meal) || !dessert.meal.ingredients.length) return null;
   const slot = dessert.slot ?? "midi";
   return {
-    id: historyId("dessert", dessert.meal.baseName),
+    id: historyId("dessert", dessert.meal.baseName, weekStart),
     kind: "dessert",
     title: dessert.meal.baseName.trim() || "Dessert",
     theme: themeLabel(dessert.theme),
@@ -86,7 +86,7 @@ export function historyFromFavorites(list: FavoriteRecipe[]): MealHistoryItem[] 
     .map((item) => {
       const dessert = isWeekLunchDessert(item.recipe);
       return {
-        id: historyId(dessert ? "dessert" : "plat", item.title),
+        id: historyId(dessert ? "dessert" : "plat", item.title, item.savedAt.slice(0, 10)),
         kind: (dessert ? "dessert" : "plat") as HistoryKind,
         title: item.title,
         theme: themeLabel(item.theme),
@@ -103,21 +103,59 @@ export function hideRejectedHistory(items: MealHistoryItem[], rejected: Rejected
   return items.filter((item) => !isRejectedTitle(rejected, item.title));
 }
 
+function isWeekMonday(iso: string) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(iso) && isoWeekday(iso) === 1;
+}
+
+function recipeFingerprint(meal: PlannedMeal) {
+  return meal.ingredients
+    .map((ing) => `${normalizeTitle(ing.name)}:${Math.round(ing.gramsAlexis)}:${Math.round(ing.gramsElodie)}`)
+    .sort()
+    .join("|");
+}
+
 export function mergeMealHistory(groups: MealHistoryItem[][]): MealHistoryItem[] {
   const map = new Map<string, MealHistoryItem>();
   for (const group of groups) {
     for (const item of group) upsertHistoryItem(map, item);
   }
-  return [...map.values()].sort((a, b) => {
-    const byWeek = b.weekStart.localeCompare(a.weekStart);
-    if (byWeek) return byWeek;
-    return a.title.localeCompare(b.title, "fr");
-  });
+  const all = [...map.values()];
+  const weekFps = new Set(
+    all
+      .filter((item) => isWeekMonday(item.weekStart))
+      .map((item) => `${item.kind}:${normalizeTitle(item.title)}:${recipeFingerprint(item.meal)}`),
+  );
+  return all
+    .filter((item) => {
+      if (isWeekMonday(item.weekStart)) return true;
+      return !weekFps.has(`${item.kind}:${normalizeTitle(item.title)}:${recipeFingerprint(item.meal)}`);
+    })
+    .sort((a, b) => {
+      const byWeek = b.weekStart.localeCompare(a.weekStart);
+      if (byWeek) return byWeek;
+      return a.title.localeCompare(b.title, "fr");
+    });
 }
 
 function haystack(item: MealHistoryItem) {
   const ings = item.meal.ingredients.map((ing) => ing.name).join(" ");
   return normalizeTitle(`${item.title} ${item.theme} ${item.meal.sharedBase ?? ""} ${ings}`);
+}
+
+export function groupHistoryByTitle(list: MealHistoryItem[]) {
+  const groups: { key: string; title: string; items: MealHistoryItem[] }[] = [];
+  const index = new Map<string, number>();
+  for (const item of list) {
+    const key = `${item.kind}:${normalizeTitle(item.title)}`;
+    const at = index.get(key);
+    if (at == null) {
+      index.set(key, groups.length);
+      groups.push({ key, title: item.title, items: [item] });
+    } else {
+      groups[at].items.push(item);
+    }
+  }
+  return groups;
 }
 
 export function searchMealHistory(list: MealHistoryItem[], query: string) {
@@ -152,9 +190,11 @@ export function todayMealFromHistory(
   profileId: ProfileId,
   type: MealType,
   existing: MealEntry | undefined,
+  date = todayISO(),
 ): Omit<MealEntry, "id" | "profileId"> {
   const vacant = !existing || existing.isSkipped;
   const lunchOrDinner = type === "dejeuner" || type === "diner";
+  const replay = item.kind === "plat" ? adaptReplayMeal(item.meal, isoWeekday(date) - 1) : item.meal;
 
   if (item.kind === "dessert" && lunchOrDinner) {
     const slot: DessertSlot = type === "diner" ? "soir" : "midi";
@@ -183,13 +223,13 @@ export function todayMealFromHistory(
   }
 
   const plat: Omit<MealEntry, "id"> = {
-    name: item.meal.baseName.trim() || item.title,
+    name: replay.baseName.trim() || item.title,
     type,
     time: vacant ? slotTime(type) : existing.time || slotTime(type),
-    macros: macrosFromPlanned(item.meal, profileId),
+    macros: macrosFromPlanned(replay, profileId),
     profileId,
     source: "plan",
-    items: platLinesFromPlanned(item.meal, profileId),
+    items: platLinesFromPlanned(replay, profileId),
     notes: `meal-history:${item.weekStart}`,
     isSkipped: false,
   };

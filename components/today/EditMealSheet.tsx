@@ -33,6 +33,7 @@ export function EditMealSheet({
   onClose,
   onSave,
   onAdd,
+  onHistory,
   onSwapWeek,
   applyHistory,
   onHistoryApplied,
@@ -43,6 +44,8 @@ export function EditMealSheet({
   onClose: () => void;
   onSave: (next: MealEntry) => void;
   onAdd?: (mode: QuickLogMode) => void;
+  /** Suivi : historique seul, sans code-barres / photo / récents. */
+  onHistory?: (mode: "history" | "history-dessert") => void;
   onSwapWeek?: () => void;
   applyHistory?: MealHistoryItem | null;
   onHistoryApplied?: () => void;
@@ -76,7 +79,7 @@ export function EditMealSheet({
       macros: sumEditableMacros(items),
       isSkipped: false,
     };
-    const next = todayMealFromHistory(applyHistory, meal.profileId, type, current);
+    const next = todayMealFromHistory(applyHistory, meal.profileId, type, current, meal.date);
     setName(next.name);
     setItems(
       parseMealItems({
@@ -289,10 +292,10 @@ export function EditMealSheet({
                   {addingDessert ? "…" : "Ajouter"}
                 </button>
               </div>
-              {onAdd ? (
+              {onAdd || onHistory ? (
                 <button
                   type="button"
-                  onClick={() => onAdd("history-dessert")}
+                  onClick={() => (onAdd ?? onHistory)?.("history-dessert")}
                   className="mt-1.5 flex w-full items-center justify-center gap-1.5 rounded-card bg-amber-50 py-2 text-[12px] font-semibold text-amber-900 dark:bg-amber-950/40 dark:text-amber-100"
                 >
                   <History size={13} />
@@ -316,17 +319,18 @@ export function EditMealSheet({
               <AddLogTile icon={Clock} label="Récents" onClick={() => onAdd("recent")} />
             </div>
           ) : null}
-          {onAdd ? (
+          {onAdd || onHistory ? (
             <button
               type="button"
-              onClick={() => onAdd("history")}
+              onClick={() => (onAdd ?? onHistory)?.("history")}
               className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-card bg-health-bg py-2.5 text-[13px] font-semibold"
             >
               <History size={14} />
               Historique plats & desserts
             </button>
-          ) : (
-            <div className="flex gap-1.5">
+          ) : null}
+          {!onAdd ? (
+            <div className={cn("flex gap-1.5", onHistory && "mt-2")}>
               <input
                 value={platDraft}
                 onChange={(e) => setPlatDraft(e.target.value)}
@@ -348,7 +352,7 @@ export function EditMealSheet({
                 {addingPlat ? "…" : "Ajouter"}
               </button>
             </div>
-          )}
+          ) : null}
         </div>
         </div>
 

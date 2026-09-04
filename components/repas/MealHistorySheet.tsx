@@ -2,10 +2,29 @@
 
 import { useMemo, useState } from "react";
 import { CakeSlice, History, Search, Utensils, X } from "lucide-react";
-import { formatWeekRange } from "@/lib/dates";
-import { hideRejectedHistory, searchMealHistory, type HistoryKind, type MealHistoryItem } from "@/lib/meal-history";
+import { formatShortDate, formatWeekRange, isoWeekday } from "@/lib/dates";
+import {
+  groupHistoryByTitle,
+  hideRejectedHistory,
+  searchMealHistory,
+  type HistoryKind,
+  type MealHistoryItem,
+} from "@/lib/meal-history";
 import { isRejectedTitle, type RejectedRecipe } from "@/lib/rejected";
 import { cn } from "@/lib/utils";
+
+function versionWhen(item: MealHistoryItem) {
+  if (!item.weekStart) return "Favori";
+  if (isoWeekday(item.weekStart) === 1) return `sem. ${formatWeekRange(item.weekStart)}`;
+  return formatShortDate(item.weekStart);
+}
+
+function versionMeta(item: MealHistoryItem) {
+  const when = versionWhen(item);
+  const theme = item.theme !== "Autre" ? `${item.theme} · ` : "";
+  const soir = item.kind === "dessert" && item.dessertSlot === "soir" ? " · soir" : "";
+  return `${theme}${when}${soir}`;
+}
 
 export function MealHistorySheet({
   items,
@@ -14,7 +33,7 @@ export function MealHistorySheet({
   busy,
   initialKind = "plat",
   title = "Historique",
-  caption = "Un titre = la version la plus récente. Cherche n’importe quel plat déjà fait. Le cœur (Favoris) reste à part.",
+  caption = "Un titre peut avoir plusieurs semaines. Tape la version que tu veux. Le cœur (Favoris) reste à part.",
   onClose,
   onPick,
 }: {
@@ -31,9 +50,9 @@ export function MealHistorySheet({
   const [query, setQuery] = useState("");
   const [kind, setKind] = useState<HistoryKind>(initialKind);
   const visible = useMemo(() => hideRejectedHistory(items, rejected), [items, rejected]);
-  const filtered = useMemo(() => {
+  const groups = useMemo(() => {
     const pool = visible.filter((item) => item.kind === kind);
-    return searchMealHistory(pool, query);
+    return groupHistoryByTitle(searchMealHistory(pool, query));
   }, [visible, kind, query]);
   const bannedHere = items.some((item) => item.kind === kind && isRejectedTitle(rejected, item.title));
 
@@ -82,7 +101,7 @@ export function MealHistorySheet({
         <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-[max(16px,var(--safe-bottom))]">
           {loading ? (
             <p className="py-6 text-center text-[13px] text-health-muted">Chargement de l’historique…</p>
-          ) : filtered.length === 0 ? (
+          ) : groups.length === 0 ? (
             <p className="py-6 text-center text-[13px] text-health-muted">
               {query.trim()
                 ? `Rien pour « ${query.trim()} ».`
@@ -96,29 +115,65 @@ export function MealHistorySheet({
             </p>
           ) : (
             <div className="grid gap-1.5 pb-4">
-              {filtered.map((item) => (
-                <button
-                  key={item.id}
-                  type="button"
-                  disabled={busy}
-                  onClick={() => onPick(item)}
-                  className="flex items-start gap-2.5 rounded-card bg-health-bg px-3 py-3 text-left disabled:opacity-50"
-                >
-                  <History size={16} className="mt-0.5 shrink-0 text-health-muted" />
-                  <span className="min-w-0 flex-1">
-                    <span className="block text-[14px] font-semibold leading-snug">{item.title}</span>
-                    <span className="mt-0.5 block text-[12px] text-health-muted">
-                      {item.theme !== "Autre" ? `${item.theme} · ` : ""}
-                      {item.weekStart ? `sem. ${formatWeekRange(item.weekStart)}` : "Favori"}
-                      {item.kind === "dessert" && item.dessertSlot === "soir" ? " · soir" : ""}
-                    </span>
-                  </span>
-                </button>
-              ))}
+              {groups.map((group) =>
+                group.items.length === 1 ? (
+                  <HistoryRow
+                    key={group.items[0].id}
+                    item={group.items[0]}
+                    busy={busy}
+                    onPick={onPick}
+                  />
+                ) : (
+                  <div key={group.key} className="rounded-card bg-health-bg px-3 py-2.5">
+                    <p className="text-[14px] font-semibold leading-snug">{group.title}</p>
+                    <p className="mt-0.5 text-[11px] text-health-muted">
+                      {group.items.length} versions · la plus récente en haut
+                    </p>
+                    <div className="mt-2 grid gap-1">
+                      {group.items.map((item) => (
+                        <button
+                          key={item.id}
+                          type="button"
+                          disabled={busy}
+                          onClick={() => onPick(item)}
+                          className="rounded-xl bg-white px-2.5 py-2 text-left text-[12px] font-medium leading-snug disabled:opacity-50 dark:bg-health-card"
+                        >
+                          {versionMeta(item)}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ),
+              )}
             </div>
           )}
         </div>
       </div>
     </div>
+  );
+}
+
+function HistoryRow({
+  item,
+  busy,
+  onPick,
+}: {
+  item: MealHistoryItem;
+  busy?: boolean;
+  onPick: (item: MealHistoryItem) => void;
+}) {
+  return (
+    <button
+      type="button"
+      disabled={busy}
+      onClick={() => onPick(item)}
+      className="flex items-start gap-2.5 rounded-card bg-health-bg px-3 py-3 text-left disabled:opacity-50"
+    >
+      <History size={16} className="mt-0.5 shrink-0 text-health-muted" />
+      <span className="min-w-0 flex-1">
+        <span className="block text-[14px] font-semibold leading-snug">{item.title}</span>
+        <span className="mt-0.5 block text-[12px] text-health-muted">{versionMeta(item)}</span>
+      </span>
+    </button>
   );
 }

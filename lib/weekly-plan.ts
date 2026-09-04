@@ -142,6 +142,22 @@ function isRealAirfryerLine(line: string) {
   return /\d+\s*°c|airfryer/i.test(line);
 }
 
+/** Week-end → Lun–Ven : tofu pressé / mariné, pas cuit (sauf dessert). */
+export function adaptReplayMeal(meal: PlannedMeal, targetDayIndex: number): PlannedMeal {
+  const next = { ...structuredClone(meal), dayIndex: targetDayIndex };
+  if (WEEKEND_INDEXES.includes(targetDayIndex)) return next;
+  return scrubWeekdayTofuAirfryer(next);
+}
+
+export function weekendReplayNotice(meal: PlannedMeal) {
+  if (!isWeekendSlot(meal)) return undefined;
+  const tofu = meal.ingredients.some((item) => /tofu/i.test(item.name));
+  if (tofu) {
+    return "Plat de week-end : en semaine, tofu pressé et mariné (pas cuit comme le dimanche). Même recette, quantités d’aujourd’hui.";
+  }
+  return "Plat de week-end : en semaine, même recette, quantités recalées. Ce n’est pas un nouveau batch.";
+}
+
 function scrubWeekdayTofuAirfryer(meal: PlannedMeal): PlannedMeal {
   if (WEEKEND_INDEXES.includes(meal.dayIndex)) return meal;
   if (!meal.ingredients.some((item) => /tofu/i.test(item.name))) return tidyStepSections(meal);

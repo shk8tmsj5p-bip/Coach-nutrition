@@ -1293,7 +1293,7 @@ export default function AujourdhuiScreen() {
           loading={historyLoading}
           busy={busy}
           initialKind={historyKind}
-          caption="Un titre = la dernière version. Tape pour le mettre dans ce repas. Plus jamais n’apparaît pas ici."
+          caption="Plusieurs semaines du même plat : choisis la version. Plus jamais n’apparaît pas ici."
           onClose={() => {
             setHistoryOpen(false);
             if (!editingMeal) {

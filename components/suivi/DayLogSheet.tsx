@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { ChevronLeft, ChevronRight, X } from "lucide-react";
+import { MealHistorySheet } from "@/components/repas/MealHistorySheet";
 import { EditMealSheet } from "@/components/today/EditMealSheet";
 import { CompactMacrosRow } from "@/components/ui/MacroProgress";
 import { createBrowserSupabaseClient } from "@/lib/supabase/client";
@@ -13,6 +14,10 @@ import { burnedKcalFromHealth } from "@/lib/health-energy";
 import { formatFeelLine } from "@/lib/cat-feel";
 import type { DailyFeelEntry } from "@/lib/daily-feel";
 import type { DatedMeal } from "@/lib/recent-foods";
+import { loadMealHistory } from "@/lib/supabase/meal-history";
+import { loadRejected } from "@/lib/supabase/rejected";
+import { type HistoryKind, type MealHistoryItem } from "@/lib/meal-history";
+import type { RejectedRecipe } from "@/lib/rejected";
 import type { DailyMovement, MealEntry, MealType, Profile } from "@/lib/types";
 import { applySlotMoveToMeals, occupantOfSlot, slotTime } from "@/lib/meal-slot";
 import { cn, mealTypeLabel } from "@/lib/utils";
@@ -62,6 +67,12 @@ export function DayLogSheet({
   const [editing, setEditing] = useState<MealEntry | null>(null);
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [historyKind, setHistoryKind] = useState<HistoryKind>("plat");
+  const [historyItems, setHistoryItems] = useState<MealHistoryItem[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyForEdit, setHistoryForEdit] = useState<MealHistoryItem | null>(null);
+  const [rejected, setRejected] = useState<RejectedRecipe[]>([]);
 
   const dayMeals = useMemo(
     () => pickCanonicalMeals(mealsOnDate(meals, profile.id, date)).keep,
@@ -161,6 +172,32 @@ export function DayLogSheet({
       name: nextSkipped && !meal.name ? "Repas sauté" : meal.name,
       date,
     });
+  }
+
+  async function openHistory(kind: HistoryKind) {
+    setHistoryKind(kind);
+    setHistoryOpen(true);
+    setHistoryLoading(true);
+    try {
+      const [remote, banned] = await Promise.all([loadMealHistory(), loadRejected()]);
+      setHistoryItems(remote);
+      setRejected(banned);
+    } catch {
+      setHistoryItems([]);
+    } finally {
+      setHistoryLoading(false);
+    }
+  }
+
+  function applyHistoryPick(item: MealHistoryItem) {
+    if (!editing) return;
+    setHistoryForEdit(item);
+    setHistoryOpen(false);
+    setNotice(
+      item.kind === "dessert"
+        ? "Dessert dans la fiche — Enregistrer pour garder"
+        : "Plat dans la fiche — Enregistrer pour garder",
+    );
   }
 
   async function skipEmpty(type: MealType) {
@@ -268,7 +305,7 @@ export function DayLogSheet({
                   skipped && "opacity-50",
                 )}
               >
-                <button type="button" onClick={() => setEditing(meal)} className="min-w-0 flex-1 text-left">
+                <button type="button" onClick={() => setEditing({ ...meal, date })} className="min-w-0 flex-1 text-left">
                   <p className="text-[11px] font-semibold uppercase tracking-wide text-health-muted">
                     {mealTypeLabel(meal.type)}
                     {meal.time ? ` · ${meal.time}` : ""}
@@ -306,8 +343,28 @@ export function DayLogSheet({
           meal={editing}
           dayMeals={dayMeals}
           saving={saving}
-          onClose={() => setEditing(null)}
+          onClose={() => {
+            setEditing(null);
+            setHistoryOpen(false);
+            setHistoryForEdit(null);
+          }}
           onSave={(next) => void saveEdit(next)}
+          onHistory={(mode) => void openHistory(mode === "history-dessert" ? "dessert" : "plat")}
+          applyHistory={historyForEdit}
+          onHistoryApplied={() => setHistoryForEdit(null)}
+        />
+      ) : null}
+
+      {historyOpen && editing ? (
+        <MealHistorySheet
+          key={`${historyKind}-${date}`}
+          items={historyItems}
+          rejected={rejected}
+          loading={historyLoading}
+          initialKind={historyKind}
+          caption="Tape pour remplir ce repas du jour ouvert. Plus jamais n’apparaît pas ici."
+          onClose={() => setHistoryOpen(false)}
+          onPick={applyHistoryPick}
         />
       ) : null}
     </div>
