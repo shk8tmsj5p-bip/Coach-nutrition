@@ -9,6 +9,11 @@ import {
 import { isoWeekday, mondayOf, todayISO } from "@/lib/dates";
 import { aisleFor, shoppingItemsFromPlan } from "@/lib/shopping-from-plan";
 import { storage } from "@/lib/storage";
+import {
+  persistWeekShopping,
+  shopCheckedKey,
+  shopCustomKey,
+} from "@/lib/supabase/shopping-list";
 import type { Macros, PlannedMeal, ProfileId, RecipeIngredient, ShoppingListItem } from "@/lib/types";
 import { gramsFor, isEmptyMeal } from "@/lib/weekly-plan";
 
@@ -29,14 +34,6 @@ export type PlanBoostRecord = {
 
 function boostKey(weekStart: string, profileId: ProfileId) {
   return `coach-plan-boost:${weekStart}:${profileId}`;
-}
-
-function shopCustomKey(weekStart: string) {
-  return `shop-custom:${weekStart}`;
-}
-
-function shopCheckedKey(weekStart: string) {
-  return `shop-checked:${weekStart}`;
 }
 
 export function isShoppingCompleted(weekStart: string, plan: PlannedMeal[]) {
@@ -199,7 +196,10 @@ function upsertCoachShopExtras(weekStart: string, profileId: ProfileId, extras: 
   const current = storage.getJSON<ShoppingListItem[]>(shopCustomKey(weekStart), []);
   const prefix = `coach-extra:${profileId}:`;
   const kept = current.filter((item) => !item.id.startsWith(prefix));
-  storage.setJSON(shopCustomKey(weekStart), [...kept, ...extras]);
+  const custom = [...kept, ...extras];
+  const checked = storage.getJSON<string[]>(shopCheckedKey(weekStart), []);
+  storage.setJSON(shopCustomKey(weekStart), custom);
+  void persistWeekShopping(weekStart, { checked, custom });
 }
 
 function applyProfileBoost(

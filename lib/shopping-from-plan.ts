@@ -3,6 +3,7 @@ import { planTagByMealId } from "@/lib/meal-tags";
 import { formatIngredientLine, parseVisualQuantity, visualForIngredient } from "@/lib/visual-quantity";
 import { isEmptyMeal } from "@/lib/weekly-plan";
 import { storage } from "@/lib/storage";
+import { loadWeekShopping, persistWeekShopping } from "@/lib/supabase/shopping-list";
 
 export const AISLE_ORDER = [
   "FRUITS & LÉGUMES",
@@ -452,13 +453,15 @@ export function shoppingItemIdForName(raw: string) {
   return `shop:${fold(shoppingDisplayName(raw))}`;
 }
 
-/** Coche les lignes courses déjà sorties du stock (pas à racheter). */
-export function markShoppingCheckedForNames(weekStart: string, names: string[]) {
+/** Coche les lignes courses déjà sorties du stock (pas à racheter). Partagé foyer. */
+export async function markShoppingCheckedForNames(weekStart: string, names: string[]) {
   if (!weekStart || names.length === 0) return;
-  const key = `shop-checked:${weekStart}`;
-  const current = storage.getJSON<string[]>(key, []);
+  const current = await loadWeekShopping(weekStart);
   const extra = names.map((name) => shoppingItemIdForName(name));
-  storage.setJSON(key, [...new Set([...current, ...extra])]);
+  await persistWeekShopping(weekStart, {
+    ...current,
+    checked: [...new Set([...current.checked, ...extra])],
+  });
 }
 
 /** Produits frais souvent collés au nom (sauce tahini-citron, poulet yassa citron-oignon). */

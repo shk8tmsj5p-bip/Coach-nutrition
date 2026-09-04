@@ -1,12 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Check, Copy, Plus } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { RecipeTag } from "@/components/repas/RecipeTag";
 import { HoldTip } from "@/components/ui/HoldTip";
 import { aisleStyle } from "@/lib/plan-colors";
-import { storage } from "@/lib/storage";
 import {
   AISLE_ORDER,
   groupShoppingItems,
@@ -15,6 +14,8 @@ import {
   shoppingListPlainText,
   type AisleName,
 } from "@/lib/shopping-from-plan";
+import { loadWeekShopping, persistWeekShopping } from "@/lib/supabase/shopping-list";
+import { subscribeWeekPlan } from "@/lib/supabase/week-plans";
 import type { PlannedMeal, ShoppingListItem } from "@/lib/types";
 import type { WeekLunchDessert } from "@/lib/week-dessert";
 import { cn } from "@/lib/utils";
@@ -47,11 +48,40 @@ export function ShoppingListPanel({
   const [name, setName] = useState("");
   const [qty, setQty] = useState("");
   const [aisle, setAisle] = useState<AisleName>("AUTRE");
+  const saveTimer = useRef<number | null>(null);
+  const dirtyRef = useRef(false);
+  const customRef = useRef(custom);
+  const checkedRef = useRef(checked);
+  customRef.current = custom;
+  checkedRef.current = checked;
 
   useEffect(() => {
-    setCustom(storage.getJSON<ShoppingListItem[]>(`shop-custom:${weekStart}`, []));
-    setChecked(storage.getJSON<string[]>(`shop-checked:${weekStart}`, []));
-  }, [weekStart, plan]);
+    let cancelled = false;
+
+    function applyRemote(next: { custom: ShoppingListItem[]; checked: string[] }) {
+      if (cancelled || dirtyRef.current) return;
+      setCustom(next.custom);
+      setChecked(next.checked);
+    }
+
+    function pull() {
+      void loadWeekShopping(weekStart).then(applyRemote);
+    }
+
+    pull();
+    const poll = window.setInterval(pull, 2500);
+    const onVis = () => {
+      if (document.visibilityState === "visible") pull();
+    };
+    document.addEventListener("visibilitychange", onVis);
+    const stop = subscribeWeekPlan(weekStart, pull, `plans-semaine-shop:${weekStart}`);
+    return () => {
+      cancelled = true;
+      window.clearInterval(poll);
+      document.removeEventListener("visibilitychange", onVis);
+      stop();
+    };
+  }, [weekStart]);
 
   const items = useMemo(() => [...derived, ...custom], [derived, custom]);
   const groups = useMemo(() => groupShoppingItems(items), [items]);
@@ -59,13 +89,35 @@ export function ShoppingListPanel({
 
   function persistChecked(next: string[]) {
     setChecked(next);
-    storage.setJSON(`shop-checked:${weekStart}`, next);
+    queueSave(next, custom);
   }
 
   function persistCustom(next: ShoppingListItem[]) {
     setCustom(next);
-    storage.setJSON(`shop-custom:${weekStart}`, next);
+    queueSave(checked, next);
   }
+
+  function queueSave(nextChecked: string[], nextCustom: ShoppingListItem[]) {
+    dirtyRef.current = true;
+    if (saveTimer.current) window.clearTimeout(saveTimer.current);
+    saveTimer.current = window.setTimeout(() => {
+      void persistWeekShopping(weekStart, { checked: nextChecked, custom: nextCustom }).finally(() => {
+        dirtyRef.current = false;
+      });
+    }, 80);
+  }
+
+  useEffect(() => {
+    return () => {
+      if (saveTimer.current) window.clearTimeout(saveTimer.current);
+      if (dirtyRef.current) {
+        void persistWeekShopping(weekStart, {
+          checked: checkedRef.current,
+          custom: customRef.current,
+        });
+      }
+    };
+  }, [weekStart]);
 
   function toggle(id: string) {
     persistChecked(checked.includes(id) ? checked.filter((item) => item !== id) : [...checked, id]);
@@ -114,7 +166,8 @@ export function ShoppingListPanel({
       </button>
       <p className="mb-3 px-1 text-[12px] text-health-muted">
         {remaining} article{remaining > 1 ? "s" : ""} restant{remaining > 1 ? "s" : ""} · liste générée depuis
-        la semaine. Dans Autre, choisis le rayon : il est retenu pour les prochaines listes.
+        la semaine, partagée sur les deux iPhone. Dans Autre, choisis le rayon : il est retenu pour les
+        prochaines listes.
       </p>
 
       <Card className="mb-3">

@@ -4,6 +4,7 @@ import type { Json } from "@/lib/supabase/database.types";
 import { emptyWeekPlan, annotatePlan, isEmptyMeal } from "@/lib/weekly-plan";
 import { addDaysISO } from "@/lib/dates";
 import { storage } from "@/lib/storage";
+import { clearLocalShopping } from "@/lib/supabase/shopping-list";
 
 function storageKey(weekStart: string) {
   return `weekly-plan:${weekStart}`;
@@ -32,7 +33,9 @@ export async function loadWeekPlan(weekStart: string): Promise<{
     .maybeSingle();
 
   if (!error && data && isPlan(data.meals)) {
-    return { plan: annotatePlan(data.meals), theme: data.theme ?? "", source: "supabase" };
+    const plan = annotatePlan(data.meals);
+    storage.setJSON(storageKey(weekStart), plan);
+    return { plan, theme: data.theme ?? "", source: "supabase" };
   }
 
   if (isPlan(local)) return { plan: annotatePlan(local), theme: "", source: "local" };
@@ -79,12 +82,27 @@ export async function loadRecentMealTitles(beforeWeekStart: string, weeks = 8): 
 
 export async function deleteWeekPlan(weekStart: string): Promise<string | null> {
   storage.remove(storageKey(weekStart));
-  storage.remove(`shop-custom:${weekStart}`);
-  storage.remove(`shop-checked:${weekStart}`);
+  clearLocalShopping(weekStart);
   const supabase = createBrowserSupabaseClient();
   if (!supabase) return null;
   const { error } = await supabase.from("plans_semaine").delete().eq("week_start", weekStart);
   return error?.message ?? null;
+}
+
+export function subscribeWeekPlan(weekStart: string, onChange: () => void, channelName?: string) {
+  const supabase = createBrowserSupabaseClient();
+  if (!supabase) return () => {};
+  const channel = supabase
+    .channel(channelName ?? `plans-semaine:${weekStart}`)
+    .on(
+      "postgres_changes",
+      { event: "*", schema: "public", table: "plans_semaine", filter: `week_start=eq.${weekStart}` },
+      () => onChange(),
+    )
+    .subscribe();
+  return () => {
+    void supabase.removeChannel(channel);
+  };
 }
 
 export async function saveWeekPlan(

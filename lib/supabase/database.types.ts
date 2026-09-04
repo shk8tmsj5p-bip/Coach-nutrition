@@ -244,6 +244,8 @@ export interface Database {
           meals: Json;
           lunch_dessert?: Json | null;
           dinner_dessert?: Json | null;
+          shopping_checked?: Json;
+          shopping_custom?: Json;
           updated_at: string;
         };
         Insert: {
@@ -252,6 +254,8 @@ export interface Database {
           meals?: Json;
           lunch_dessert?: Json | null;
           dinner_dessert?: Json | null;
+          shopping_checked?: Json;
+          shopping_custom?: Json;
           updated_at?: string;
         };
         Update: Partial<Database["public"]["Tables"]["plans_semaine"]["Insert"]>;

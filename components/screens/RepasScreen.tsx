@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { GenerateControls } from "@/components/repas/GenerateControls";
 import { MenuSummary } from "@/components/repas/MenuSummary";
 import { WeekAgenda } from "@/components/repas/WeekAgenda";
@@ -20,7 +20,7 @@ import { requestDessertProduct, requestGenerateMeals } from "@/lib/gemini/client
 import { loadHouseholdCoachBias } from "@/lib/coach-apply";
 import { currentNutritionDeltas } from "@/lib/coach-adjustments";
 import { applyCoachBoostsToLoadedPlan } from "@/lib/coach-plan-sync";
-import { deleteWeekPlan, loadRecentMealTitles, loadWeekPlan, saveWeekPlan } from "@/lib/supabase/week-plans";
+import { deleteWeekPlan, loadRecentMealTitles, loadWeekPlan, saveWeekPlan, subscribeWeekPlan } from "@/lib/supabase/week-plans";
 import { applyTodaySlotTemplates } from "@/lib/supabase/today-data";
 import { createBrowserSupabaseClient } from "@/lib/supabase/client";
 import type { GenerateMealsMode } from "@/lib/gemini/meals";
@@ -145,6 +145,8 @@ export default function RepasScreen() {
   const [theme, setTheme] = useState("");
   const [nonce, setNonce] = useState(1);
   const [busy, setBusy] = useState(false);
+  const busyRef = useRef(false);
+  busyRef.current = busy;
   const [toast, setToast] = useState<string | null>(null);
   const [pickSlot, setPickSlot] = useState(false);
   const [swapMeal, setSwapMeal] = useState<PlannedMeal | null>(null);
@@ -242,15 +244,13 @@ export default function RepasScreen() {
     };
   }, [tab]);
 
-  useEffect(() => {
-    let cancelled = false;
-    void (async () => {
+  const reloadWeek = useCallback(
+    async (opts?: { resetPanes?: boolean; soft?: boolean }) => {
       const loaded = await loadWeekPlan(weekStart);
       const [midi, soir] = await Promise.all([
         loadWeekLunchDessert(weekStart, "midi"),
         loadWeekLunchDessert(weekStart, "soir"),
       ]);
-      if (cancelled) return;
       const synced = applyCoachBoostsToLoadedPlan({
         weekStart,
         plan: loaded.plan,
@@ -259,31 +259,66 @@ export default function RepasScreen() {
           { id: "elodie", deltas: currentNutritionDeltas(catalog.elodie.appliedAdjustments) },
         ],
       });
-      if (cancelled) return;
       setPlan(synced.plan);
-      setTheme(loaded.theme ?? "");
+      if (!opts?.soft) setTheme(loaded.theme ?? "");
       setLunchDessert(midi);
       setDinnerDessert(soir);
-      setMidiPane(paneFromSaved(midi));
-      setSoirPane(paneFromSaved(soir));
-      setProductReview(null);
-      setOpenDessert(false);
-      setInspoOffset(0);
+      if (opts?.resetPanes) {
+        setMidiPane(paneFromSaved(midi));
+        setSoirPane(paneFromSaved(soir));
+        setProductReview(null);
+        setOpenDessert(false);
+        setInspoOffset(0);
+      }
       const coach = buildMealCoachFromProfiles(catalog.alexis, catalog.elodie);
       const hasMeals = synced.plan.some((meal) => !isEmptyMeal(meal));
       setPlanStamp(ensurePlanTargetsBaseline(weekStart, coach, hasMeals));
-      if (synced.changed) {
+      if (synced.changed && !opts?.soft) {
         await saveWeekPlan(weekStart, synced.plan, loaded.theme);
       }
-    })();
+    },
+    [weekStart, catalog.alexis, catalog.elodie],
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    void reloadWeek({ resetPanes: true }).then(() => {
+      if (cancelled) return;
+    });
     return () => {
       cancelled = true;
     };
-  }, [
-    weekStart,
-    catalog.alexis.appliedAdjustments,
-    catalog.elodie.appliedAdjustments,
-  ]);
+  }, [reloadWeek]);
+
+  useEffect(() => {
+    if (tab !== "courses") return;
+    void reloadWeek({ soft: true });
+  }, [tab, reloadWeek]);
+
+  useEffect(() => {
+    const onVis = () => {
+      if (document.visibilityState === "visible") void reloadWeek({ soft: true });
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
+  }, [reloadWeek]);
+
+  useEffect(() => {
+    return subscribeWeekPlan(weekStart, () => {
+      if (busyRef.current) return;
+      void reloadWeek({ soft: true });
+    });
+  }, [weekStart, reloadWeek]);
+
+  useEffect(() => {
+    const tick = () => {
+      if (document.visibilityState !== "visible") return;
+      if (busyRef.current) return;
+      void reloadWeek({ soft: true });
+    };
+    const id = window.setInterval(tick, 4000);
+    return () => window.clearInterval(id);
+  }, [reloadWeek]);
 
   async function persist(next: PlannedMeal[], nextTheme = theme) {
     const synced = withCoachBoosts(next);
@@ -329,9 +364,10 @@ export default function RepasScreen() {
         nutritionCoach: nutritionCoach(),
       });
       if (result.plan) {
-        const used = await consumeStockFromMeals(newlyGeneratedMeals(plan, result.plan));
+        const fresh = newlyGeneratedMeals(plan, result.plan);
         setTheme("");
         await persist(result.plan, "");
+        const used = await consumeStockFromMeals(fresh);
         stampTargets();
         setNonce((n) => n + 1);
         const label =
@@ -686,7 +722,7 @@ export default function RepasScreen() {
     const used = stockItemsUsedInMeals(current.items, meals);
     if (used.length === 0) return [];
     await saveStock(removeStockItems(current, used.map((item) => item.id)));
-    markShoppingCheckedForNames(
+    await markShoppingCheckedForNames(
       weekStart,
       used.map((item) => item.name),
     );
@@ -1070,8 +1106,9 @@ export default function RepasScreen() {
                 nutritionCoach: nutritionCoach(),
               });
               if (result.plan) {
-                const used = await consumeStockFromMeals(newlyGeneratedMeals(plan, result.plan));
+                const fresh = newlyGeneratedMeals(plan, result.plan);
                 await persist(result.plan);
+                const used = await consumeStockFromMeals(fresh);
                 const stockNote = used.length
                   ? ` · stock : ${used.map(formatStockItem).join(", ")}`
                   : "";
