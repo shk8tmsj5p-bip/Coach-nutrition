@@ -7,7 +7,7 @@ import { ensureFalafelAirfryer, repairMealIntegrity } from "@/lib/recipe-integri
 import { declinationFromIngredients } from "@/lib/recipe-macros";
 import { adaptMealToTheme, conflictsWithTheme, matchKit, mealMatchesTheme, stripThemeSticker } from "@/lib/theme-kits";
 import { mockSuggestSwap as coherentSuggestSwap } from "@/lib/swap-coherence";
-import { pickUnused } from "@/lib/recipe-diversity";
+import { normalizeTitle, pickUnused } from "@/lib/recipe-diversity";
 import type { MealType, PlannedMeal, RecipeIngredient } from "@/lib/types";
 
 export { WEEK_DAYS, extraRecipes };
@@ -754,8 +754,9 @@ export function uniqueWeekdayBatches(plan: PlannedMeal[]): PlannedMeal[] {
   for (const meal of plan) {
     if (WEEKEND_INDEXES.includes(meal.dayIndex)) continue;
     if (isEmptyMeal(meal)) continue;
-    if (seen.has(meal.batchId)) continue;
-    seen.add(meal.batchId);
+    const key = normalizeTitle(meal.baseName);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
     out.push(meal);
   }
   return out;
