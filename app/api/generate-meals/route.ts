@@ -33,7 +33,7 @@ import {
 import { ensureDessertProductInMeal, isDessertSlot, parseDessertProduct, type DessertSlot } from "@/lib/dessert-product";
 import { diversityProblems } from "@/lib/recipe-diversity";
 import { themeMismatchProblems } from "@/lib/theme-kits";
-import { mockSuggestDessertSwap, suggestionsFitRecipe } from "@/lib/swap-coherence";
+import { mockSuggestDessertSwap, mockSuggestSwap, suggestionsFitRecipe } from "@/lib/swap-coherence";
 import { swapProposalsFromPlanned } from "@/lib/swap-proposals";
 import {
   emptyWeekPlan,
@@ -189,10 +189,27 @@ export async function POST(request: Request) {
         );
       }
       const meal = plan.find((item) => item.id === body.slotId) ?? plan[0];
-      const { text, warning } = await callGeminiPro(suggestSwapPrompt(meal, name, body.kitchenContext));
-      const suggestions = extractSuggestions(parseGeminiJson(text));
-      if (suggestions.length >= 3 && suggestionsFitRecipe(name, suggestions, meal)) {
-        return NextResponse.json({ suggestions: suggestions.slice(0, 3), mock: false, warning });
+      let suggestions: string[] = [];
+      let warning: string | undefined;
+      let mock = false;
+      try {
+        const first = await callGeminiPro(suggestSwapPrompt(meal, name, body.kitchenContext));
+        warning = first.warning;
+        suggestions = extractSuggestions(parseGeminiJson(first.text));
+      } catch {
+        suggestions = [];
+      }
+      if (suggestions.length < 3 || !suggestionsFitRecipe(name, suggestions, meal)) {
+        suggestions = mockSuggestSwap(name, meal);
+        mock = true;
+        warning = warning || "3 idées locales, Gemini n’a pas renvoyé 3 alternatives.";
+      }
+      if (suggestions.length >= 3) {
+        return NextResponse.json({
+          suggestions: suggestions.slice(0, 3),
+          mock,
+          warning,
+        });
       }
       return NextResponse.json(
         { error: friendlyGeminiError("Réponse Gemini incomplète"), mock: false },

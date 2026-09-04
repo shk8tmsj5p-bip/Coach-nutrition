@@ -183,7 +183,25 @@ function alreadyInMeal(meal: PlannedMeal | undefined, name: string) {
 
 function takeThree(pool: string[], original: string, meal?: PlannedMeal) {
   const skip = original.trim().toLowerCase();
-  return pool.filter((item) => item.toLowerCase() !== skip && !alreadyInMeal(meal, item)).slice(0, 3);
+  const out: string[] = [];
+  const seen = new Set<string>([skip]);
+  const push = (item: string, allowInMeal: boolean) => {
+    const name = item.trim();
+    const key = name.toLowerCase();
+    if (!name || seen.has(key)) return;
+    if (!allowInMeal && alreadyInMeal(meal, name)) return;
+    seen.add(key);
+    out.push(name);
+  };
+  for (const item of pool) {
+    push(item, false);
+    if (out.length >= 3) return out;
+  }
+  for (const item of pool) {
+    push(item, true);
+    if (out.length >= 3) return out;
+  }
+  return out;
 }
 
 export function describeIngredientUse(name: string, meal?: PlannedMeal) {

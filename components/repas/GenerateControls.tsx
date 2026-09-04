@@ -1,6 +1,6 @@
 "use client";
 
-import { Sparkles, Trash2 } from "lucide-react";
+import { Sparkles, Trash2, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export function GenerateControls({
@@ -42,12 +42,25 @@ export function GenerateControls({
       <label className="text-[11px] font-semibold uppercase tracking-wide text-health-muted">
         Thème (optionnel)
       </label>
-      <input
-        value={theme}
-        onChange={(e) => onThemeChange(e.target.value)}
-        placeholder="Ex. Coréen, thaï, tomate, bowl…"
-        className="mt-1.5 w-full rounded-card bg-health-bg px-3 py-2.5 text-[14px] outline-none"
-      />
+      <div className="relative mt-1.5">
+        <input
+          value={theme}
+          onChange={(e) => onThemeChange(e.target.value)}
+          placeholder="Ex. Coréen, thaï, tomate, bowl…"
+          className="w-full rounded-card bg-health-bg px-3 py-2.5 pr-10 text-[14px] outline-none"
+        />
+        {theme.trim() ? (
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => onThemeChange("")}
+            className="absolute right-1.5 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full text-health-muted disabled:opacity-40"
+            aria-label="Effacer le thème"
+          >
+            <X size={16} />
+          </button>
+        ) : null}
+      </div>
       {suggestions.length > 0 ? (
         <div className="mt-2">
           <div className="mb-1.5 flex items-center justify-between gap-2">

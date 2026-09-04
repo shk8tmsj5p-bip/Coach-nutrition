@@ -98,7 +98,7 @@ import {
   type WeekLunchDessert,
 } from "@/lib/week-dessert";
 import { formatDessertProductForPrompt, type DessertProduct, type DessertSlot } from "@/lib/dessert-product";
-import { mockSuggestDessertSwap } from "@/lib/swap-coherence";
+import { mockSuggestDessertSwap, mockSuggestSwap } from "@/lib/swap-coherence";
 
 type Tab = "plan" | "courses" | "batch" | "favoris";
 
@@ -150,6 +150,7 @@ export default function RepasScreen() {
   const [swapMeal, setSwapMeal] = useState<PlannedMeal | null>(null);
   const [moveMeal, setMoveMeal] = useState<PlannedMeal | null>(null);
   const [openTag, setOpenTag] = useState<string | null>(null);
+  const [openMealId, setOpenMealId] = useState<string | null>(null);
   const [planStamp, setPlanStamp] = useState<PlanTargetsSnapshot | null>(null);
   const [favorites, setFavorites] = useState<FavoriteRecipe[]>([]);
   const [rejected, setRejected] = useState<RejectedRecipe[]>([]);
@@ -260,7 +261,7 @@ export default function RepasScreen() {
       });
       if (cancelled) return;
       setPlan(synced.plan);
-      if (loaded.theme) setTheme(loaded.theme);
+      setTheme(loaded.theme ?? "");
       setLunchDessert(midi);
       setDinnerDessert(soir);
       setMidiPane(paneFromSaved(midi));
@@ -329,7 +330,8 @@ export default function RepasScreen() {
       });
       if (result.plan) {
         const used = await consumeStockFromMeals(newlyGeneratedMeals(plan, result.plan));
-        await persist(result.plan);
+        setTheme("");
+        await persist(result.plan, "");
         stampTargets();
         setNonce((n) => n + 1);
         const label =
@@ -389,9 +391,24 @@ export default function RepasScreen() {
     meal: PlannedMeal,
     target: { dayIndex: number; mealType: "dejeuner" | "diner" },
   ) {
-    await persist(moveMealInPlan(plan, meal.id, target));
+    const next = moveMealInPlan(plan, meal.id, target);
+    await persist(next);
     setMoveMeal(null);
+    if (openMealId === meal.id) {
+      const dest = next.find((item) => item.dayIndex === target.dayIndex && item.mealType === target.mealType);
+      if (dest) setOpenMealId(dest.id);
+    }
     flash("Repas déplacé");
+  }
+
+  function openSlot(meal: PlannedMeal, tag: string) {
+    setOpenMealId(meal.id);
+    setOpenTag(tag);
+  }
+
+  function closeRecipe() {
+    setOpenMealId(null);
+    setOpenTag(null);
   }
 
   async function updateQuantities() {
@@ -747,7 +764,16 @@ export default function RepasScreen() {
     catalog.elodie,
     inspoOffset,
   ]);
-  const openRecipe = recipes.find((row) => row.tag === openTag) ?? null;
+  const openRecipe = (() => {
+    if (openMealId) {
+      const meal = plan.find((item) => item.id === openMealId);
+      if (meal && !isEmptyMeal(meal)) {
+        return { meal, tag: tags.get(meal.id) ?? openTag ?? "P1" };
+      }
+    }
+    if (openTag) return recipes.find((row) => row.tag === openTag) ?? null;
+    return null;
+  })();
   const hasMeals = plan.some((meal) => !isEmptyMeal(meal));
   const targetsStale =
     hasMeals &&
@@ -873,15 +899,19 @@ export default function RepasScreen() {
 
           <MenuSummary
             plan={plan}
-            onSelect={(meal, tag) => setOpenTag(tag)}
+            onSelect={(meal, tag) => openSlot(meal, tag)}
           />
 
           <WeekAgenda
             plan={plan}
             tags={tags}
             busy={busy}
-            onOpen={(meal, tag) => setOpenTag(tag)}
+            onOpen={(meal, tag) => openSlot(meal, tag)}
             onGenerate={(slotId) => void generate("single", slotId)}
+            onMoveSlot={(fromId, target) => {
+              const meal = plan.find((item) => item.id === fromId);
+              if (meal) void moveMealTo(meal, target);
+            }}
           />
         </div>
       )}
@@ -899,14 +929,20 @@ export default function RepasScreen() {
         <div className="mt-2">
           <MenuSummary
             plan={plan}
-            onSelect={(_meal, tag) => setOpenTag(tag)}
+            onSelect={(_meal, tag) => {
+              setOpenMealId(null);
+              setOpenTag(tag);
+            }}
           />
           <QtyScaleToggle mode={batchQty} onChange={setBatchQty} />
           <BatchGuidePanel
             weekStart={weekStart}
             plan={plan}
             qtyMode={batchQty}
-            onOpenRecipe={(tag) => setOpenTag(tag)}
+            onOpenRecipe={(tag) => {
+              setOpenMealId(null);
+              setOpenTag(tag);
+            }}
           />
         </div>
       )}
@@ -983,17 +1019,22 @@ export default function RepasScreen() {
               }
               return mockSuggestDessertSwap(ingredientName, swapMeal);
             }
-            const result = await requestGenerateMeals({
-              mode: "suggest-swap",
-              theme,
-              plan,
-              slotId: swapMeal.id,
-              ingredientId,
-              ingredientName,
-              pastMeals: await collectPastMeals(swapMeal.id),
-              kitchenContext: kitchenContext(),
-            });
-            return result.suggestions ?? [];
+            try {
+              const result = await requestGenerateMeals({
+                mode: "suggest-swap",
+                theme,
+                plan,
+                slotId: swapMeal.id,
+                ingredientId,
+                ingredientName,
+                pastMeals: await collectPastMeals(swapMeal.id),
+                kitchenContext: kitchenContext(),
+              });
+              if (result.suggestions && result.suggestions.length >= 3) return result.suggestions.slice(0, 3);
+            } catch {
+              /* fallback local */
+            }
+            return mockSuggestSwap(ingredientName, swapMeal);
           }}
           onPick={async (ingredientId, replacement) => {
             setBusy(true);
@@ -1069,13 +1110,13 @@ export default function RepasScreen() {
           busy={busy}
           qtyMode={planQty}
           onQtyMode={setPlanQty}
-          onClose={() => setOpenTag(null)}
+          onClose={closeRecipe}
           currentTheme={theme}
           onRegenerate={(regenTheme) => void generate("single", openRecipe.meal.id, regenTheme)}
           onSwapIngredient={() => setSwapMeal(openRecipe.meal)}
           onDelete={() => {
             void deleteMeal(openRecipe.meal);
-            setOpenTag(null);
+            closeRecipe();
           }}
           onMove={() => setMoveMeal(openRecipe.meal)}
           favoriteOn={

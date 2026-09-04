@@ -510,8 +510,49 @@ function coerceMealJson(raw: unknown): GeminiMealJson | null {
 export function extractSuggestions(parsed: unknown): string[] {
   if (!parsed || typeof parsed !== "object") return [];
   const rec = parsed as Record<string, unknown>;
-  const list = asList(rec.suggestions);
-  return list.slice(0, 3);
+  return uniqueSuggestions(flattenSuggestions(rec.suggestions ?? rec.alternatives ?? rec.options)).slice(0, 3);
+}
+
+function flattenSuggestions(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value.flatMap((item) => {
+      if (typeof item === "string") return splitSuggestionText(item);
+      if (item && typeof item === "object") {
+        const rec = item as Record<string, unknown>;
+        const name = rec.name ?? rec.ingredient ?? rec.title ?? rec.label;
+        if (typeof name === "string") return splitSuggestionText(name);
+      }
+      return [];
+    });
+  }
+  if (typeof value === "string") return splitSuggestionText(value);
+  return [];
+}
+
+function splitSuggestionText(text: string): string[] {
+  const trimmed = text.trim();
+  if (!trimmed) return [];
+  if (/[\n;]/.test(trimmed) || /,.*,/.test(trimmed)) {
+    return trimmed.split(/[\n;,]/).map(cleanSuggestion).filter(Boolean);
+  }
+  if (trimmed.includes(" / ")) return trimmed.split("/").map(cleanSuggestion).filter(Boolean);
+  return [cleanSuggestion(trimmed)].filter(Boolean);
+}
+
+function cleanSuggestion(value: string) {
+  return value.replace(/^\d+[.)]\s*/, "").replace(/^[-•*]\s*/, "").trim();
+}
+
+function uniqueSuggestions(list: string[]) {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const item of list) {
+    const key = item.toLowerCase();
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    out.push(item);
+  }
+  return out;
 }
 
 export function weekdaysPrompt(

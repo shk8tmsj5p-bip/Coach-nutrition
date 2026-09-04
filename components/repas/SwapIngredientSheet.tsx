@@ -36,6 +36,8 @@ export function SwapIngredientSheet({
     try {
       const next = await onSuggest(id, name);
       setSuggestions(next);
+    } catch {
+      setSuggestions([]);
     } finally {
       setLoading(false);
     }
@@ -107,9 +109,9 @@ export function SwapIngredientSheet({
               Remplacer « {selected?.name} » par
             </p>
             <div className="grid gap-2">
-              {suggestions.map((alt) => (
+              {suggestions.map((alt, index) => (
                 <button
-                  key={alt}
+                  key={`${index}-${alt}`}
                   type="button"
                   disabled={busy}
                   onClick={() => void onPick(selectedId, alt)}
@@ -119,6 +121,11 @@ export function SwapIngredientSheet({
                 </button>
               ))}
             </div>
+            {suggestions.length < 3 ? (
+              <p className="mt-2 text-center text-[12px] text-health-muted">
+                Moins de 3 idées — retape l’ingrédient pour relancer.
+              </p>
+            ) : null}
           </>
         )}
       </div>
