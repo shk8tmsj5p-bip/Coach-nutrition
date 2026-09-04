@@ -46,8 +46,8 @@ export function RejectedPanel({
         <Card>
           <p className="text-[14px] font-semibold">Aucun plat en Plus jamais</p>
           <p className="mt-1 text-[13px] leading-relaxed text-health-muted">
-            Le Ban d’un déjeuner ou dîner (Aujourd’hui ou fiche recette) empêche Gem Chef de le
-            régénérer. Tu peux aussi coller un titre ici, et le retirer plus tard si tu changes d’avis.
+            Un plat ici n’est plus proposé par Gem et n’apparaît plus dans l’historique. Tu le
+            retrouves seulement ici, avec « Je change d’avis ».
           </p>
         </Card>
       ) : groups.length === 0 ? (

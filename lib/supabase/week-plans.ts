@@ -50,8 +50,14 @@ function collectTitles(plan: PlannedMeal[], titles: Set<string>) {
   }
 }
 
-/** Titres uniques des 8 semaines précédant `beforeWeekStart` (lundi). */
-export async function loadRecentMealTitles(beforeWeekStart: string, weeks = 8): Promise<string[]> {
+/** Gem ne répète pas ces titres (Plus jamais reste interdit tant qu’on ne l’a pas retiré). */
+export const PAST_MEAL_MEMORY_WEEKS = 8;
+
+/** Titres uniques des semaines précédant `beforeWeekStart` (lundi). */
+export async function loadRecentMealTitles(
+  beforeWeekStart: string,
+  weeks = PAST_MEAL_MEMORY_WEEKS,
+): Promise<string[]> {
   const titles = new Set<string>();
   const starts: string[] = [];
   for (let i = 1; i <= weeks; i += 1) {

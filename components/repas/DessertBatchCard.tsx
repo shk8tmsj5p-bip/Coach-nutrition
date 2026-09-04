@@ -1,6 +1,6 @@
 "use client";
 
-import { Camera, Images, Sparkles, Trash2, X } from "lucide-react";
+import { Camera, History, Images, Sparkles, Trash2, X } from "lucide-react";
 import { RecipeTag } from "@/components/repas/RecipeTag";
 import { ImagePickButton } from "@/components/today/ImagePickButton";
 import { WEEKDAYS, toggleWeekday } from "@/lib/sport-routine";
@@ -37,6 +37,7 @@ export function DessertBatchCard({
   onDiscardDraft,
   onOpen,
   onRemove,
+  onHistory,
 }: {
   slot: DessertSlot;
   dessert: WeekLunchDessert | null;
@@ -59,6 +60,7 @@ export function DessertBatchCard({
   onDiscardDraft: () => void;
   onOpen: () => void;
   onRemove: () => void;
+  onHistory?: () => void;
 }) {
   const shown = draft ?? dessert?.meal ?? null;
   const alexisKcal = shown?.alexis.calories ?? 0;
@@ -221,6 +223,18 @@ export function DessertBatchCard({
           ) : null}
         </div>
       )}
+
+      {onHistory ? (
+        <button
+          type="button"
+          disabled={busy}
+          onClick={onHistory}
+          className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-card bg-health-bg py-2.5 text-[13px] font-semibold disabled:opacity-50"
+        >
+          <History size={14} />
+          Historique desserts
+        </button>
+      ) : null}
 
       {review ? (
         <div className="fixed inset-0 z-[80] flex items-end justify-center bg-black/40 p-4 sm:items-center">

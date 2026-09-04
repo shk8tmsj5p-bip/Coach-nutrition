@@ -15,8 +15,6 @@ export async function GET() {
     gemini: present(process.env.GEMINI_API_KEY),
     geminiPro: labels.geminiPro,
     geminiFlash: labels.geminiFlash,
-    strava: present(process.env.STRAVA_CLIENT_ID) && present(process.env.STRAVA_CLIENT_SECRET),
-    stravaToken: present(process.env.STRAVA_REFRESH_TOKEN),
     healthWebhook: present(process.env.HEALTH_WEBHOOK_SECRET),
     supabase: present(process.env.NEXT_PUBLIC_SUPABASE_URL) && present(process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY),
     alerts: alertsConfigured(),

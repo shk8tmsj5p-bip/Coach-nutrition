@@ -208,6 +208,7 @@ export function formatSportPatch(patch: CoachSportPatch) {
   return `${activity} · ${from} · ${duration}${intensity}`;
 }
 
+/** Règles locales (crevé / plateau). Plus affichées : le bilan 7 j vient uniquement de Gemini. */
 export function localCoachAnalysis(body: CoachAnalysisRequest): CoachAnalysis {
   const current = body.currentTargets;
   const notes = body.journal.notes;
@@ -374,7 +375,7 @@ export function coachAnalysisPrompt(body: CoachAnalysisRequest) {
     body.sessions
       .map(
         (session) =>
-          `- ${session.date} · ${session.label} · ${session.completed ? "validée (Strava)" : "prévue / non validée"}`,
+          `- ${session.date} · ${session.label} · ${session.completed ? "validée (Santé)" : "prévue / non validée"}`,
       )
       .join("\n") || "(aucune séance planifiée sur 7 j)";
   const recent = body.recentJournals
@@ -410,7 +411,7 @@ ${recent ? `Autres notes :\n${recent}` : ""}
 
 ${formatDailyFeelsForPrompt(body.dailyFeels)}
 
-Séances 7 j (prévues + validées Santé / Strava) :
+Séances 7 j (prévues + validées Santé) :
 ${sessions}
 
 Dépense 7 j Apple Santé (pas de FC / D+ / fractionné mesuré) :
@@ -498,13 +499,12 @@ export function parseCoachAnalysisJson(parsed: unknown, body: CoachAnalysisReque
   const nutrition = asLines(rec.nutrition);
   const sport = asLines(rec.sport);
   const parsedPatches = parseSportPatches(rec.sport_adjustments ?? rec.sportAdjustments);
-  const fallback = localCoachAnalysis(body);
 
   return {
     analysis,
-    nutrition: nutrition.length ? nutrition : fallback.nutrition,
-    sport: sport.length ? sport : fallback.sport,
-    sportAdjustments: parsedPatches.length ? parsedPatches : fallback.sportAdjustments,
+    nutrition,
+    sport,
+    sportAdjustments: parsedPatches,
     targets,
     trainingDay,
     restDay,

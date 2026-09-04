@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { GenerateControls } from "@/components/repas/GenerateControls";
+import { MealHistorySheet } from "@/components/repas/MealHistorySheet";
 import { MenuSummary } from "@/components/repas/MenuSummary";
 import { WeekAgenda } from "@/components/repas/WeekAgenda";
 import { RecipeDetailSheet } from "@/components/repas/RecipeDetailSheet";
@@ -13,6 +13,7 @@ import { ShoppingListPanel } from "@/components/repas/ShoppingListPanel";
 import { BatchGuidePanel } from "@/components/repas/BatchGuidePanel";
 import { DessertBatchCard } from "@/components/repas/DessertBatchCard";
 import { SwapIngredientSheet } from "@/components/repas/SwapIngredientSheet";
+import { GenerateControls } from "@/components/repas/GenerateControls";
 import { WeekNav } from "@/components/repas/WeekNav";
 import { useProfile } from "@/context/ProfileContext";
 import { mondayOf, todayISO, isoWeekday } from "@/lib/dates";
@@ -29,6 +30,7 @@ import {
   clearMealsInPlan,
   emptyWeekPlan,
   isEmptyMeal,
+  isWeekendSlot,
   moveMealInPlan,
   pairForSlot,
   placeRecipeInSlots,
@@ -37,7 +39,7 @@ import { planTagByMealId, taggedUniqueMeals } from "@/lib/meal-tags";
 import { QtyScaleToggle } from "@/components/repas/QtyScaleToggle";
 import { StockPanel } from "@/components/repas/StockPanel";
 import { cn } from "@/lib/utils";
-import { loadKitchenPrefs, formatKitchenPrefsForPrompt } from "@/lib/kitchen-prefs";
+import { loadKitchenPrefs, formatKitchenPrefsForPrompt, silentAversions, enabledAppliances } from "@/lib/kitchen-prefs";
 import { pickMealInspirations } from "@/lib/meal-inspo";
 import { useSeasonWeather } from "@/context/SeasonContext";
 import {
@@ -99,6 +101,16 @@ import {
 } from "@/lib/week-dessert";
 import { formatDessertProductForPrompt, type DessertProduct, type DessertSlot } from "@/lib/dessert-product";
 import { mockSuggestDessertSwap, mockSuggestSwap } from "@/lib/swap-coherence";
+import { fileToRecipePhoto, type RecipeFit, type RecipePhotoPayload } from "@/lib/recipe-photo";
+import { loadMealHistory } from "@/lib/supabase/meal-history";
+import {
+  historyFromDessert,
+  historyFromFavorites,
+  historyFromPlan,
+  mergeMealHistory,
+  type HistoryKind,
+  type MealHistoryItem,
+} from "@/lib/meal-history";
 
 type Tab = "plan" | "courses" | "batch" | "favoris";
 
@@ -169,11 +181,33 @@ export default function RepasScreen() {
   const [productReview, setProductReview] = useState<DessertProduct | null>(null);
   const [openDessert, setOpenDessert] = useState(false);
   const [inspoOffset, setInspoOffset] = useState(0);
+  const [recipePhoto, setRecipePhoto] = useState<RecipePhotoPayload | null>(null);
+  const [recipePreview, setRecipePreview] = useState<string | null>(null);
+  const [recipeFit, setRecipeFit] = useState<RecipeFit>("adapt");
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyItems, setHistoryItems] = useState<MealHistoryItem[]>([]);
+  const [historyKind, setHistoryKind] = useState<HistoryKind>("plat");
+  const [placeHistory, setPlaceHistory] = useState<MealHistoryItem | null>(null);
+  const [historyDessert, setHistoryDessert] = useState<MealHistoryItem | null>(null);
 
   const dessertPane = dessertSlot === "soir" ? soirPane : midiPane;
   const setDessertPane = dessertSlot === "soir" ? setSoirPane : setMidiPane;
 
-  function kitchenContext(opts?: { dessertDays?: Weekday[]; dessertBatch?: boolean; dessertSlot?: DessertSlot; product?: DessertProduct | null }) {
+  useEffect(() => {
+    return () => {
+      if (recipePreview) URL.revokeObjectURL(recipePreview);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- revoke the last preview on unmount only
+  }, []);
+
+  function kitchenContext(opts?: {
+    dessertDays?: Weekday[];
+    dessertBatch?: boolean;
+    dessertSlot?: DessertSlot;
+    product?: DessertProduct | null;
+    recipeFit?: RecipeFit;
+  }) {
     const coach = nutritionCoach();
     if (opts?.dessertBatch) {
       const slot = opts.dessertSlot ?? dessertSlot;
@@ -182,6 +216,19 @@ export default function RepasScreen() {
         aversions,
         formatDessertBatchForPrompt(opts.dessertDays ?? dessertPane.weekdays, coach, slot),
         formatDessertProductForPrompt(opts.product ?? dessertPane.product),
+        formatStockForPrompt(loadLocalStock()),
+      ]
+        .filter(Boolean)
+        .join("\n\n");
+    }
+    if (opts?.recipeFit === "as-is") {
+      const prefs = loadKitchenPrefs();
+      const aversions = silentAversions(prefs, [catalog.alexis, catalog.elodie]);
+      const gear = enabledAppliances(prefs);
+      return [
+        `Aversions à OMETTRE (ne jamais écrire « sans X ») : ${aversions.join(", ") || "aucune"}.`,
+        `MATÉRIEL AUTORISÉ : ${gear.join(", ") || "plaque / four"}. Ne pas inventer d'appareil absent.`,
+        "Alexis vegan · Élodie omnivore. Même plat. MODE TEL QUEL : pas de cibles kcal, pas de dîner light forcé.",
         formatStockForPrompt(loadLocalStock()),
       ]
         .filter(Boolean)
@@ -320,8 +367,8 @@ export default function RepasScreen() {
     return () => window.clearInterval(id);
   }, [reloadWeek]);
 
-  async function persist(next: PlannedMeal[], nextTheme = theme) {
-    const synced = withCoachBoosts(next);
+  async function persist(next: PlannedMeal[], nextTheme = theme, opts?: { skipBoosts?: boolean }) {
+    const synced = opts?.skipBoosts ? { plan: next } : withCoachBoosts(next);
     setPlan(synced.plan);
     const error = await saveWeekPlan(weekStart, synced.plan, nextTheme);
     if (error) flash(`Sauvé en local · ${error}`);
@@ -348,9 +395,31 @@ export default function RepasScreen() {
     return mergeAvoidTitles([...recent, ...current, ...dessertTitles], rejected);
   }
 
+  function clearRecipePhoto() {
+    setRecipePreview((url) => {
+      if (url) URL.revokeObjectURL(url);
+      return null;
+    });
+    setRecipePhoto(null);
+  }
+
+  async function pickRecipePhoto(file: File) {
+    try {
+      const payload = await fileToRecipePhoto(file);
+      setRecipePreview((url) => {
+        if (url) URL.revokeObjectURL(url);
+        return URL.createObjectURL(file);
+      });
+      setRecipePhoto(payload);
+    } catch (error) {
+      flash(error instanceof Error ? error.message : "Photo illisible");
+    }
+  }
+
   async function generate(mode: GenerateMealsMode, slotId?: string, themeOverride?: string) {
     setBusy(true);
     try {
+      const usePhoto = mode === "single" && Boolean(recipePhoto);
       const pastMeals = await collectPastMeals(mode === "single" ? slotId : undefined);
       const result = await requestGenerateMeals({
         mode,
@@ -358,20 +427,31 @@ export default function RepasScreen() {
         plan,
         slotId,
         nonce,
-        coachBias: loadHouseholdCoachBias(),
+        coachBias: usePhoto && recipeFit === "as-is" ? undefined : loadHouseholdCoachBias(),
         pastMeals,
-        kitchenContext: kitchenContext(),
-        nutritionCoach: nutritionCoach(),
+        kitchenContext: kitchenContext(usePhoto && recipeFit === "as-is" ? { recipeFit: "as-is" } : undefined),
+        nutritionCoach: usePhoto && recipeFit === "as-is" ? undefined : nutritionCoach(),
+        recipePhoto: usePhoto ? recipePhoto : undefined,
+        recipeFit: usePhoto ? recipeFit : undefined,
       });
       if (result.plan) {
         const fresh = newlyGeneratedMeals(plan, result.plan);
         setTheme("");
-        await persist(result.plan, "");
+        if (usePhoto) clearRecipePhoto();
+        await persist(result.plan, "", { skipBoosts: Boolean(usePhoto && recipeFit === "as-is") });
         const used = await consumeStockFromMeals(fresh);
         stampTargets();
         setNonce((n) => n + 1);
         const label =
-          mode === "weekdays" ? "Lun–Ven généré" : mode === "weekend" ? "Week-end généré" : "Repas généré";
+          mode === "weekdays"
+            ? "Lun–Ven généré"
+            : mode === "weekend"
+              ? "Week-end généré"
+              : usePhoto
+                ? recipeFit === "as-is"
+                  ? "Recette photo posée"
+                  : "Recette photo réadaptée"
+                : "Repas généré";
         const stockNote = used.length
           ? ` · stock : ${used.map(formatStockItem).join(", ")}`
           : "";
@@ -770,6 +850,83 @@ export default function RepasScreen() {
     }
   }
 
+  async function openMealHistory(kind: HistoryKind = "plat") {
+    setHistoryKind(kind);
+    setHistoryOpen(true);
+    setHistoryLoading(true);
+    try {
+      const remote = await loadMealHistory();
+      setHistoryItems(
+        mergeMealHistory([
+          remote,
+          historyFromPlan(plan, weekStart, theme),
+          historyFromDessert(lunchDessert, weekStart) ? [historyFromDessert(lunchDessert, weekStart)!] : [],
+          historyFromDessert(dinnerDessert, weekStart) ? [historyFromDessert(dinnerDessert, weekStart)!] : [],
+          historyFromFavorites(favorites),
+        ]),
+      );
+    } catch {
+      setHistoryItems(
+        mergeMealHistory([
+          historyFromPlan(plan, weekStart, theme),
+          historyFromFavorites(favorites),
+        ]),
+      );
+    } finally {
+      setHistoryLoading(false);
+    }
+  }
+
+  async function placeHistoryPlat(item: MealHistoryItem, slotId: string) {
+    const slotIds = pairForSlot(slotId)?.slotIds ?? [slotId];
+    setBusy(true);
+    try {
+      await persist(scalePlanToGoals(placeRecipeInSlots(plan, slotIds, item.meal), nutritionCoach()));
+      stampTargets();
+      setPlaceHistory(null);
+      setHistoryOpen(false);
+      setTab("plan");
+      flash("Plat repris dans la semaine");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function placeHistoryDessert(item: MealHistoryItem, slot: DessertSlot) {
+    setBusy(true);
+    try {
+      const days = [...DEFAULT_DESSERT_DAYS];
+      const meal = stampDessertMeal(
+        scaleDessertToGoals(item.meal, nutritionCoach(), slot),
+        days,
+        item.theme === "Autre" ? "" : item.theme,
+        slot,
+      );
+      const next: WeekLunchDessert = {
+        weekdays: days,
+        theme: item.theme === "Autre" ? "" : item.theme,
+        meal,
+        product: null,
+        slot,
+      };
+      const error = await persistWeekLunchDessert(weekStart, next, slot);
+      if (slot === "soir") {
+        setDinnerDessert(next);
+        setSoirPane({ ...soirPane, saved: next, draft: null, theme: next.theme, weekdays: days, product: null });
+      } else {
+        setLunchDessert(next);
+        setMidiPane({ ...midiPane, saved: next, draft: null, theme: next.theme, weekdays: days, product: null });
+      }
+      await serveDessertToday(slot);
+      setHistoryDessert(null);
+      setHistoryOpen(false);
+      setTab("plan");
+      flash(error ? `Dessert en local · ${error}` : slot === "soir" ? "Dessert soir repris" : "Dessert midi repris");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const tags = useMemo(() => planTagByMealId(plan), [plan]);
   const recipes = useMemo(() => taggedUniqueMeals(plan), [plan]);
   const suggestions = useMemo(() => {
@@ -889,9 +1046,15 @@ export default function RepasScreen() {
             busy={busy}
             canClear={plan.some((meal) => !isEmptyMeal(meal)) || Boolean(lunchDessert) || Boolean(dinnerDessert)}
             coachHint={`Portions selon Suivi : Alexis ${goalLabel(catalog.alexis.primaryGoal)} · Élodie ${goalLabel(catalog.elodie.primaryGoal)}. Même plat, grammes différents (sauf sauces).`}
+            recipePreview={recipePreview}
+            recipeFit={recipeFit}
+            onRecipeFitChange={setRecipeFit}
+            onPickRecipePhoto={(file) => void pickRecipePhoto(file)}
+            onClearRecipePhoto={clearRecipePhoto}
             onGenerateWeekdays={() => void generate("weekdays")}
             onGenerateWeekend={() => void generate("weekend")}
             onGenerateSingle={() => setPickSlot(true)}
+            onHistory={() => void openMealHistory("plat")}
             onClearWeek={() => void clearWeek()}
           />
 
@@ -931,6 +1094,7 @@ export default function RepasScreen() {
             }}
             onOpen={() => setOpenDessert(true)}
             onRemove={() => void removeDessert()}
+            onHistory={() => void openMealHistory("dessert")}
           />
 
           <MenuSummary
@@ -1026,6 +1190,14 @@ export default function RepasScreen() {
       {pickSlot && (
         <PickMealSlotSheet
           plan={plan}
+          title={recipePhoto ? "Où poser cette recette ?" : "Générer un repas"}
+          hint={
+            recipePhoto
+              ? recipeFit === "as-is"
+                ? "Tel quel, même plat pour vous deux. En semaine, ça couvre les 2 créneaux du batch."
+                : "Réadaptée à vos cibles (portions, dîner light, aversions). En semaine = le couple batch."
+              : "En semaine, la génération couvre les 2 créneaux du batch. Le week-end, un seul repas frais."
+          }
           onClose={() => setPickSlot(false)}
           onSelect={(slotId) => {
             setPickSlot(false);
@@ -1216,6 +1388,77 @@ export default function RepasScreen() {
           onSelect={(slotId) => void placeFavoriteInWeek(placeFavorite, slotId)}
         />
       )}
+
+      {historyOpen ? (
+        <MealHistorySheet
+          key={historyKind}
+          items={historyItems}
+          rejected={rejected}
+          loading={historyLoading}
+          busy={busy}
+          initialKind={historyKind}
+          caption="Un titre = la dernière version. Cherche un plat déjà fait. Le cœur (Favoris) est à part. Plus jamais n’apparaît pas ici."
+          onClose={() => setHistoryOpen(false)}
+          onPick={(item) => {
+            if (item.kind === "dessert") {
+              setHistoryDessert(item);
+              return;
+            }
+            setPlaceHistory(item);
+          }}
+        />
+      ) : null}
+
+      {placeHistory ? (
+        <PickMealSlotSheet
+          plan={plan}
+          title="Où poser ce plat ?"
+          hint="Recette d’origine, quantités d’aujourd’hui. Lun–Ven : les deux créneaux. Week-end : ce repas seulement."
+          notice={
+            isWeekendSlot(placeHistory.meal)
+              ? "Plat de week-end : en semaine, même recette, quantités recalées. Ce n’est pas un nouveau batch."
+              : undefined
+          }
+          onClose={() => setPlaceHistory(null)}
+          onSelect={(slotId) => void placeHistoryPlat(placeHistory, slotId)}
+        />
+      ) : null}
+
+      {historyDessert ? (
+        <div className="fixed inset-0 z-[80] flex items-end justify-center bg-black/30">
+          <div className="w-full max-w-[430px] rounded-t-[24px] bg-white p-4 pb-8 shadow-card">
+            <h3 className="text-[17px] font-semibold">Quel dessert ?</h3>
+            <p className="mt-1 text-[13px] leading-snug text-health-muted">
+              « {historyDessert.title} » — midi ou soir light. Recette d’origine, quantités d’aujourd’hui.
+            </p>
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void placeHistoryDessert(historyDessert, "midi")}
+                className="rounded-card bg-health-ink py-3 text-[13px] font-semibold text-white disabled:opacity-50"
+              >
+                Midi
+              </button>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void placeHistoryDessert(historyDessert, "soir")}
+                className="rounded-card bg-health-bg py-3 text-[13px] font-semibold disabled:opacity-50"
+              >
+                Soir light
+              </button>
+            </div>
+            <button
+              type="button"
+              className="mt-2 w-full py-2 text-[13px] font-semibold text-health-muted"
+              onClick={() => setHistoryDessert(null)}
+            >
+              Annuler
+            </button>
+          </div>
+        </div>
+      ) : null}
 
       {openFavorite && (
         <FavoriteRecipeSheet

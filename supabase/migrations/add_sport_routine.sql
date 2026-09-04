@@ -1,4 +1,4 @@
--- Routine sport de référence (Tab 2 / coach / Strava)
+-- Routine sport de référence (Suivi / coach / Apple Santé)
 -- Coller dans : Supabase → SQL Editor → Run
 
 alter table public.profils

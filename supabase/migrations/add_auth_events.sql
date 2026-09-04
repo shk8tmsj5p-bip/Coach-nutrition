@@ -1,6 +1,6 @@
 -- Journal d’accès foyer (alertes mail). Service role only — pas de policy client.
 -- Coller dans : Supabase → SQL Editor → Run
--- Sans cette table, les mails partent quand même (Resend).
+-- Sans cette table, les mails partent quand même (Gmail SMTP).
 
 create table if not exists public.auth_events (
   id bigint generated always as identity primary key,

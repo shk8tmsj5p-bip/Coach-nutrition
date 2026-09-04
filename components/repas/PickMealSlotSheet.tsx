@@ -9,17 +9,19 @@ export function PickMealSlotSheet({
   plan,
   title = "Générer un repas",
   hint = "En semaine, la génération couvre les 2 créneaux du batch. Le week-end, un seul repas frais.",
+  notice,
   onClose,
   onSelect,
 }: {
   plan: PlannedMeal[];
   title?: string;
   hint?: string;
+  notice?: string;
   onClose: () => void;
   onSelect: (slotId: string) => void;
 }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/30">
+    <div className="fixed inset-0 z-[80] flex items-end justify-center bg-black/30">
       <div className="max-h-[80vh] w-full max-w-[430px] overflow-y-auto rounded-t-[24px] bg-white p-4 pb-8 shadow-card">
         <div className="mb-3 flex items-center justify-between">
           <h3 className="text-[17px] font-semibold">{title}</h3>
@@ -28,6 +30,11 @@ export function PickMealSlotSheet({
           </button>
         </div>
         <p className="mb-3 text-[13px] leading-snug text-health-muted">{hint}</p>
+        {notice ? (
+          <p className="mb-3 rounded-2xl bg-amber-50 px-3 py-2 text-[12px] leading-snug text-amber-900 dark:bg-amber-950/40 dark:text-amber-100">
+            {notice}
+          </p>
+        ) : null}
         <div className="space-y-3">
           {WEEK_DAYS.map((day) => {
             const meals = plan.filter((meal) => meal.day === day);

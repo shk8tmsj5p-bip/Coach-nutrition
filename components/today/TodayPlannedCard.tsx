@@ -53,9 +53,8 @@ const ACTIVITY_ICON = {
 } as const;
 
 function sourceBadge(activityName?: string, source?: LoggedTodaySession["source"]) {
-  if (source === "strava" || activityName?.toLowerCase().includes("strava")) return "Strava";
   if (source === "manual" || activityName?.toLowerCase() === "manuel") return "Manuel";
-  if (source === "apple-health" || activityName) return "Santé";
+  if (source === "apple-health" || source === "strava" || activityName) return "Santé";
   return null;
 }
 
@@ -282,7 +281,7 @@ export function TodayPlannedCard({
             {unmatched.length > 0 ? <UnmatchedBlock workouts={unmatched} onAttach={attachWorkout} /> : null}
             <AddDoneButton onClick={() => openExtra()} label={planned.length === 0 ? undefined : "Autre séance faite"} />
             <p className="text-[11px] leading-relaxed text-health-muted">
-              Modifier si tu as fait autre chose. Une séance Watch ou Strava dans Santé valide toute
+              Modifier si tu as fait autre chose. Une séance Watch dans Santé valide toute
               seule si le type et la durée collent.
             </p>
           </div>
@@ -310,7 +309,7 @@ function UnmatchedBlock({
 }) {
   return (
     <div className="mt-3 rounded-2xl bg-health-bg px-3 py-2.5">
-      <p className="text-[12px] font-semibold">Santé / Strava aujourd’hui</p>
+      <p className="text-[12px] font-semibold">Santé aujourd’hui</p>
       <p className="mt-0.5 text-[11px] leading-relaxed text-health-muted">
         Type ou durée différents du prévu — ou rien n’était planifié. Dis si c’est ta séance.
       </p>
@@ -322,11 +321,7 @@ function UnmatchedBlock({
               <span className="block text-[12px] text-health-muted">
                 {formatHoursMinutes(workout.durationMin)}
                 {workout.calories > 0 ? ` · ${workout.calories} kcal` : ""}
-                {workout.source === "strava"
-                  ? " · Strava"
-                  : workout.source === "manual"
-                    ? " · Manuel"
-                    : " · Santé"}
+                {workout.source === "manual" ? " · Manuel" : " · Santé"}
               </span>
             </p>
             <button

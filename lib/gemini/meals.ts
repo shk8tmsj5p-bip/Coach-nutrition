@@ -18,7 +18,8 @@ import { culinaryRole, describeIngredientUse } from "@/lib/swap-coherence";
 import { visualForIngredient } from "@/lib/visual-quantity";
 import { declinationFromIngredients } from "@/lib/recipe-macros";
 import { motifsIn } from "@/lib/recipe-diversity";
-import { generateGeminiJson, type GeminiCallResult } from "@/lib/gemini/models";
+import { generateGeminiJson, type GeminiCallResult, type GeminiPart } from "@/lib/gemini/models";
+import { formatRecipePhotoForPrompt, type RecipeFit } from "@/lib/recipe-photo";
 
 export type GenerateMealsMode =
   | "weekdays"
@@ -624,6 +625,51 @@ JSON :
   );
 }
 
+export function recipeFromPhotoPrompt(
+  slot: PlannedMeal,
+  pair: BatchPair | null,
+  theme: string,
+  fit: RecipeFit,
+  coachBias?: HouseholdCoachBias | null,
+  pastMeals?: string[],
+  kitchenContext?: string,
+) {
+  const themeLine = theme.trim()
+    ? `Thème saisi en plus (secondaire) : ${theme}. Ne l'utilise que s'il précise la photo (variante, ingrédient). La photo reste la source.`
+    : "Pas de thème texte : la photo EST le cahier des charges.";
+  const photoBlock = formatRecipePhotoForPrompt(fit);
+  if (pair) {
+    return culinaryPrompt(
+      `${photoBlock}
+
+Génère 1 recette BATCH fidèle à la photo pour : ${pair.label}, niveau S34.
+Règle : JSON = 1 repas / personne. L'utilisateur cuisinera ×2 (4 assiettes foyer).
+Type : ${pair.mealType}${pair.lowCalorie ? ", créneau DÎNER" : " (déjeuner)"}${fit === "adapt" && pair.lowCalorie ? " — RÉADAPTER en low cal (huile serrée, féculent allégé, protéine gardée) SANS perdre la star de la photo." : fit === "as-is" ? " — TEL QUEL même le soir : ne pas alléger pour le dîner." : "."}
+${themeLine}
+Chaque titre NOMME la sauce / marinade du plat. step_groups : robot seulement si la photo le justifie ; omettre un bloc vide.
+
+JSON : un objet ${MEAL_JSON_SHAPE} ou { "recipes": [objet] }.`,
+      fit === "as-is" ? null : coachBias,
+      pastMeals,
+      kitchenContext,
+    );
+  }
+  return culinaryPrompt(
+    `${photoBlock}
+
+Génère 1 repas frais (${slot.day} ${slot.mealType}) fidèle à la photo, niveau S34.
+Règle week-end : 1 recette = 1 seul repas / personne.
+${slot.lowCalorie || slot.mealType === "diner" ? (fit === "adapt" ? "Dîner : réadapter light (cibles soir) sans perdre la star." : "Dîner TEL QUEL : ne pas alléger.") : "Déjeuner."}
+${themeLine}
+Sous-recettes + weight_g + visual_unit + réglages appareils : obligatoires.
+
+JSON : un objet ${MEAL_JSON_SHAPE} ou { "recipes": [objet] }.`,
+    fit === "as-is" ? null : coachBias,
+    pastMeals,
+    kitchenContext,
+  );
+}
+
 export function singlePrompt(
   slot: PlannedMeal,
   pair: BatchPair | null,
@@ -918,11 +964,14 @@ JSON : un objet ${MEAL_JSON_SHAPE}.`,
   );
 }
 
-export async function callGeminiPro(prompt: string): Promise<GeminiCallResult & { mock: boolean }> {
+export async function callGeminiPro(
+  prompt: string,
+  images?: GeminiPart[],
+): Promise<GeminiCallResult & { mock: boolean }> {
   const result = await generateGeminiJson({
     preferredTier: "pro",
     fallbackTier: "flash",
-    parts: [{ text: prompt }],
+    parts: [...(images ?? []), { text: prompt }],
     temperature: 0.9,
     logLabel: "MEAL GEN",
   });

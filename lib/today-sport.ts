@@ -146,8 +146,7 @@ export function todayActivityHeadline(
 }
 
 export function validationLabel(log: LoggedTodaySession) {
-  if (log.source === "strava") return log.workoutName || "Strava";
-  if (log.source === "apple-health") return log.workoutName || "Santé";
+  if (log.source === "strava" || log.source === "apple-health") return log.workoutName || "Santé";
   return log.workoutName || "Manuel";
 }
 

@@ -10,6 +10,7 @@ import {
   dessertBatchPrompt,
   dessertSuggestSwapPrompt,
   dessertApplySwapPrompt,
+  recipeFromPhotoPrompt,
   singlePrompt,
   suggestSwapPrompt,
   todaySwapPrompt,
@@ -43,7 +44,8 @@ import {
   WEEKDAY_BATCHES,
   WEEKEND_INDEXES,
 } from "@/lib/weekly-plan";
-import { friendlyGeminiError } from "@/lib/gemini/models";
+import { parseRecipePhoto, isRecipeFit, type RecipeFit } from "@/lib/recipe-photo";
+import { friendlyGeminiError, type GeminiPart } from "@/lib/gemini/models";
 
 export const maxDuration = 300;
 
@@ -65,6 +67,8 @@ type Body = {
   dessertSlot?: DessertSlot;
   dessertProduct?: unknown;
   dessert?: PlannedMeal;
+  recipePhoto?: unknown;
+  recipeFit?: RecipeFit;
 };
 
 function dessertSwapMeal(body: Body): PlannedMeal | null {
@@ -447,23 +451,39 @@ CORRECTION : ta réponse précédente n'était pas du JSON utilisable. Renvoie U
 
     const pastMeals = body.pastMeals ?? [];
     const kitchenContext = body.kitchenContext;
+    const recipePhoto = body.mode === "single" ? parseRecipePhoto(body.recipePhoto) : null;
+    const recipeFit: RecipeFit = recipePhoto && isRecipeFit(body.recipeFit) ? body.recipeFit : "adapt";
+    const imageParts: GeminiPart[] | undefined = recipePhoto
+      ? [{ inlineData: { mimeType: recipePhoto.mimeType, data: recipePhoto.data } }]
+      : undefined;
+    const slot = plan.find((item) => item.id === body.slotId) ?? plan[0];
     const prompt =
       body.mode === "weekdays"
         ? weekdaysPrompt(theme, body.coachBias, pastMeals, kitchenContext)
         : body.mode === "weekend"
           ? weekendPrompt(theme, body.coachBias, pastMeals, kitchenContext)
-          : singlePrompt(
-              plan.find((item) => item.id === body.slotId) ?? plan[0],
-              pairForSlot(body.slotId ?? ""),
-              theme,
-              body.coachBias,
-              pastMeals,
-              kitchenContext,
-            );
+          : recipePhoto
+            ? recipeFromPhotoPrompt(
+                slot,
+                pairForSlot(body.slotId ?? ""),
+                theme,
+                recipeFit,
+                body.coachBias,
+                pastMeals,
+                kitchenContext,
+              )
+            : singlePrompt(
+                slot,
+                pairForSlot(body.slotId ?? ""),
+                theme,
+                body.coachBias,
+                pastMeals,
+                kitchenContext,
+              );
 
     try {
       const started = Date.now();
-      const first = await callGeminiPro(prompt);
+      const first = await callGeminiPro(prompt, imageParts);
       let used = first;
       let recipes: ReturnType<typeof extractRecipes> = [];
       try {
@@ -476,6 +496,7 @@ CORRECTION : ta réponse précédente n'était pas du JSON utilisable. Renvoie U
           `${prompt}
 
 CORRECTION : ta réponse précédente n'était pas du JSON utilisable. Renvoie UNIQUEMENT le JSON demandé, complet.`,
+          imageParts,
         );
         try {
           recipes = extractRecipes(parseGeminiJson(again.text));
@@ -486,10 +507,9 @@ CORRECTION : ta réponse précédente n'était pas du JSON utilisable. Renvoie U
       }
       if (recipes.length === 0) throw new Error("JSON sans recette");
       const titles = recipes.map((item) => String(item.title ?? ""));
-      let problems = [
-        ...diversityProblems(titles, pastMeals),
-        ...themeMismatchProblems(titles, theme),
-      ];
+      let problems = recipePhoto
+        ? diversityProblems(titles, pastMeals)
+        : [...diversityProblems(titles, pastMeals), ...themeMismatchProblems(titles, theme)];
       const elapsed = Date.now() - started;
       if (problems.length > 0 && (body.mode === "weekdays" || body.mode === "weekend") && elapsed < 50_000) {
         console.warn("[MEAL GEN] retry — thème/diversité:", problems.slice(0, 5).join(" | "));
@@ -519,9 +539,10 @@ Réécris TOUTES les recettes. Titres 100 % du thème « ${theme || "libre"} »,
           console.warn("[MEAL GEN] retry JSON raté — on garde le premier lot", error);
         }
       }
-      const themeIssues = theme.trim()
-        ? themeMismatchProblems(recipes.map((item) => String(item.title ?? "")), theme)
-        : [];
+      const themeIssues =
+        theme.trim() && !recipePhoto
+          ? themeMismatchProblems(recipes.map((item) => String(item.title ?? "")), theme)
+          : [];
       const themeWarning =
         themeIssues.length > 0
           ? "Thème un peu approximatif — tu peux régénérer un plat."
@@ -531,11 +552,14 @@ Réécris TOUTES les recettes. Titres 100 % du thème « ${theme || "libre"} »,
         used.tier,
         used.model,
         body.mode,
+        recipePhoto ? `photo:${recipeFit}` : "text",
         recipes.map((item) => item.title).join(" · "),
       );
       const coach = parseMealCoach(body.nutritionCoach);
+      const nextPlan = applyRecipes(plan, recipes, theme, body.mode, body.slotId);
+      const scaled = recipePhoto && recipeFit === "as-is" ? nextPlan : scalePlanToGoals(nextPlan, coach);
       return NextResponse.json({
-        plan: scalePlanToGoals(applyRecipes(plan, recipes, theme, body.mode, body.slotId), coach),
+        plan: scaled,
         mock: false,
         model: used.model,
         warning: [used.warning, themeWarning].filter(Boolean).join(" ") || undefined,

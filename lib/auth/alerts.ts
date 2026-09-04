@@ -25,7 +25,7 @@ const DEDUP_MS: Record<AuthAlertKind, number> = {
 const lastSent = new Map<string, number>();
 
 export function alertsConfigured() {
-  return Boolean(alertEmails().length && (smtpConfigured() || resendKey()));
+  return Boolean(alertEmails().length && smtpConfigured());
 }
 
 export async function notifyAuthAlert(kind: AuthAlertKind, request: Request) {
@@ -42,7 +42,7 @@ export async function sendTestAlert(request: Request) {
   if (!alertsConfigured()) {
     return {
       ok: false,
-      error: "Ajoute ALERT_SMTP_USER + ALERT_SMTP_PASS (Gmail) dans Vercel, ou un domaine Resend.",
+      error: "Ajoute ALERT_SMTP_USER + ALERT_SMTP_PASS (Gmail) dans Vercel.",
     };
   }
   const result = await sendAlertEmail("password_unlock_new_device", request, { skipDedup: true, test: true });
@@ -90,8 +90,8 @@ async function sendAlertEmail(
     console.error("[auth-alert] HOUSEHOLD_ALERT_EMAILS manquant");
     return { ok: false, sent: 0, error: "Adresses d’alerte manquantes." };
   }
-  if (!smtpConfigured() && !resendKey()) {
-    console.error("[auth-alert] ni Gmail SMTP ni Resend");
+  if (!smtpConfigured()) {
+    console.error("[auth-alert] Gmail SMTP manquant");
     return { ok: false, sent: 0, error: "Ajoute ALERT_SMTP_USER + ALERT_SMTP_PASS dans Vercel." };
   }
   const ip = clientIp(request);
@@ -106,8 +106,7 @@ async function sendAlertEmail(
     ? `Ceci est un test depuis Paramètres. Si tu lis ça, l’alerte arrive bien.\n\n${copy.text}`
     : copy.text;
 
-  if (smtpConfigured()) return sendViaGmail(to, subject, await withUrgenceLink(kind, request, text, opts?.test));
-  return sendViaResend(to, subject, await withUrgenceLink(kind, request, text, opts?.test));
+  return sendViaGmail(to, subject, await withUrgenceLink(kind, request, text, opts?.test));
 }
 
 async function withUrgenceLink(kind: AuthAlertKind, request: Request, text: string, test?: boolean) {
@@ -140,51 +139,11 @@ async function sendViaGmail(to: string[], subject: string, text: string) {
   }
 }
 
-async function sendViaResend(to: string[], subject: string, text: string) {
-  const key = resendKey();
-  let sent = 0;
-  let lastError = "";
-  for (const recipient of to) {
-    const response = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${key}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        from: resendFrom(),
-        to: [recipient],
-        subject,
-        text,
-      }),
-    });
-    if (response.ok) {
-      sent += 1;
-      continue;
-    }
-    lastError = await response.text().catch(() => "");
-    console.error("[auth-alert] Resend", response.status, lastError.slice(0, 220));
-  }
-  return {
-    ok: sent > 0,
-    sent,
-    error: sent > 0 ? undefined : explainResend(lastError),
-  };
-}
-
 function explainSmtp(raw: string) {
   if (/invalid login|username and password|eauth/i.test(raw)) {
     return "Gmail a refusé le mot de passe. Utilise un « mot de passe d’application » (16 caractères), pas ton mot de passe Gmail.";
   }
   return "Gmail n’a pas pu envoyer. Vérifie ALERT_SMTP_USER / ALERT_SMTP_PASS.";
-}
-
-function explainResend(raw: string) {
-  if (/only send testing emails|verify a domain|resend\.dev/i.test(raw)) {
-    return "Resend n’envoie vers Gmail que si tu as un domaine à toi (Resend → Domains). Le relais Apple du compte ne suffit pas.";
-  }
-  if (!raw.trim()) return "Resend a refusé l’envoi.";
-  return "Resend a refusé l’envoi. Ouvre Resend → Logs.";
 }
 
 function claimSend(slot: string, windowMs: number) {
@@ -250,14 +209,6 @@ function smtpPass() {
 
 function smtpConfigured() {
   return Boolean(smtpUser() && smtpPass());
-}
-
-function resendKey() {
-  return process.env.RESEND_API_KEY?.trim() ?? "";
-}
-
-function resendFrom() {
-  return process.env.RESEND_FROM?.trim() || "Coach Nutrition <beth.t@example.com>";
 }
 
 function alertEmails() {

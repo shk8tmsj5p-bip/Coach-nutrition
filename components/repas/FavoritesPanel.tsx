@@ -28,7 +28,8 @@ export function FavoritesPanel({
       <Card className="mt-3">
         <p className="text-[14px] font-semibold">Aucun favori pour l’instant</p>
         <p className="mt-1 text-[13px] leading-relaxed text-health-muted">
-          Sur Aujourd’hui, le cœur d’un déjeuner ou dîner (plat de la semaine) le garde ici.
+          Le cœur = ceux que vous aimez et voulez revoir facilement. L’historique (bouton Gem Chef)
+          sert à chercher tous les autres plats déjà faits.
         </p>
       </Card>
     );
@@ -36,6 +37,9 @@ export function FavoritesPanel({
 
   return (
     <div className="mt-3 space-y-3">
+      <p className="px-0.5 text-[12px] leading-snug text-health-muted">
+        Tes coups de cœur. Pour chercher un vieux plat, ouvre l’historique sous Gem Chef.
+      </p>
       <label className="relative block">
         <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-health-muted" />
         <input

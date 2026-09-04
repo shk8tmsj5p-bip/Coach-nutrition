@@ -202,7 +202,7 @@ export interface Workout {
   intensity: "low" | "moderate" | "high";
 }
 
-/** Pas + énergie (Apple Santé). Les kcal sport viennent des séances dédiées (Strava / Watch). */
+/** Pas + énergie (Apple Santé). Les kcal sport viennent des séances Watch. */
 export interface DailyMovement {
   date: string;
   profileId: ProfileId;

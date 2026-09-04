@@ -1,7 +1,9 @@
 "use client";
 
-import { Sparkles, Trash2, X } from "lucide-react";
+import { Camera, History, Images, Sparkles, Trash2, X } from "lucide-react";
+import { ImagePickButton } from "@/components/today/ImagePickButton";
 import { cn } from "@/lib/utils";
+import type { RecipeFit } from "@/lib/recipe-photo";
 
 export function GenerateControls({
   theme,
@@ -11,10 +13,16 @@ export function GenerateControls({
   onGenerateWeekdays,
   onGenerateWeekend,
   onGenerateSingle,
+  onHistory,
   onClearWeek,
   coachHint,
   suggestions = [],
   onShuffle,
+  recipePreview,
+  recipeFit,
+  onRecipeFitChange,
+  onPickRecipePhoto,
+  onClearRecipePhoto,
 }: {
   theme: string;
   onThemeChange: (value: string) => void;
@@ -23,9 +31,15 @@ export function GenerateControls({
   coachHint?: string;
   suggestions?: string[];
   onShuffle?: () => void;
+  recipePreview?: string | null;
+  recipeFit: RecipeFit;
+  onRecipeFitChange: (fit: RecipeFit) => void;
+  onPickRecipePhoto: (file: File) => void;
+  onClearRecipePhoto: () => void;
   onGenerateWeekdays: () => void;
   onGenerateWeekend: () => void;
   onGenerateSingle: () => void;
+  onHistory: () => void;
   onClearWeek: () => void;
 }) {
   return (
@@ -94,6 +108,81 @@ export function GenerateControls({
           </div>
         </div>
       ) : null}
+
+      <label className="mt-3 block text-[11px] font-semibold uppercase tracking-wide text-health-muted">
+        Photo d’une recette
+      </label>
+      <p className="mt-0.5 text-[11px] leading-snug text-health-muted">
+        Livre, écran ou plat. Même recette pour vous deux. Ensuite : tel quel, ou réadaptée à vos objectifs.
+      </p>
+      <div className="mt-2 grid grid-cols-2 gap-2">
+        <ImagePickButton
+          icon={Camera}
+          label="Appareil"
+          capture
+          compact
+          disabled={busy}
+          onPick={onPickRecipePhoto}
+        />
+        <ImagePickButton
+          icon={Images}
+          label="Photothèque"
+          compact
+          disabled={busy}
+          onPick={onPickRecipePhoto}
+        />
+      </div>
+      {recipePreview ? (
+        <div className="mt-2 flex items-center gap-2 rounded-2xl bg-health-bg p-2">
+          {/* blob preview — not a remote URL */}
+          <img
+            src={recipePreview}
+            alt="Recette photographiée"
+            className="h-14 w-14 shrink-0 rounded-xl object-cover"
+          />
+          <p className="min-w-0 flex-1 text-[12px] font-semibold leading-snug">Recette photo · à reprendre</p>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={onClearRecipePhoto}
+            className="shrink-0 p-1 text-health-muted disabled:opacity-40"
+            aria-label="Retirer la photo"
+          >
+            <X size={16} />
+          </button>
+        </div>
+      ) : null}
+      <div className="mt-2 grid grid-cols-2 gap-1 rounded-full bg-health-bg p-0.5">
+        {(
+          [
+            { id: "as-is" as const, label: "Tel quel" },
+            { id: "adapt" as const, label: "Réadapter" },
+          ] as const
+        ).map((item) => (
+          <button
+            key={item.id}
+            type="button"
+            disabled={busy || !recipePreview}
+            onClick={() => onRecipeFitChange(item.id)}
+            className={cn(
+              "rounded-full py-1.5 text-[12px] font-semibold disabled:opacity-40",
+              recipePreview && recipeFit === item.id
+                ? "bg-white text-health-ink shadow-sm dark:bg-health-card"
+                : "text-health-muted",
+            )}
+          >
+            {item.label}
+          </button>
+        ))}
+      </div>
+      <p className="mt-1 text-[11px] leading-snug text-health-muted">
+        {recipePreview
+          ? recipeFit === "as-is"
+            ? "Fidèle à la photo. Alexis reste vegan sur la protéine si besoin."
+            : "On garde le plat, on cale portions, dîner light, aversions, batch."
+          : "Choix actif une fois la photo ajoutée. Sans photo, Gem suit le thème et vos cibles."}
+      </p>
+
       <div className="mt-2 grid grid-cols-2 gap-2">
         <GenButton disabled={busy} onClick={onGenerateWeekdays}>
           {busy ? "Génération…" : "Générer Lun–Ven"}
@@ -109,11 +198,21 @@ export function GenerateControls({
         className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-card bg-health-ink py-2.5 text-[13px] font-semibold text-white disabled:opacity-50"
       >
         <Sparkles size={14} />
-        Générer un repas
+        {recipePreview ? "Mettre cette recette" : "Générer un repas"}
+      </button>
+      <button
+        type="button"
+        disabled={busy}
+        onClick={onHistory}
+        className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-card bg-health-bg py-2.5 text-[13px] font-semibold disabled:opacity-50"
+      >
+        <History size={14} />
+        Historique plats & desserts
       </button>
       <p className="mt-2 text-[11px] leading-relaxed text-health-muted">
         Semaine vide par défaut. Un thème (Coréen, Thaï…) s’applique à TOUS les plats.
-        Stock on : Gem part de ce que vous avez. Lun–Ven : 2 déjeuners + 2 dîners low cal + Ven même base. Week-end : 4 repas. Compte 1 à 2 min pour Lun–Ven.
+        Photo : un repas (ou le couple batch semaine). Stock on : Gem part de ce que vous avez. Lun–Ven : 2
+        déjeuners + 2 dîners low cal + Ven même base. Week-end : 4 repas. Compte 1 à 2 min pour Lun–Ven.
         {coachHint ? ` ${coachHint}` : ""}
       </p>
     </div>

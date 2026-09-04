@@ -29,4 +29,14 @@ export const storage = {
   setJSON(key: string, value: unknown) {
     storage.set(key, JSON.stringify(value));
   },
+  keysStartingWith(prefix: string): string[] {
+    if (!canUseStorage()) return [];
+    const needle = PREFIX + prefix;
+    const out: string[] = [];
+    for (let i = 0; i < window.localStorage.length; i += 1) {
+      const key = window.localStorage.key(i);
+      if (key?.startsWith(needle)) out.push(key.slice(PREFIX.length));
+    }
+    return out;
+  },
 };

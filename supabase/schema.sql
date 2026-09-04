@@ -78,7 +78,7 @@ create index if not exists repas_group_idx
   where group_id is not null;
 
 -- -----------------------------------------------------------------------------
--- 3. LOGS_SANTE — poids, composition, check-in, Strava, Renpho OCR, webhook
+-- 3. LOGS_SANTE — poids, composition, check-in, Renpho OCR, webhook Santé
 -- -----------------------------------------------------------------------------
 create table if not exists public.logs_sante (
   id uuid primary key default gen_random_uuid(),

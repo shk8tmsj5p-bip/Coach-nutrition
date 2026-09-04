@@ -49,7 +49,6 @@ function keepNumber(next: number | undefined, previous: unknown, fallback = 0) {
 }
 
 function sourceFromRow(source: LogSanteRow["source"]): WorkoutSource {
-  if (source === "strava") return "strava";
   if (source === "manual") return "manual";
   return "apple-health";
 }

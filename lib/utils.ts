@@ -19,7 +19,7 @@ export function formatMin(value: number) {
   return `${Math.round(value)} min`;
 }
 
-/** kcal actives hors séances, sans double-compter Strava / Apple Watch. */
+/** kcal actives hors séances, sans double-compter Apple Watch. */
 export function passiveKcalFromMovement(activeEnergyKcal: number, workoutKcal: number) {
   return Math.max(0, Math.round(activeEnergyKcal - workoutKcal));
 }

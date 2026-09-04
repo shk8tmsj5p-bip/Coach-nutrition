@@ -4,6 +4,7 @@ import type { DessertProduct, DessertSlot } from "@/lib/dessert-product";
 import type { GenerateMealsMode } from "@/lib/gemini/meals";
 import type { HouseholdCoachBias } from "@/lib/coach-apply";
 import type { MealCoachHousehold } from "@/lib/meal-coach";
+import type { RecipeFit, RecipePhotoPayload } from "@/lib/recipe-photo";
 import type { CoachAnalysis, CoachAnalysisRequest } from "@/lib/gemini/coach-analysis";
 import type { CoachTodayAdvice } from "@/lib/gemini/coach-today";
 import { localCoachTodayActions, type CoachTodaySnapshot } from "@/lib/today-coach";
@@ -38,6 +39,8 @@ export async function requestGenerateMeals(body: {
   dessertSlot?: DessertSlot;
   dessertProduct?: DessertProduct | null;
   dessert?: PlannedMeal;
+  recipePhoto?: RecipePhotoPayload | null;
+  recipeFit?: RecipeFit;
 }): Promise<GenerateMealsResponse> {
   const dessertSwap =
     Boolean(body.dessert) ||
@@ -62,6 +65,10 @@ export async function requestGenerateMeals(body: {
                 ? body.dessertSlot === "soir"
                   ? "Gem Chef prépare un dessert soir light…"
                   : "Gem Chef prépare un dessert midi…"
+                : body.recipePhoto
+                  ? body.recipeFit === "as-is"
+                    ? "Gem Chef reprend la recette photo…"
+                    : "Gem Chef réadapte la recette photo…"
                 : "Gem Chef prépare un repas…";
   return withGeminiWait(label, async () => {
     const response = await fetch("/api/generate-meals", {

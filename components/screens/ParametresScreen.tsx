@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type ReactNode, type Ref } from "react";
+import { useEffect, useState, type ReactNode, type Ref } from "react";
 import { Check, Copy, Moon, Sun } from "lucide-react";
 import { useProfile } from "@/context/ProfileContext";
 import { useTheme } from "@/context/ThemeContext";
@@ -39,23 +39,21 @@ const HEAT_OPTIONS: { id: HeatStyle; label: string }[] = [
   { id: "neutre", label: HEAT_STYLE_LABEL.neutre },
 ];
 
-const LEGACY_KEY_FIELDS = ["openai", "anthropic", "supabaseUrl", "supabaseAnon"] as const;
+const LEGACY_KEY_FIELDS = ["openai", "anthropic", "supabaseUrl", "supabaseAnon", "strava"] as const;
 
-type StoredKeys = { gemini: string; strava: string; webhook: string };
+type StoredKeys = { gemini: string; webhook: string };
 
 type ConnectionsStatus = {
   gemini: boolean;
   geminiPro: string;
   geminiFlash: string;
-  strava: boolean;
-  stravaToken: boolean;
   healthWebhook: boolean;
   supabase: boolean;
   alerts: boolean;
 };
 
 function emptyKeys(): StoredKeys {
-  return { gemini: "", strava: "", webhook: "" };
+  return { gemini: "", webhook: "" };
 }
 
 function readStoredKeys(): StoredKeys {
@@ -67,7 +65,6 @@ function readStoredKeys(): StoredKeys {
   }
   return {
     gemini: cleaned.gemini ?? "",
-    strava: cleaned.strava ?? "",
     webhook: cleaned.webhook ?? "",
   };
 }
@@ -76,19 +73,6 @@ function geminiTone(env: boolean, local: boolean): { tone: ConnectionTone; label
   if (env) return { tone: "ok", label: "Connecté" };
   if (local) return { tone: "warn", label: "Clé locale" };
   return { tone: "off", label: "À configurer" };
-}
-
-function stravaTone(
-  clientOk: boolean,
-  tokenEnv: boolean,
-  tokenLocal: boolean,
-  healthOk: boolean,
-): { tone: ConnectionTone; label: string } {
-  if (clientOk && (tokenEnv || tokenLocal)) return { tone: "ok", label: "API connectée" };
-  if (healthOk) return { tone: "ok", label: "Via Apple Santé" };
-  if (clientOk) return { tone: "warn", label: "API à reconnecter" };
-  if (tokenLocal) return { tone: "warn", label: "Clé locale" };
-  return { tone: "warn", label: "Via Apple Santé" };
 }
 
 function webhookTone(
@@ -120,7 +104,6 @@ export default function ParametresScreen() {
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
-  const stravaInputRef = useRef<HTMLInputElement>(null);
   const webhookUrl =
     typeof window === "undefined" ? "" : `${window.location.origin}${HEALTH_WEBHOOK_PATH}`;
 
@@ -150,7 +133,6 @@ export default function ParametresScreen() {
     try {
       const nextKeys: StoredKeys = {
         gemini: draftKeys.gemini.trim() || savedKeys.gemini,
-        strava: draftKeys.strava.trim() || savedKeys.strava,
         webhook: draftKeys.webhook.trim() || savedKeys.webhook,
       };
       storage.setJSON("api-keys", nextKeys);
@@ -190,12 +172,6 @@ export default function ParametresScreen() {
   }
 
   const gemini = geminiTone(Boolean(connections?.gemini), Boolean(savedKeys.gemini));
-  const strava = stravaTone(
-    Boolean(connections?.strava),
-    Boolean(connections?.stravaToken),
-    Boolean(savedKeys.strava),
-    Boolean(connections?.healthWebhook) || Boolean(connections?.supabase),
-  );
   const health = webhookTone(
     Boolean(connections?.healthWebhook),
     Boolean(savedKeys.webhook),
@@ -383,37 +359,9 @@ export default function ParametresScreen() {
       <Card compact className="mt-1.5">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <p className="text-[13px] font-semibold">Strava</p>
-            <p className="mt-0.5 text-[11px] leading-snug text-health-muted">
-              Pas d’API Strava gratuite (depuis juin 2026 il faut un abonnement Strava pour l’API).
-              Le chemin gratuit : Strava écrit déjà tes sorties dans Apple Santé, le Raccourci les
-              envoie ici. Badge Strava si la source le dit. Sur Aujourd’hui tu peux rattacher une
-              séance Santé même si elle ne colle pas au prévu.
-            </p>
-          </div>
-          <StatusBadge tone={strava.tone} label={strava.label} />
-        </div>
-        <ol className="mt-2 list-decimal space-y-1 pl-4 text-[12px] leading-snug text-health-muted">
-          <li>iPhone · Strava · Réglages → Applications, appareils et partenaires → Apple Santé → activer Entraînements.</li>
-          <li>Le Raccourci Santé ci-dessous envoie ces séances dans Aujourd’hui (badge Strava si la source le dit).</li>
-        </ol>
-        <MaskedKeyField
-          inputRef={stravaInputRef}
-          label="Refresh token API (optionnel — abo Strava requis, pas de surcoût API)"
-          value={draftKeys.strava}
-          hasSaved={Boolean(savedKeys.strava) || Boolean(connections?.stravaToken)}
-          onChange={(stravaKey) => setDraftKeys((current) => ({ ...current, strava: stravaKey }))}
-        />
-      </Card>
-
-      <Card compact className="mt-1.5">
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
             <p className="text-[13px] font-semibold">Apple Santé & Webhook</p>
             <p className="mt-0.5 text-[11px] leading-snug text-health-muted">
-              Collez cette URL dans votre Raccourci iOS. Pas, énergie, et séances (Watch, Strava via
-              Santé). Dans le JSON, tu peux mettre <span className="font-mono">source: strava</span> sur
-              une séance.
+              Colle cette URL dans le Raccourci iOS. Pas, énergie, et séances de l’Apple Watch.
             </p>
           </div>
           <StatusBadge tone={health.tone} label={health.label} />

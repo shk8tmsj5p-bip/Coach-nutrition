@@ -125,7 +125,7 @@ export function matchWorkoutsToPlanned(
   return new Map([...hits.entries()].map(([id, hit]) => [id, hit.name]));
 }
 
-/** Séances Santé / Strava qui n’ont collé à aucune séance prévue (et pas déjà rattachées). */
+/** Séances Santé qui n’ont collé à aucune séance prévue (et pas déjà rattachées). */
 export function unmatchedWorkouts<T extends Pick<Workout, "id" | "name" | "type" | "durationMin">>(
   workouts: T[],
   sessions: SportSession[],

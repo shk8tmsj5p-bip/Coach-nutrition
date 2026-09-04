@@ -1,7 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { ArrowLeftRight, Camera, Clock, Plus, ScanBarcode, Sparkles, X } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { ArrowLeftRight, Camera, Clock, History, Plus, ScanBarcode, Sparkles, X } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import {
   MEAL_TYPE_OPTIONS,
@@ -15,11 +15,12 @@ import {
 } from "@/lib/meal-items";
 import { QtyEditRow } from "@/components/today/QtyEditRow";
 import { requestLogText } from "@/lib/gemini/client";
+import { todayMealFromHistory, type MealHistoryItem } from "@/lib/meal-history";
 import type { MealEntry, MealType } from "@/lib/types";
 import { cn, mealTypeLabel } from "@/lib/utils";
 import { isFilledMeal, occupantOfSlot, slotTime } from "@/lib/meal-slot";
 
-export type QuickLogMode = "text" | "barcode" | "photo" | "recent";
+export type QuickLogMode = "text" | "barcode" | "photo" | "recent" | "history" | "history-dessert";
 
 function hasDessertSlot(type: MealType) {
   return type === "dejeuner" || type === "diner";
@@ -33,6 +34,8 @@ export function EditMealSheet({
   onSave,
   onAdd,
   onSwapWeek,
+  applyHistory,
+  onHistoryApplied,
 }: {
   meal: MealEntry;
   dayMeals?: MealEntry[];
@@ -41,8 +44,11 @@ export function EditMealSheet({
   onSave: (next: MealEntry) => void;
   onAdd?: (mode: QuickLogMode) => void;
   onSwapWeek?: () => void;
+  applyHistory?: MealHistoryItem | null;
+  onHistoryApplied?: () => void;
 }) {
   const [type, setType] = useState<MealType>(meal.type);
+  const [name, setName] = useState(meal.name);
   const [items, setItems] = useState<EditableItem[]>(() => parseMealItems(meal));
   const [dessertDraft, setDessertDraft] = useState("");
   const [platDraft, setPlatDraft] = useState("");
@@ -59,6 +65,33 @@ export function EditMealSheet({
   const dessertItems = showDessert ? items.filter((item) => item.dessert) : [];
   const occupant = occupantOfSlot(dayMeals ?? [], meal.profileId, type, meal.id, meal.date);
   const moving = type !== meal.type;
+
+  useEffect(() => {
+    if (!applyHistory) return;
+    const current: MealEntry = {
+      ...meal,
+      name,
+      type,
+      items: serializeItems(items),
+      macros: sumEditableMacros(items),
+      isSkipped: false,
+    };
+    const next = todayMealFromHistory(applyHistory, meal.profileId, type, current);
+    setName(next.name);
+    setItems(
+      parseMealItems({
+        ...meal,
+        name: next.name,
+        type: next.type,
+        items: next.items ?? [],
+        macros: next.macros,
+        notes: next.notes,
+        source: next.source,
+        isSkipped: false,
+      }),
+    );
+    onHistoryApplied?.();
+  }, [applyHistory]);
 
   function patch(id: string, next: EditableItem) {
     setItems((list) => list.map((row) => (row.id === id ? next : row)));
@@ -113,9 +146,19 @@ export function EditMealSheet({
     }
   }
 
+  function chooseType(next: MealType) {
+    const prevLabel = mealTypeLabel(type).toLowerCase();
+    const current = name.trim().toLowerCase();
+    setType(next);
+    if (!current || current === prevLabel) {
+      setName(mealTypeLabel(next));
+    }
+  }
+
   function commit() {
     onSave({
       ...meal,
+      name: name.trim() || mealTypeLabel(type),
       type,
       time: slotTime(type),
       items: serializeItems(
@@ -148,7 +191,15 @@ export function EditMealSheet({
             <X size={18} />
           </button>
         </div>
-        <p className="mb-3 text-[13px] leading-snug text-health-muted">{meal.name}</p>
+        <label className="mb-1 block text-[12px] font-medium text-health-muted">Titre</label>
+        <input
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder={mealTypeLabel(type)}
+          autoCapitalize="sentences"
+          autoComplete="off"
+          className="mb-3 w-full rounded-card bg-health-bg px-3 py-2.5 text-[15px] font-medium outline-none"
+        />
 
         <p className="mb-2 text-[12px] font-medium text-health-muted">Type de repas</p>
         <div className="mb-3 grid grid-cols-2 gap-1.5">
@@ -156,7 +207,7 @@ export function EditMealSheet({
             <button
               key={option.id}
               type="button"
-              onClick={() => setType(option.id)}
+              onClick={() => chooseType(option.id)}
               className={cn(
                 "rounded-full py-2 text-[12px] font-semibold",
                 type === option.id ? "bg-health-ink text-white" : "bg-health-bg text-health-muted",
@@ -238,6 +289,16 @@ export function EditMealSheet({
                   {addingDessert ? "…" : "Ajouter"}
                 </button>
               </div>
+              {onAdd ? (
+                <button
+                  type="button"
+                  onClick={() => onAdd("history-dessert")}
+                  className="mt-1.5 flex w-full items-center justify-center gap-1.5 rounded-card bg-amber-50 py-2 text-[12px] font-semibold text-amber-900 dark:bg-amber-950/40 dark:text-amber-100"
+                >
+                  <History size={13} />
+                  Reprendre un dessert
+                </button>
+              ) : null}
             </div>
           ) : null}
         </div>
@@ -254,6 +315,16 @@ export function EditMealSheet({
               <AddLogTile icon={Camera} label="Photo" onClick={() => onAdd("photo")} />
               <AddLogTile icon={Clock} label="Récents" onClick={() => onAdd("recent")} />
             </div>
+          ) : null}
+          {onAdd ? (
+            <button
+              type="button"
+              onClick={() => onAdd("history")}
+              className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-card bg-health-bg py-2.5 text-[13px] font-semibold"
+            >
+              <History size={14} />
+              Historique plats & desserts
+            </button>
           ) : (
             <div className="flex gap-1.5">
               <input

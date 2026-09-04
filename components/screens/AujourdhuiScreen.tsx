@@ -6,6 +6,7 @@ import {
   Check,
   Clock,
   Copy,
+  History,
   RefreshCw,
   RotateCcw,
   ScanBarcode,
@@ -14,6 +15,7 @@ import {
 } from "lucide-react";
 import { useProfile } from "@/context/ProfileContext";
 import { CopyYesterdaySheet } from "@/components/today/CopyYesterdaySheet";
+import { MealHistorySheet } from "@/components/repas/MealHistorySheet";
 import { RecentsSheet } from "@/components/today/RecentsSheet";
 import { EditMealSheet } from "@/components/today/EditMealSheet";
 import { MoveMealSheet } from "@/components/repas/MoveMealSheet";
@@ -123,6 +125,16 @@ import {
   plannedMealForDay,
   weekPlanSlotId,
 } from "@/lib/serve-week-plan";
+import {
+  historyFromDessert,
+  historyFromFavorites,
+  historyFromPlan,
+  mergeMealHistory,
+  todayMealFromHistory,
+  type HistoryKind,
+  type MealHistoryItem,
+} from "@/lib/meal-history";
+import { loadMealHistory } from "@/lib/supabase/meal-history";
 import { isEmptyMeal, moveMealInPlan } from "@/lib/weekly-plan";
 import { storage } from "@/lib/storage";
 import type {
@@ -286,6 +298,11 @@ export default function AujourdhuiScreen() {
   const [yesterdayMeals, setYesterdayMeals] = useState<MealEntry[]>([]);
   const [recentMeals, setRecentMeals] = useState<DatedMeal[]>([]);
   const [recentsOpen, setRecentsOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyItems, setHistoryItems] = useState<MealHistoryItem[]>([]);
+  const [historyKind, setHistoryKind] = useState<HistoryKind>("plat");
+  const [historyForEdit, setHistoryForEdit] = useState<MealHistoryItem | null>(null);
   const [workouts, setWorkouts] = useState<Workout[]>([]);
   const [movement, setMovement] = useState<Record<ProfileId, DailyMovement>>(emptyMovement);
   const [weekPlan, setWeekPlan] = useState<PlannedMeal[]>([]);
@@ -594,20 +611,110 @@ export default function AujourdhuiScreen() {
     setLogMealType(null);
     setTextInput("");
     setRecentsOpen(false);
+    setHistoryOpen(false);
   }
 
-  function startLog(profileId: ProfileId, type: MealType, mode: Exclude<LogMode, null> | "recent") {
+  function startLog(
+    profileId: ProfileId,
+    type: MealType,
+    mode: Exclude<LogMode, null> | "recent" | "history" | "history-dessert",
+  ) {
     setAddSlot(null);
-    setEditingMeal(null);
+    const keepEdit = mode === "history" || mode === "history-dessert";
+    if (!keepEdit) setEditingMeal(null);
     setLogProfile(profileId);
     setLogMealType(type);
     if (mode === "recent") {
       setRecentsOpen(true);
       return;
     }
+    if (keepEdit) {
+      void openMealHistory(mode === "history-dessert" ? "dessert" : "plat");
+      return;
+    }
     setLogMode(mode);
     setTextInput("");
     setIngredients([]);
+  }
+
+  async function openMealHistory(kind: HistoryKind = "plat") {
+    setHistoryKind(kind);
+    setHistoryOpen(true);
+    setHistoryLoading(true);
+    try {
+      const remote = await loadMealHistory();
+      const weekStart = mondayOf(todayISO());
+      setHistoryItems(
+        mergeMealHistory([
+          remote,
+          historyFromPlan(weekPlan, weekStart, weekTheme),
+          historyFromDessert(lunchDessert, weekStart) ? [historyFromDessert(lunchDessert, weekStart)!] : [],
+          historyFromDessert(dinnerDessert, weekStart) ? [historyFromDessert(dinnerDessert, weekStart)!] : [],
+          historyFromFavorites(favorites),
+        ]),
+      );
+    } catch {
+      setHistoryItems(
+        mergeMealHistory([
+          historyFromPlan(weekPlan, mondayOf(todayISO()), weekTheme),
+          historyFromFavorites(favorites),
+        ]),
+      );
+    } finally {
+      setHistoryLoading(false);
+    }
+  }
+
+  async function applyHistoryItem(item: MealHistoryItem) {
+    if (editingMeal) {
+      setHistoryForEdit(item);
+      setHistoryOpen(false);
+      flash(item.kind === "dessert" ? "Dessert dans la fiche — Enregistrer pour garder" : "Plat dans la fiche — Enregistrer pour garder");
+      return;
+    }
+    if (!logMealType) {
+      flash("Choisis d’abord un repas");
+      return;
+    }
+    const type = logMealType;
+    const targets = persistTargets(logProfile);
+    const supabase = createBrowserSupabaseClient();
+    setBusy(true);
+    try {
+      if (!supabase) {
+        setMeals((prev) => {
+          let next = prev;
+          for (const id of targets) {
+            const payload = todayMealFromHistory(item, id, type, slotOfProfile(next, id, type));
+            next = applyLocalSlot(next, id, payload, type);
+          }
+          return next;
+        });
+      } else {
+        for (const id of targets) {
+          const payload = todayMealFromHistory(item, id, type, slotOfProfile(meals, id, type));
+          const error = await writeSlot(id, payload, type);
+          if (error) {
+            flash(error);
+            return;
+          }
+        }
+        await reload();
+      }
+      setHistoryOpen(false);
+      closeLog();
+      flash(
+        targets.length > 1
+          ? item.kind === "dessert"
+            ? "Dessert posé pour Alexis et Élodie"
+            : "Plat posé pour Alexis et Élodie"
+          : item.kind === "dessert"
+            ? "Dessert repris"
+            : "Plat repris",
+      );
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function persistRecentFood(food: RecentFood) {
@@ -1151,6 +1258,14 @@ export default function AujourdhuiScreen() {
               <LogTile icon={Camera} label="Photo" onClick={() => startLog(addSlot.profileId, addSlot.type, "photo")} />
               <LogTile icon={Clock} label="Récents" onClick={() => startLog(addSlot.profileId, addSlot.type, "recent")} />
             </div>
+            <button
+              type="button"
+              onClick={() => startLog(addSlot.profileId, addSlot.type, "history")}
+              className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-card bg-health-bg py-2.5 text-[13px] font-semibold"
+            >
+              <History size={14} />
+              Historique plats & desserts
+            </button>
           </div>
         </div>
       )}
@@ -1169,6 +1284,26 @@ export default function AujourdhuiScreen() {
           onPick={(food) => void persistRecentFood(food)}
         />
       )}
+
+      {historyOpen && (logMealType || editingMeal) ? (
+        <MealHistorySheet
+          key={historyKind}
+          items={historyItems}
+          rejected={rejected}
+          loading={historyLoading}
+          busy={busy}
+          initialKind={historyKind}
+          caption="Un titre = la dernière version. Tape pour le mettre dans ce repas. Plus jamais n’apparaît pas ici."
+          onClose={() => {
+            setHistoryOpen(false);
+            if (!editingMeal) {
+              setLogMealType(null);
+              setAddSlot(null);
+            }
+          }}
+          onPick={(item) => void applyHistoryItem(item)}
+        />
+      ) : null}
 
       {logMode && logMealType && (
         <LogSheet
@@ -1243,9 +1378,14 @@ export default function AujourdhuiScreen() {
           meal={editingMeal}
           dayMeals={meals.filter((row) => row.profileId === editingMeal.profileId)}
           saving={savingEdit}
-          onClose={() => setEditingMeal(null)}
+          onClose={() => {
+            setEditingMeal(null);
+            setHistoryForEdit(null);
+          }}
           onSave={(next) => void persistEditedMeal(next)}
           onAdd={(mode) => startLog(editingMeal.profileId, editingMeal.type, mode)}
+          applyHistory={historyForEdit}
+          onHistoryApplied={() => setHistoryForEdit(null)}
           onSwapWeek={
             (editingMeal.type === "dejeuner" || editingMeal.type === "diner") &&
             weekHasOtherPlats(
@@ -1856,11 +1996,7 @@ function ProfileToday({
                 <p className="text-[15px] font-medium">{workout.name}</p>
                 <p className="mt-0.5 text-[13px] text-health-muted">
                   {workout.durationMin} min · {workout.calories} kcal ·{" "}
-                  {workout.source === "strava"
-                    ? "Strava"
-                    : workout.source === "manual"
-                      ? "Manuel"
-                      : "Apple Santé"}
+                  {workout.source === "manual" ? "Manuel" : "Apple Santé"}
                 </p>
               </div>
             ))}

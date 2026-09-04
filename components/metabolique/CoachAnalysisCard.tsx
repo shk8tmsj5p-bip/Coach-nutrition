@@ -79,10 +79,12 @@ export function CoachAnalysisCard({ profile }: { profile: Profile }) {
       if (cancelled) return;
       setDailyFeels(feels.filter((row) => row.profileId === profile.id));
       const loaded = loadCoachAnalysis(profile.id);
-      if (loaded) {
+      if (loaded?.mock) {
+        setStored(null);
+      } else if (loaded) {
         loaded.warning = friendlyLlmWarning(loaded.warning);
+        setStored(loaded);
       }
-      setStored(loaded);
     })();
     return () => {
       cancelled = true;
@@ -127,14 +129,14 @@ export function CoachAnalysisCard({ profile }: { profile: Profile }) {
         activity7d: weekActivity,
         currentTargets: profile.targets,
       });
-      if (!result.analysis) {
-        flash(result.error ?? "Analyse impossible");
+      if (result.mock || !result.analysis) {
+        flash(result.error ?? "Le coach n’a pas pu analyser. Réessaie.");
         return;
       }
       const next: StoredCoachAnalysis = {
         profileId: profile.id,
         generatedAt: new Date().toISOString(),
-        mock: Boolean(result.mock),
+        mock: false,
         warning: friendlyLlmWarning(result.warning),
         analysis: result.analysis,
       };
@@ -143,9 +145,9 @@ export function CoachAnalysisCard({ profile }: { profile: Profile }) {
       setApplyNutrition(true);
       setApplySport(true);
       setApplyRecap(null);
-      flash(result.mock ? "Bilan local (Gemini indisponible)" : "Bilan 7 j prêt");
+      flash("Bilan 7 j prêt");
     } catch (error) {
-      flash(error instanceof Error ? error.message : "Analyse impossible");
+      flash(error instanceof Error ? error.message : "Le coach n’a pas pu analyser. Réessaie.");
     } finally {
       setBusy(false);
     }
