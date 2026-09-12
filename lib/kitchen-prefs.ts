@@ -172,7 +172,7 @@ export function formatKitchenPrefsForPrompt(
         ? `GOÛT : douces et parfumées — herbes, agrumes, huile d'olive. Épices légères.`
         : `GOÛT : neutres — assaisonnement simple, peu d'épices, herbes discrètes.`;
   const tofu = prefs.tofuWeekdayFresh
-    ? "Tofu Lun–Ven : presser, mariner, frais à l'assemblage (cru uniquement en semaine)."
+    ? "Tofu ferme Lun–Ven : presser, mariner, frais à l'assemblage. EXCEPTION : quiche / tarte / flan / clafoutis / dessert → tofu (surtout soyeux) au four OK en semaine."
     : "Tofu : cuisson autorisée en semaine.";
   const mock = prefs.mockMeatsWeekendOnly
     ? "Simili-carnés : week-end uniquement (pas de simili-carné en semaine)."

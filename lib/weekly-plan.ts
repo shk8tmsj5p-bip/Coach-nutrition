@@ -161,7 +161,11 @@ export function weekendReplayNotice(meal: PlannedMeal) {
 function scrubWeekdayTofuAirfryer(meal: PlannedMeal): PlannedMeal {
   if (WEEKEND_INDEXES.includes(meal.dayIndex)) return meal;
   if (!meal.ingredients.some((item) => /tofu/i.test(item.name))) return tidyStepSections(meal);
-  if (/dessert|gâteau|gateau|brownie|cake|muffin/i.test(`${meal.baseName} ${meal.steps.join(" ")}`)) {
+  if (
+    /dessert|gâteau|gateau|brownie|cake|muffin|quiche|tarte|flan|clafoutis|clafouti/i.test(
+      `${meal.baseName} ${meal.theme} ${meal.steps.join(" ")}`,
+    )
+  ) {
     return tidyStepSections(meal);
   }
 

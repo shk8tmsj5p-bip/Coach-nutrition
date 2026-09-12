@@ -74,6 +74,28 @@ const KITS: ThemeKit[] = [
   },
 ];
 
+/** Thème = un plat précis (pas une cuisine). Le mot-star doit rester dans chaque titre. */
+const DISH_STARS: Array<{ keys: string[]; must: RegExp; forbid: RegExp }> = [
+  {
+    keys: ["quiche"],
+    must: /quiche/i,
+    forbid: /tortilla|wrap|burrito|taco|bowl\b|quinoa|bo bun|salade\b|taboul/i,
+  },
+  { keys: ["clafoutis", "clafouti"], must: /clafoutis|clafouti/i, forbid: /bowl\b|wrap|tortilla/i },
+  { keys: ["tarte"], must: /tarte/i, forbid: /bowl\b|wrap|tortilla|pizza/i },
+  { keys: ["flan"], must: /flan/i, forbid: /bowl\b|wrap|tortilla/i },
+  { keys: ["pizza"], must: /pizza/i, forbid: /bowl\b|wrap|quinoa/i },
+  { keys: ["risotto"], must: /risotto/i, forbid: /bowl\b|wrap|tortilla/i },
+];
+
+export function dishStarOf(theme: string) {
+  const needle = normalizeTitle(theme);
+  if (!needle) return null;
+  return (
+    DISH_STARS.find((dish) => dish.keys.some((key) => needle.includes(normalizeTitle(key)))) ?? null
+  );
+}
+
 export function matchKit(theme: string) {
   const needle = normalizeTitle(theme);
   if (!needle) return null;
@@ -119,6 +141,7 @@ export function themeMismatchProblems(titles: string[], theme: string) {
   const label = theme.trim();
   if (!label) return [];
   const kit = matchKit(label);
+  const dish = dishStarOf(label);
   const themeNorm = normalizeTitle(label);
   const themeTokens = themeNorm.split(" ").filter((token) => token.length > 2);
   const problems: string[] = [];
@@ -126,6 +149,17 @@ export function themeMismatchProblems(titles: string[], theme: string) {
   for (const title of titles) {
     const text = normalizeTitle(title);
     if (!text) continue;
+
+    if (dish) {
+      if (!dish.must.test(title)) {
+        problems.push(`« ${title} » n'est pas une « ${dish.keys[0]} » (thème « ${label} »)`);
+      }
+      const banned = title.match(dish.forbid);
+      if (banned) {
+        problems.push(`« ${title} » remplace le thème « ${label} » par ${banned[0]}`);
+      }
+      continue;
+    }
 
     for (const other of KITS) {
       if (kit && other === kit) continue;
@@ -161,6 +195,17 @@ export function themeConstraintLine(theme: string, count: number) {
     .slice(0, 22)
     .join(", ");
   const star = sharedProteinThemeLine(label);
+  const dish = dishStarOf(label);
+  if (dish) {
+    return `THÈME = LE PLAT : « ${label} ».
+Les ${count} recettes SONT des « ${dish.keys[0]} » — pas une cuisine libre autour.
+Titre : le mot « ${dish.keys[0]} » OBLIGATOIRE sur chaque recette (y compris la dernière / vendredi).
+Ingrédient star du thème (ex. tofu soyeux) dans shared_ingredients + une étape four / plaque dédiée.
+Diversité = légumes / herbes / garniture différents. INTERDIT de changer de TYPE de plat.
+INTERDIT wrap, tortillas, bowl, quinoa en salade, vinaigrette à la place de la ${dish.keys[0]}.
+INTERDIT d'imiter l'exemple JSON (bowl courgette / vinaigrette) — c'est un FORMAT, pas le plat.
+EXCEPTION TOFU : cuisson four autorisée (quiche / tarte / flan / clafoutis / dessert), y compris Lun–Ven.${star ? `\n${star}` : ""}`;
+  }
   return `THÈME IMPOSÉ SUR LES ${count} REPAS : « ${label} ».
 Le thème est la STAR de chaque recette : titre + base partagée + ingrédient majeur + une étape dédiée.
 Plats attendus (cuisine « ${label} ») : ${examples}.

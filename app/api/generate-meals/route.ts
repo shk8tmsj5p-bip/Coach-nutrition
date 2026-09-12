@@ -33,7 +33,7 @@ import {
 } from "@/lib/week-dessert";
 import { ensureDessertProductInMeal, isDessertSlot, parseDessertProduct, type DessertSlot } from "@/lib/dessert-product";
 import { diversityProblems } from "@/lib/recipe-diversity";
-import { themeMismatchProblems } from "@/lib/theme-kits";
+import { dishStarOf, themeMismatchProblems } from "@/lib/theme-kits";
 import { mockSuggestDessertSwap, mockSuggestSwap, suggestionsFitRecipe } from "@/lib/swap-coherence";
 import { swapProposalsFromPlanned } from "@/lib/swap-proposals";
 import {
@@ -95,6 +95,11 @@ function applyRecipes(
     WEEKDAY_BATCHES.forEach((pair, index) => {
       const json = recipes[index];
       if (!json) return;
+      const title = String(json.title ?? "");
+      if (theme.trim() && themeMismatchProblems([title], theme).length > 0) {
+        console.warn("[MEAL GEN] skip hors thème", pair.label, title);
+        return;
+      }
       next = next.map((meal) =>
         pair.slotIds.includes(meal.id)
           ? {
@@ -118,6 +123,11 @@ function applyRecipes(
         if (index < 0) return slot;
         const json = recipes[index];
         if (!json) return slot;
+        const title = String(json.title ?? "");
+        if (theme.trim() && themeMismatchProblems([title], theme).length > 0) {
+          console.warn("[MEAL GEN] skip weekend hors thème", slot.id, title);
+          return slot;
+        }
         return {
           ...geminiToPlannedMeal(json, slot, theme),
           servingsPerPerson: 1 as const,
@@ -131,6 +141,11 @@ function applyRecipes(
 
   const slot = plan.find((meal) => meal.id === slotId);
   if (!slot || !recipes[0]) return plan;
+  const singleTitle = String(recipes[0].title ?? "");
+  if (theme.trim() && themeMismatchProblems([singleTitle], theme).length > 0) {
+    console.warn("[MEAL GEN] skip single hors thème", slot.id, singleTitle);
+    return plan;
+  }
   const pair = pairForSlot(slot.id);
   const targets = pair?.slotIds ?? [slot.id];
   return annotatePlan(
@@ -513,12 +528,17 @@ CORRECTION : ta réponse précédente n'était pas du JSON utilisable. Renvoie U
       const elapsed = Date.now() - started;
       if (problems.length > 0 && (body.mode === "weekdays" || body.mode === "weekend") && elapsed < 50_000) {
         console.warn("[MEAL GEN] retry — thème/diversité:", problems.slice(0, 5).join(" | "));
+        const dish = dishStarOf(theme);
         const retry = await callGeminiPro(
           `${prompt}
 
 CORRECTION OBLIGATOIRE — ta proposition violait le thème et/ou la diversité :
 ${problems.slice(0, 10).join("\n")}
-Réécris TOUTES les recettes. Titres 100 % du thème « ${theme || "libre"} », familles différentes, aucun plat d'une autre cuisine.`,
+Réécris TOUTES les recettes. Titres 100 % du thème « ${theme || "libre"} »${
+            dish
+              ? ` — chaque titre contient « ${dish.keys[0]} », aucun wrap / tortillas / bowl à la place.`
+              : ", familles différentes, aucun plat d'une autre cuisine."
+          }`,
         );
         try {
           const retryRecipes = extractRecipes(parseGeminiJson(retry.text));
@@ -545,7 +565,7 @@ Réécris TOUTES les recettes. Titres 100 % du thème « ${theme || "libre"} »,
           : [];
       const themeWarning =
         themeIssues.length > 0
-          ? "Thème un peu approximatif — tu peux régénérer un plat."
+          ? `Un plat n'était pas « ${theme.trim()} » — ce créneau n'a pas été remplacé. Régénère-le.`
           : undefined;
       console.log(
         "[MEAL GEN] using",

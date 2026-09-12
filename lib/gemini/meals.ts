@@ -11,7 +11,7 @@ import {
 } from "@/lib/recipe-copy";
 import { expandPreparedSauces, isPreparedSauceName } from "@/lib/homemade-sauces";
 import { equalizeSharedSauce } from "@/lib/ingredient-groups";
-import { stripThemeSticker, themeConstraintLine } from "@/lib/theme-kits";
+import { dishStarOf, stripThemeSticker, themeConstraintLine } from "@/lib/theme-kits";
 import { repairMealIntegrity } from "@/lib/recipe-integrity";
 import { isDessertRecipe } from "@/lib/recipe-kind";
 import { culinaryRole, describeIngredientUse } from "@/lib/swap-coherence";
@@ -101,7 +101,8 @@ LOIS CUISINE
 - Galette / wrap / pita / tortilla : 1 pièce / pers. ≈ 50–60 g (~140 kcal). Naan ≈ 80 g. INTERDIT 120 g pour 1 wrap. Plus de féculent = plus de riz, pas un 2e wrap.
 - Wrap falafel / falafel : falafels dans shared_ingredients ET dans les étapes (airfryer °C + min). Alexis ET Élodie. INTERDIT un titre falafel sans falafel, INTERDIT crevettes à la place.
 - Dîners low cal savoureux si les prefs l'exigent (huile ≤ 8 g pour la perte ; la prise garde la protéine).
-- Tofu Lun–Ven : presser, mariner cru, frais — jamais cuit pendant le batch (sauf dessert).
+- Tofu ferme Lun–Ven : presser, mariner cru, frais — jamais Airfryer / poêle pendant le batch.
+- EXCEPTION FOUR : si le thème ou le plat EST une quiche, tarte, flan, clafoutis ou un dessert → tofu (surtout soyeux) cuit au four OK en semaine.
 - Simili-carnés : week-end, sauf prefs contraires.
 - tips_and_cautions : UNIQUEMENT logistique batch (ex. « Conservez la sauce à part dans un pot hermétique »). Jamais d'aversions, jamais « sans X ».
 
@@ -562,6 +563,7 @@ export function weekdaysPrompt(
   pastMeals?: string[],
   kitchenContext?: string,
 ) {
+  const dish = dishStarOf(theme);
   const batches = WEEKDAY_BATCHES.map(
     (pair, index) =>
       `${index + 1}. recipes[${index}] = ${pair.label} — ${pair.mealType}${pair.lowCalorie ? " · DÎNER LOW CAL (cibles soir COACH NUTRITION, huile serrée, féculent allégé, protéine gardée)" : " · déjeuner (cibles midi COACH NUTRITION par profil, pas une moyenne foyer)"}`,
@@ -571,7 +573,7 @@ export function weekdaysPrompt(
 Règle portions : JSON = 1 repas / personne. L'utilisateur cuisinera ×2 (4 assiettes foyer).
 grams_alexis / grams_elodie obligatoires sur féculents, légumes, légumineuses. Sauces = weight_g unique (voir COACH NUTRITION).
 Batch ×2 : jours ALTERNÉS (Lun+Mer, Mar+Jeu). Vendredi déj+dîner = même base, dîner plaqué plus léger.
-Tofu : presser, mariner, servir frais.
+Tofu ferme : presser, mariner, servir frais — sauf quiche / tarte / flan / dessert (four OK).
 visual_unit OBLIGATOIRE sur chaque légume / herbe / agrume.
 Houmous = sous-recette pois chiches + tahini + citron + ail + cumin (jamais un pot).
 ${themeConstraintLine(theme, 5)}
@@ -579,12 +581,17 @@ ORDRE JSON STRICT — ne permute JAMAIS les index :
 ${batches}
 recipes[2] et recipes[3] = SOIRS uniquement, vraiment low cal selon les cibles soir de CHAQUE profil (plus de légumes, moins d'huile/féculent, protéine intacte).
 recipes[4] = même base Ven midi + soir ; le soir sera dressé plus léger.
-Les 5 titres doivent être nettement distincts (féculent + sauce + légume star différents).
-Tofu Lun–Ven : hors Airfryer, mariné cru au frais, dressé à l'assemblage.
+${
+      dish
+        ? `Les 5 titres restent des « ${dish.keys[0]} » distinctes (légume / herbe / garniture). INTERDIT un 5e plat d'un autre type (wrap, tortillas, bowl, quinoa).
+Tofu soyeux / quiche : four OK Lun–Ven. Tofu ferme hors quiche : pressé, mariné, frais.`
+        : `Les 5 titres doivent être nettement distincts (féculent + sauce + légume star différents).
+Tofu ferme Lun–Ven : hors Airfryer, mariné cru au frais, dressé à l'assemblage. Quiche / tarte / flan / dessert : four OK.`
+    }
 Chaque titre NOMME la sauce / marinade du plat. Si marinade ET sauce de service : les deux groupes, explosés. INTERDIT d'ajouter une vinaigrette moutarde-citron-huile en plus.
 
 step_groups : n'inclure un robot QUE s'il apporte quelque chose. Omettre un bloc vide.
-Airfryer seulement si vraie cuisson (jamais le tofu en semaine) — OBLIGATOIRE si crevettes / falafels / poulet dans les ingrédients. Jamais de gazpacho à l'airfryer.
+Airfryer seulement si vraie cuisson (jamais le tofu ferme cru en semaine) — OBLIGATOIRE si crevettes / falafels / poulet dans les ingrédients. Jamais de gazpacho à l'airfryer.
 Thermomix seulement pour mixer / émulsionner (jamais « ajouter le cumin au TM »).
 KitchenAid seulement si râpé fin / lamelles / spaghettis.
 

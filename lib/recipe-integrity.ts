@@ -189,6 +189,9 @@ export function repairMealIntegrity(meal: PlannedMeal): PlannedMeal {
 }
 
 export function sharedProteinThemeLine(theme: string) {
+  if (/quiche/i.test(theme)) {
+    return `PLAT UNIQUE : quiche. Tofu soyeux dans shared_ingredients + étape four (même pour Alexis et Élodie). INTERDIT tortillas / wrap / bowl / quinoa / vinaigrette à la place.`;
+  }
   if (!/falafel/i.test(theme)) return "";
   return `PROTÉINE UNIQUE : falafels pour Alexis ET Élodie (shared_ingredients, grams_alexis et grams_elodie). INTERDIT crevettes / poulet / tofu à la place. Un wrap falafel SANS falafel dans les ingrédients est refusé.`;
 }
