@@ -22,10 +22,70 @@ export function isPreparedSauceName(name: string) {
   );
 }
 
+function foldName(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/œ/g, "oe")
+    .replace(/æ/g, "ae")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/['’]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function hasIng(meal: PlannedMeal, pattern: RegExp) {
   return meal.ingredients.some(
     (item) => pattern.test(item.name) && !isPreparedSauceName(item.name),
   );
+}
+
+function hasFreshGarlic(meal: PlannedMeal) {
+  return meal.ingredients.some(
+    (item) =>
+      /\bail\b/i.test(item.name) &&
+      !/poudre|semoule|ailoli|aioli/i.test(item.name) &&
+      !isPreparedSauceName(item.name),
+  );
+}
+
+/** Même produit (basilic, ail, noix…) = une seule ligne. « Ail en poudre » reste distinct de « Ail ». */
+export function ingredientDedupeKey(name: string) {
+  return foldName(name)
+    .replace(/\([^)]*\)/g, " ")
+    .replace(/\b(pesto|pistou|marinade|vinaigrette|maison)\b/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+export function mergeDuplicateIngredients(ingredients: RecipeIngredient[]): RecipeIngredient[] {
+  const out: RecipeIngredient[] = [];
+  for (const item of ingredients) {
+    const key = ingredientDedupeKey(item.name);
+    if (!key) continue;
+    const index = out.findIndex((row) => {
+      if (ingredientDedupeKey(row.name) !== key) return false;
+      if (row.role === item.role) return true;
+      return row.role === "shared" || item.role === "shared";
+    });
+    if (index < 0) {
+      out.push(item);
+      continue;
+    }
+    const prev = out[index]!;
+    const prevTotal = prev.gramsAlexis + prev.gramsElodie;
+    const nextTotal = item.gramsAlexis + item.gramsElodie;
+    const richer = nextTotal > prevTotal ? item : prev;
+    out[index] = {
+      ...richer,
+      role: prev.role === "shared" || item.role === "shared" ? "shared" : richer.role,
+      gramsAlexis: Math.max(prev.gramsAlexis, item.gramsAlexis),
+      gramsElodie: Math.max(prev.gramsElodie, item.gramsElodie),
+      notes: richer.notes || prev.notes || item.notes,
+      visualQuantity: richer.visualQuantity || prev.visualQuantity || item.visualQuantity,
+    };
+  }
+  return out;
 }
 
 /** Jar « vinaigrette » moutarde only — never explode « vinaigrette soja-gingembre » into mustard. */
@@ -82,7 +142,7 @@ const SAUCES: SauceDef[] = [
   },
   {
     test: (name) => /^pistou\b/i.test(name.trim()),
-    alreadyHas: (meal) => hasIng(meal, /basilic/i) && hasIng(meal, /ail/i) && hasIng(meal, /huile/i),
+    alreadyHas: (meal) => hasIng(meal, /basilic/i) && hasFreshGarlic(meal) && hasIng(meal, /huile/i),
     parts: [
       { name: "Basilic", frac: 0.45, visual: "1/2 botte" },
       { name: "Ail", frac: 0.1, visual: "1 gousse" },
@@ -109,7 +169,7 @@ const SAUCES: SauceDef[] = [
   },
   {
     test: (name) => /\bpesto\b/i.test(name) && !/pistou/i.test(name),
-    alreadyHas: (meal) => hasIng(meal, /basilic/i) && hasIng(meal, /ail/i) && hasIng(meal, /huile/i),
+    alreadyHas: (meal) => hasIng(meal, /basilic/i) && hasFreshGarlic(meal) && hasIng(meal, /huile/i),
     parts: [
       { name: "Basilic", frac: 0.4, visual: "1/2 botte" },
       { name: "Ail", frac: 0.08, visual: "1 gousse" },
@@ -149,6 +209,7 @@ function ingredientNamePattern(name: string) {
 export function expandPreparedSauces(meal: PlannedMeal): PlannedMeal {
   const next: RecipeIngredient[] = [];
   const extraSteps: string[] = [];
+  const exploded = new Set<string>();
   let sharedBase = meal.sharedBase;
   let expanded = false;
 
@@ -158,7 +219,10 @@ export function expandPreparedSauces(meal: PlannedMeal): PlannedMeal {
       next.push(item);
       continue;
     }
-    if (sauce.alreadyHas(meal)) continue;
+    const sauceKey = sauce.step.slice(0, 24).toLowerCase();
+    const soFar = { ...meal, ingredients: next };
+    if (exploded.has(sauceKey) || sauce.alreadyHas(soFar) || sauce.alreadyHas(meal)) continue;
+    exploded.add(sauceKey);
     expanded = true;
     const base = sharedSauceGrams(item.gramsAlexis, item.gramsElodie) || 30;
     sauce.parts.forEach((part, index) => {
@@ -190,7 +254,12 @@ export function expandPreparedSauces(meal: PlannedMeal): PlannedMeal {
     : meal;
 
   if (isDessertRecipe(meal)) {
-    return equalizeSharedSauce(stripMustardVinaigretteFallback(withParts, { force: true }));
+    return equalizeSharedSauce(
+      stripMustardVinaigretteFallback(
+        { ...withParts, ingredients: mergeDuplicateIngredients(withParts.ingredients) },
+        { force: true },
+      ),
+    );
   }
 
   const assembled = {
@@ -206,8 +275,16 @@ export function expandPreparedSauces(meal: PlannedMeal): PlannedMeal {
       : withParts.appliances,
   };
 
+  const cleaned = {
+    ...assembled,
+    ingredients: mergeDuplicateIngredients(assembled.ingredients),
+  };
+  const injected = injectMissingSauceFromSteps(cleaned);
   return equalizeSharedSauce(
-    stripMustardVinaigretteFallback(injectMissingSauceFromSteps(assembled)),
+    stripMustardVinaigretteFallback({
+      ...injected,
+      ingredients: mergeDuplicateIngredients(injected.ingredients),
+    }),
   );
 }
 

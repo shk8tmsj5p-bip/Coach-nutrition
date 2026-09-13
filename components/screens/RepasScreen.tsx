@@ -1122,6 +1122,19 @@ export default function RepasScreen() {
           plan={plan}
           dessert={lunchDessert}
           dinnerDessert={dinnerDessert}
+          onOpenRecipe={(tag) => {
+            const id = tag.replace(/^\[|\]$/g, "");
+            if (id === "D" || id === "Ds") {
+              setDessertSlot(id === "Ds" ? "soir" : "midi");
+              setOpenMealId(null);
+              setOpenTag(null);
+              setOpenDessert(true);
+              return;
+            }
+            setOpenDessert(false);
+            setOpenMealId(null);
+            setOpenTag(id);
+          }}
         />
       )}
 

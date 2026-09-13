@@ -25,11 +25,13 @@ export function ShoppingListPanel({
   plan,
   dessert,
   dinnerDessert,
+  onOpenRecipe,
 }: {
   weekStart: string;
   plan: PlannedMeal[];
   dessert?: WeekLunchDessert | null;
   dinnerDessert?: WeekLunchDessert | null;
+  onOpenRecipe?: (tag: string) => void;
 }) {
   const [aisleRev, setAisleRev] = useState(0);
   const derived = useMemo(() => {
@@ -165,9 +167,9 @@ export function ShoppingListPanel({
         {copied ? "Copié pour Apple Notes" : "Copier pour Apple Notes"}
       </button>
       <p className="mb-3 px-1 text-[12px] text-health-muted">
-        {remaining} article{remaining > 1 ? "s" : ""} restant{remaining > 1 ? "s" : ""} · liste générée depuis
-        la semaine, partagée sur les deux iPhone. Dans Autre, choisis le rayon : il est retenu pour les
-        prochaines listes.
+        {remaining} article{remaining > 1 ? "s" : ""} restant{remaining > 1 ? "s" : ""} · total de la semaine
+        (Lun+Mer = 2× la fiche « 1 repas »). Touche [P1] pour ouvrir la recette · le reste de la ligne coche.
+        Dans Autre, choisis le rayon : il est retenu pour les prochaines listes.
       </p>
 
       <Card className="mb-3">
@@ -249,14 +251,19 @@ export function ShoppingListPanel({
                     <HoldTip label={full} className={cn("text-[13px] font-medium", on && "opacity-40")}>
                       <span className={cn(on && "line-through")}>{line}</span>
                     </HoldTip>
-                    {(item.planTags?.length ?? 0) > 0 && (
-                      <span className={cn("flex shrink-0 gap-0.5", on && "opacity-40")}>
-                        {item.planTags!.map((tag) => (
-                          <RecipeTag key={tag} recipeNo={tag} compact />
-                        ))}
-                      </span>
-                    )}
                   </button>
+                  {(item.planTags?.length ?? 0) > 0 && (
+                    <span className={cn("flex shrink-0 gap-0.5", on && "opacity-40")}>
+                      {item.planTags!.map((tag) => (
+                        <RecipeTag
+                          key={tag}
+                          recipeNo={tag}
+                          compact
+                          onClick={onOpenRecipe ? () => onOpenRecipe(tag) : undefined}
+                        />
+                      ))}
+                    </span>
+                  )}
                   {item.aisle === "AUTRE" && !item.custom && (
                     <select
                       aria-label={`Rayon pour ${item.name}`}

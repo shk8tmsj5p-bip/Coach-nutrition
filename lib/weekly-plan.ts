@@ -1,7 +1,7 @@
 import { extraRecipes, WEEK_DAYS, weeklyPlan as seedPlan } from "@/lib/weekly-plan-seed";
 import { sanitizeCopy, stripAversionPhrases, isAversionMention, isFluffLine, isStepSection, stepSectionLabel, isRealTmWork, isWorthTmMix, rewriteTmAsHandMix, isKitchenAidCut, isLogisticsTip } from "@/lib/recipe-copy";
 import { visualForIngredient } from "@/lib/visual-quantity";
-import { expandPreparedSauces } from "@/lib/homemade-sauces";
+import { expandPreparedSauces, mergeDuplicateIngredients } from "@/lib/homemade-sauces";
 import { capVegetablePortions } from "@/lib/meal-coach";
 import { ensureFalafelAirfryer, repairMealIntegrity } from "@/lib/recipe-integrity";
 import { declinationFromIngredients } from "@/lib/recipe-macros";
@@ -121,10 +121,12 @@ function sanitizeMeal(meal: PlannedMeal): PlannedMeal {
       dropColdAirfryer(rewriteRiceCooker(scrubForcedRobots(scrubWeekdayTofuAirfryer(repaired)))),
     ),
   );
+  const ingredients = mergeDuplicateIngredients(clean.ingredients);
   return {
     ...clean,
-    alexis: declinationFromIngredients(clean.ingredients, "alexis"),
-    elodie: declinationFromIngredients(clean.ingredients, "elodie"),
+    ingredients,
+    alexis: declinationFromIngredients(ingredients, "alexis"),
+    elodie: declinationFromIngredients(ingredients, "elodie"),
   };
 }
 

@@ -1,6 +1,7 @@
-import type { PlannedMeal, ShoppingListItem } from "@/lib/types";
+import type { PlannedMeal, RecipeIngredient, ShoppingListItem } from "@/lib/types";
 import { planTagByMealId } from "@/lib/meal-tags";
 import { formatIngredientLine, parseVisualQuantity, visualForIngredient } from "@/lib/visual-quantity";
+import { isDressingIngredient, sharedSauceGrams } from "@/lib/ingredient-groups";
 import { isEmptyMeal } from "@/lib/weekly-plan";
 import { storage } from "@/lib/storage";
 import { loadWeekShopping, persistWeekShopping } from "@/lib/supabase/shopping-list";
@@ -302,6 +303,7 @@ const SHOP_CANON: Array<{ keys: string[]; name: string }> = [
   { keys: ["ciboulette"], name: "Ciboulette" },
   { keys: ["aneth"], name: "Aneth" },
   { keys: ["thym"], name: "Thym" },
+  { keys: ["ail en poudre", "ail poudre", "ail semoule", "ail granule"], name: "Ail en poudre" },
   { keys: ["ail"], name: "Ail" },
   { keys: ["gingembre"], name: "Gingembre" },
   { keys: ["citron"], name: "Citron" },
@@ -483,10 +485,20 @@ export function impliedProduceFromName(raw: string, primary: string) {
   for (const row of IMPLIED_PRODUCE) {
     if (fold(row.name) === primaryFold) continue;
     if (primaryFold.includes(fold(row.name))) continue;
+    if (fold(row.name) === "ail" && /poudre|semoule|granule/.test(key)) continue;
     if (!row.keys.some((token) => tokenIndex(key, fold(token)) >= 0)) continue;
     out.push({ name: row.name, grams: row.grams, visual: row.visual });
   }
   return out;
+}
+
+/** Sauce foyer = un seul pot (grams_alexis = grams_elodie). Le plat = Alexis + Élodie. */
+export function shopBuyGrams(ing: RecipeIngredient, meal: PlannedMeal) {
+  if (ing.role === "shared" && isDressingIngredient(ing, meal)) {
+    const g = sharedSauceGrams(ing.gramsAlexis, ing.gramsElodie);
+    return { gramsAlexis: g, gramsElodie: 0 };
+  }
+  return { gramsAlexis: ing.gramsAlexis, gramsElodie: ing.gramsElodie };
 }
 
 function visualUnitKey(unit: string) {
@@ -587,21 +599,22 @@ export function shoppingItemsFromPlan(
     for (const ing of meal.ingredients) {
       if (isUnlistedShoppingIng(ing.name)) continue;
       const name = shoppingDisplayName(ing.name);
+      const buy = shopBuyGrams(ing, meal);
       upsertShopItem(merged, {
         name,
-        gramsAlexis: ing.gramsAlexis * factor,
-        gramsElodie: ing.gramsElodie * factor,
+        gramsAlexis: buy.gramsAlexis * factor,
+        gramsElodie: buy.gramsElodie * factor,
         tag,
         visual: shoppingVisualOf(ing),
       });
       for (const extra of impliedProduceFromName(ing.name, name)) {
         if (dedicated.has(fold(extra.name))) continue;
-        const shareA = ing.gramsAlexis > 0 ? Math.max(1, Math.round(ing.gramsAlexis * 0.2 * factor)) : extra.grams;
-        const shareE = ing.gramsElodie > 0 ? Math.max(1, Math.round(ing.gramsElodie * 0.2 * factor)) : extra.grams;
+        const base = buy.gramsAlexis + buy.gramsElodie;
+        const share = base > 0 ? Math.max(1, Math.round(base * 0.2 * factor)) : extra.grams * factor;
         upsertShopItem(merged, {
           name: extra.name,
-          gramsAlexis: ing.role === "elodie" ? 0 : shareA,
-          gramsElodie: ing.role === "alexis" ? 0 : shareE,
+          gramsAlexis: share,
+          gramsElodie: 0,
           tag,
           visual: extra.visual,
         });

@@ -252,6 +252,9 @@ function ingredientQtyText(
         const visualE = scaleVisualQuantity(item.visualQuantity, scale * (item.gramsElodie / maxG));
         return `${item.name} : Alexis ${formatVisualAndWeight(gramsA, visualA)} · Élodie ${formatVisualAndWeight(gramsE, visualE)}`;
       }
+      if (isDressingIngredient(item as RecipeIngredient, meal)) {
+        return formatIngredientLine({ name: item.name, grams: gramsA || gramsE, visual });
+      }
       const grams = gramsA + gramsE;
       const visualTotal = scaleVisualQuantity(
         item.visualQuantity,

@@ -67,6 +67,7 @@ Mayo / aïoli : lait de soja, moutarde, huile — groupe Mayo, pot à part.
 INTERDIT : une seule ligne « Sauce satay 40g » ou « pesto du commerce » avec les ingrédients seulement en note. INTERDIT sauce du rayon.
 Satay maison (beurre de sésame, jamais cacahuète) : beurre de sésame + sauce soja + citron + gingembre + agave + ail, chacun en ligne dosée.
 Houmous / pesto / nuoc : même règle, sous-recette maison dosée. Vinaigrette moutarde : UNIQUEMENT si le plat EST une salade / niçoise / lentilles froides dont la sauce EST cette vinaigrette.
+Chaque ingrédient = UNE seule ligne. INTERDIT de répéter basilic, ail, noix, huile, pesto. Pesto / pistou = basilic + ail + huile (+ noix) UNE fois — jamais la ligne « pesto » EN PLUS des composants, jamais 5 fois la même herbe.
 Épices complexes + agrumes + herbe fraîche sur presque chaque plat salé.
 DESSERTS : aucune sauce salée. INTERDIT moutarde, vinaigrette, huile d'olive, satay, nuoc, marinade soja, « fouetter dans un pot » salé.
 

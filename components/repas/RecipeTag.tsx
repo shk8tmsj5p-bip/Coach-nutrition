@@ -24,7 +24,15 @@ export function RecipeTag({
   const label = recipeNo.replace(/^\[|\]$/g, "");
   if (onClick) {
     return (
-      <button type="button" onClick={onClick} className={classes}>
+      <button
+        type="button"
+        onClick={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          onClick();
+        }}
+        className={classes}
+      >
         {label}
       </button>
     );
