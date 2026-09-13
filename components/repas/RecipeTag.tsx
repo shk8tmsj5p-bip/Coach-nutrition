@@ -26,6 +26,7 @@ export function RecipeTag({
     return (
       <button
         type="button"
+        aria-label={`Quantités ${label}`}
         onClick={(event) => {
           event.preventDefault();
           event.stopPropagation();

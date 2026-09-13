@@ -4,12 +4,12 @@ import { useEffect, useState } from "react";
 import { X } from "lucide-react";
 import { RecipeTag } from "@/components/repas/RecipeTag";
 import { MealPlanCard } from "@/components/repas/MealPlanCard";
-import { QtyScaleToggle } from "@/components/repas/QtyScaleToggle";
 import { FavoriteHeart } from "@/components/today/FavoriteHeart";
 import { RejectMealButton } from "@/components/today/RejectMealButton";
-import type { QtyMode } from "@/lib/qty-scale";
+import { qtyModeChoices, qtyModeShortLabel, type QtyMode } from "@/lib/qty-scale";
 import type { PlannedMeal, ViewMode } from "@/lib/types";
 import { isWeekLunchDessert } from "@/lib/week-dessert";
+import { cn } from "@/lib/utils";
 
 export function RecipeDetailSheet({
   meal,
@@ -48,19 +48,33 @@ export function RecipeDetailSheet({
 }) {
   const [regenOpen, setRegenOpen] = useState(false);
   const [regenTheme, setRegenTheme] = useState(currentTheme);
+  const [qtyPickOpen, setQtyPickOpen] = useState(false);
+  const qtyChoices = qtyModeChoices(meal);
 
   useEffect(() => {
     setRegenOpen(false);
+    setQtyPickOpen(false);
     setRegenTheme(currentTheme.trim() || meal.theme || "");
   }, [meal.id, currentTheme, meal.theme]);
+
+  useEffect(() => {
+    onQtyMode("batch");
+  }, [meal.id, onQtyMode]);
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/30">
       <div className="flex max-h-[88vh] w-full max-w-[430px] flex-col overflow-hidden rounded-t-[24px] bg-health-bg shadow-card">
         <div className="flex shrink-0 items-center justify-between bg-health-bg px-4 pb-2 pt-4">
-          <h3 className="flex items-center gap-2 text-[17px] font-semibold">
+          <h3 className="flex min-w-0 items-center gap-2 text-[17px] font-semibold">
             Recette
-            {planTag ? <RecipeTag recipeNo={planTag} /> : null}
+            {planTag ? <RecipeTag recipeNo={planTag} onClick={() => setQtyPickOpen(true)} /> : null}
+            <button
+              type="button"
+              onClick={() => setQtyPickOpen(true)}
+              className="truncate rounded-full bg-white px-2 py-0.5 text-[11px] font-semibold text-health-muted shadow-card"
+            >
+              {qtyModeShortLabel(meal, qtyMode)}
+            </button>
           </h3>
           <div className="flex items-center gap-2">
             {onToggleFavorite ? (
@@ -83,8 +97,7 @@ export function RecipeDetailSheet({
           </div>
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-10">
-          <QtyScaleToggle mode={qtyMode} onChange={onQtyMode} />
-          <div className="mt-3">
+          <div className="mt-1">
             <MealPlanCard
               key={`${meal.batchId}-${qtyMode}`}
               meal={meal}
@@ -97,6 +110,7 @@ export function RecipeDetailSheet({
               onSwapIngredient={onSwapIngredient}
               onDelete={onDelete}
               onMove={onMove}
+              onPlanTagClick={() => setQtyPickOpen(true)}
             />
           </div>
 
@@ -140,6 +154,60 @@ export function RecipeDetailSheet({
           )}
         </div>
       </div>
+
+      {qtyPickOpen ? (
+        <div
+          className="absolute inset-0 z-[60] flex items-end justify-center bg-black/40"
+          onClick={() => setQtyPickOpen(false)}
+        >
+          <div
+            className="w-full max-w-[430px] rounded-t-[24px] bg-health-bg px-4 pb-[max(16px,var(--safe-bottom))] pt-4 shadow-card"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <p className="text-[15px] font-semibold">
+              Quantités{planTag ? ` · ${planTag.replace(/^\[|\]$/g, "")}` : ""}
+            </p>
+            <p className="mt-1 text-[12px] leading-snug text-health-muted">
+              {qtyChoices.length > 1
+                ? "Choisis une assiette, ou tout ce qu’il faut cuisiner."
+                : "Plat frais : une assiette / pers."}
+            </p>
+            <div className="mt-3 space-y-2">
+              {qtyChoices.map((row) => (
+                <button
+                  key={row.id}
+                  type="button"
+                  onClick={() => {
+                    onQtyMode(row.id);
+                    setQtyPickOpen(false);
+                  }}
+                  className={cn(
+                    "w-full rounded-card px-3 py-3 text-left shadow-card",
+                    qtyMode === row.id ? "bg-health-ink text-white" : "bg-white",
+                  )}
+                >
+                  <span className="block text-[15px] font-semibold">{row.label}</span>
+                  <span
+                    className={cn(
+                      "mt-0.5 block text-[12px] leading-snug",
+                      qtyMode === row.id ? "text-white/80" : "text-health-muted",
+                    )}
+                  >
+                    {row.detail}
+                  </span>
+                </button>
+              ))}
+            </div>
+            <button
+              type="button"
+              onClick={() => setQtyPickOpen(false)}
+              className="mt-3 w-full rounded-full bg-white py-2.5 text-[13px] font-semibold shadow-card"
+            >
+              Fermer
+            </button>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

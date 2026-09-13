@@ -9,20 +9,54 @@ export function cookScale(meal: PlannedMeal, mode: QtyMode) {
   return meal.servingsPerPerson || 1;
 }
 
+export function qtyModeChoices(meal: PlannedMeal): Array<{
+  id: QtyMode;
+  label: string;
+  detail: string;
+}> {
+  if (isWeekLunchDessert(meal)) {
+    const n = dessertWeekdaysOf(meal).length;
+    const when = /soir/i.test(meal.day) ? "soir" : "midi";
+    return [
+      { id: "repas", label: "1 part", detail: `Une part / pers. · un ${when}` },
+      {
+        id: "batch",
+        label: n > 1 ? `${n} jours` : "1 jour",
+        detail: `Tout le dessert ${when} de la semaine · 2 pers.`,
+      },
+    ];
+  }
+  if (meal.servingsPerPerson === 2) {
+    return [
+      { id: "repas", label: "1 repas", detail: "Une assiette / pers." },
+      {
+        id: "batch",
+        label: "2 repas",
+        detail: `${meal.coverLabel || "batch"} · 4 assiettes foyer`,
+      },
+    ];
+  }
+  return [{ id: "repas", label: "1 repas", detail: "Une assiette / pers. · frais" }];
+}
+
+export function qtyModeShortLabel(meal: PlannedMeal, mode: QtyMode) {
+  return qtyModeChoices(meal).find((row) => row.id === mode)?.label ?? "1 repas";
+}
+
 export function cookQtyCaption(meal: PlannedMeal, mode: QtyMode) {
   if (isWeekLunchDessert(meal)) {
     const n = dessertWeekdaysOf(meal).length;
     const when = /soir/i.test(meal.day) ? "soir" : "midi";
-    if (mode === "repas") return `Recette · 1 part / pers. (un ${when})`;
-    return `Recette · total à cuisiner · ${n} ${when}${n > 1 ? "s" : ""} × 2 pers.`;
+    if (mode === "repas") return `Quantités · 1 part / pers. (un ${when})`;
+    return `Quantités · ${n} ${when}${n > 1 ? "s" : ""} × 2 pers.`;
   }
   if (mode === "repas") {
     return meal.servingsPerPerson === 2
-      ? "Recette · 1 repas / pers. (batch : bascule sur Total à cuisiner)"
-      : "Recette · 1 repas / pers.";
+      ? "Quantités · 1 repas / pers. · touche [P] pour voir les 2 repas"
+      : "Quantités · 1 repas / pers.";
   }
   if (meal.servingsPerPerson === 2) {
-    return "Recette · total à cuisiner · 4 assiettes (2 pers. × 2 repas)";
+    return "Quantités · 2 repas · 4 assiettes foyer";
   }
-  return "Recette · total à cuisiner · 2 assiettes (1 repas foyer)";
+  return "Quantités · 1 repas foyer";
 }

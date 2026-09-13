@@ -150,7 +150,7 @@ export default function RepasScreen() {
   const { view, catalog } = useProfile();
   const { season, weather } = useSeasonWeather();
   const [tab, setTab] = useState<Tab>("plan");
-  const [planQty, setPlanQty] = useState<QtyMode>("repas");
+  const [planQty, setPlanQty] = useState<QtyMode>("batch");
   const [batchQty, setBatchQty] = useState<QtyMode>("batch");
   const [weekStart, setWeekStart] = useState(() => mondayOf(todayISO()));
   const [plan, setPlan] = useState<PlannedMeal[]>(emptyWeekPlan);
@@ -518,6 +518,7 @@ export default function RepasScreen() {
   }
 
   function openSlot(meal: PlannedMeal, tag: string) {
+    setPlanQty("batch");
     setOpenMealId(meal.id);
     setOpenTag(tag);
   }
@@ -525,6 +526,7 @@ export default function RepasScreen() {
   function closeRecipe() {
     setOpenMealId(null);
     setOpenTag(null);
+    setPlanQty("batch");
   }
 
   async function updateQuantities() {
@@ -1124,6 +1126,7 @@ export default function RepasScreen() {
           dinnerDessert={dinnerDessert}
           onOpenRecipe={(tag) => {
             const id = tag.replace(/^\[|\]$/g, "");
+            setPlanQty("batch");
             if (id === "D" || id === "Ds") {
               setDessertSlot(id === "Ds" ? "soir" : "midi");
               setOpenMealId(null);

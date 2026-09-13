@@ -29,6 +29,7 @@ export function MealPlanCard({
   onSwapIngredient,
   onDelete,
   onMove,
+  onPlanTagClick,
 }: {
   meal: PlannedMeal;
   planTag?: string;
@@ -40,6 +41,7 @@ export function MealPlanCard({
   onSwapIngredient?: () => void;
   onDelete?: () => void;
   onMove?: () => void;
+  onPlanTagClick?: () => void;
 }) {
   const [open, setOpen] = useState(defaultOpen);
   const empty = isEmptyMeal(meal);
@@ -69,7 +71,13 @@ export function MealPlanCard({
           </span>
         </div>
         <p className="mt-1 text-[15px] font-semibold leading-snug">
-          {planTag ? <RecipeTag recipeNo={planTag} className="mr-1.5 align-middle" /> : null}
+          {planTag ? (
+            <RecipeTag
+              recipeNo={planTag}
+              className="mr-1.5 align-middle"
+              onClick={onPlanTagClick}
+            />
+          ) : null}
           {empty ? "Aucun repas" : meal.baseName}
         </p>
         {empty ? (
@@ -84,7 +92,7 @@ export function MealPlanCard({
               {appliance}
             </span>
           ))}
-          {planTag ? <RecipeTag recipeNo={planTag} /> : null}
+          {planTag ? <RecipeTag recipeNo={planTag} onClick={onPlanTagClick} /> : null}
           <span className="rounded-full bg-health-bg px-2 py-0.5 text-[11px] font-medium">
             {meal.servingsPerPerson === 2
               ? `Batch ×2 · ${meal.coverLabel}`
