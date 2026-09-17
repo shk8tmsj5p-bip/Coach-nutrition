@@ -536,7 +536,7 @@ CORRECTION OBLIGATOIRE — ta proposition violait le thème et/ou la diversité 
 ${problems.slice(0, 10).join("\n")}
 Réécris TOUTES les recettes. Titres 100 % du thème « ${theme || "libre"} »${
             dish
-              ? ` — chaque titre contient « ${dish.keys[0]} », aucun wrap / tortillas / bowl à la place.`
+              ? ` — chaque titre contient « ${dish.keys[0]} », pas ${dish.avoid} à la place.`
               : ", familles différentes, aucun plat d'une autre cuisine."
           }`,
         );

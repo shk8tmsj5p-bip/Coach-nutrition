@@ -334,6 +334,11 @@ function scaleKinds(
   });
 }
 
+function mealHasEnvelope(ingredients: RecipeIngredient[], meal: PlannedMeal) {
+  if (/wrap|tortilla|burrito|pita|galette|naan/i.test(`${meal.baseName} ${meal.theme}`)) return true;
+  return ingredients.some((item) => isEnvelopeIngredient(item.name));
+}
+
 function fitProfile(
   ingredients: RecipeIngredient[],
   profile: ProfileId,
@@ -345,7 +350,10 @@ function fitProfile(
   const kcalRatio = decl.calories / Math.max(target.calories, 1);
   let next = ingredients;
   if (person.goal === "prise" && kcalRatio < 0.88) {
-    next = scaleKinds(next, profile, ["starch", "oil", "legume"], clamp(target.calories / Math.max(decl.calories, 1), 1.05, 1.4), meal);
+    const bump = mealHasEnvelope(ingredients, meal)
+      ? (["oil", "legume", "protein"] as IngredientKind[])
+      : (["starch", "oil", "legume"] as IngredientKind[]);
+    next = scaleKinds(next, profile, bump, clamp(target.calories / Math.max(decl.calories, 1), 1.05, 1.4), meal);
   } else if (person.goal === "perte" && kcalRatio > 1.12) {
     next = scaleKinds(next, profile, ["starch", "oil"], clamp(target.calories / Math.max(decl.calories, 1), 0.55, 0.95), meal);
   } else if (person.goal === "maintien" && (kcalRatio < 0.85 || kcalRatio > 1.15)) {
@@ -420,7 +428,8 @@ export function capVegetablePortions(meal: PlannedMeal): PlannedMeal {
   if (!meal.ingredients.length || meal.baseName === "Aucun repas") return meal;
   const vegged = capVegetablePortionsInner(meal);
   const wrapped = capEnvelopePortions(vegged);
-  return withMacros(wrapped, wrapped.ingredients);
+  const plated = capPlatedPortions(wrapped);
+  return withMacros(plated, plated.ingredients);
 }
 
 function capVegetablePortionsInner(meal: PlannedMeal): PlannedMeal {
@@ -449,6 +458,65 @@ function capVegetablePortionsInner(meal: PlannedMeal): PlannedMeal {
       const grams = Math.max(20, roundGrams(gramsOf(item) * factor, "veg"));
       return profile === "alexis" ? { ...item, gramsAlexis: grams } : { ...item, gramsElodie: grams };
     });
+  }
+  return { ...meal, ingredients };
+}
+
+function isPlateVolume(item: RecipeIngredient, meal: PlannedMeal) {
+  if (/^eau$/i.test(item.name.trim())) return false;
+  if (isDressingIngredient(item, meal)) return false;
+  if (isEnvelopeIngredient(item.name)) return false;
+  const kind = classifyIngredient(item.name);
+  return kind === "veg" || kind === "starch" || kind === "legume" || kind === "other";
+}
+
+function isPlateProtein(item: RecipeIngredient, meal: PlannedMeal) {
+  if (isDressingIngredient(item, meal)) return false;
+  return classifyIngredient(item.name) === "protein";
+}
+
+/** Un plat midi ≈ 500 g / pers., pas 750 g. Hors sauce / herbes / wrap. */
+function capPlatedPortions(meal: PlannedMeal): PlannedMeal {
+  const dinner = meal.lowCalorie || meal.mealType === "diner";
+  const maxTotal = dinner ? 400 : 520;
+  let ingredients = meal.ingredients;
+  for (const profile of ["alexis", "elodie"] as const) {
+    const gramsOf = (item: RecipeIngredient) =>
+      profile === "alexis" ? item.gramsAlexis : item.gramsElodie;
+    const setG = (item: RecipeIngredient, grams: number) =>
+      profile === "alexis" ? { ...item, gramsAlexis: grams } : { ...item, gramsElodie: grams };
+    const sumWhere = (pred: (item: RecipeIngredient) => boolean) =>
+      ingredients.filter(pred).reduce((sum, item) => sum + gramsOf(item), 0);
+
+    let vol = sumWhere((item) => isPlateVolume(item, meal) && gramsOf(item) > 0);
+    let prot = sumWhere((item) => isPlateProtein(item, meal) && gramsOf(item) > 0);
+    if (vol + prot <= maxTotal) continue;
+
+    if (vol > 0) {
+      const keep = Math.max(vol * 0.4, Math.min(vol, maxTotal - Math.min(prot, dinner ? 160 : 220)));
+      if (keep < vol - 1) {
+        const factor = keep / vol;
+        ingredients = ingredients.map((item) => {
+          if (!isPlateVolume(item, meal) || gramsOf(item) <= 0) return item;
+          const kind = classifyIngredient(item.name);
+          const floor = kind === "starch" ? 40 : 20;
+          return setG(item, Math.max(floor, roundGrams(gramsOf(item) * factor, kind)));
+        });
+      }
+    }
+
+    vol = sumWhere((item) => isPlateVolume(item, meal) && gramsOf(item) > 0);
+    prot = sumWhere((item) => isPlateProtein(item, meal) && gramsOf(item) > 0);
+    if (vol + prot <= maxTotal) continue;
+
+    const protCap = Math.max(90, maxTotal - vol);
+    if (prot > protCap && prot > 0) {
+      const factor = protCap / prot;
+      ingredients = ingredients.map((item) => {
+        if (!isPlateProtein(item, meal) || gramsOf(item) <= 0) return item;
+        return setG(item, Math.max(80, roundGrams(gramsOf(item) * factor, "protein")));
+      });
+    }
   }
   return { ...meal, ingredients };
 }

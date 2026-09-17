@@ -75,17 +75,34 @@ const KITS: ThemeKit[] = [
 ];
 
 /** Thème = un plat précis (pas une cuisine). Le mot-star doit rester dans chaque titre. */
-const DISH_STARS: Array<{ keys: string[]; must: RegExp; forbid: RegExp }> = [
+const DISH_STARS: Array<{ keys: string[]; must: RegExp; forbid: RegExp; avoid: string }> = [
   {
     keys: ["quiche"],
     must: /quiche/i,
     forbid: /tortilla|wrap|burrito|taco|bowl\b|quinoa|bo bun|salade\b|taboul/i,
+    avoid: "wrap, tortillas, bowl, quinoa",
   },
-  { keys: ["clafoutis", "clafouti"], must: /clafoutis|clafouti/i, forbid: /bowl\b|wrap|tortilla/i },
-  { keys: ["tarte"], must: /tarte/i, forbid: /bowl\b|wrap|tortilla|pizza/i },
-  { keys: ["flan"], must: /flan/i, forbid: /bowl\b|wrap|tortilla/i },
-  { keys: ["pizza"], must: /pizza/i, forbid: /bowl\b|wrap|quinoa/i },
-  { keys: ["risotto"], must: /risotto/i, forbid: /bowl\b|wrap|tortilla/i },
+  {
+    keys: ["clafoutis", "clafouti"],
+    must: /clafoutis|clafouti/i,
+    forbid: /bowl\b|wrap|tortilla/i,
+    avoid: "bowl, wrap, tortillas",
+  },
+  {
+    keys: ["tarte"],
+    must: /tarte/i,
+    forbid: /bowl\b|wrap|tortilla|pizza/i,
+    avoid: "bowl, wrap, pizza",
+  },
+  { keys: ["flan"], must: /flan/i, forbid: /bowl\b|wrap|tortilla/i, avoid: "bowl, wrap, tortillas" },
+  { keys: ["pizza"], must: /pizza/i, forbid: /bowl\b|wrap|quinoa/i, avoid: "bowl, wrap, quinoa" },
+  { keys: ["risotto"], must: /risotto/i, forbid: /bowl\b|wrap|tortilla/i, avoid: "bowl, wrap, tortillas" },
+  {
+    keys: ["wrap", "tortilla", "burrito"],
+    must: /wrap|tortilla|burrito/i,
+    forbid: /quinoa|bowl\b|risotto|quiche|bo bun|taboul/i,
+    avoid: "quinoa, bowl, riz, pâtes, risotto",
+  },
 ];
 
 export function dishStarOf(theme: string) {
@@ -202,7 +219,7 @@ Les ${count} recettes SONT des « ${dish.keys[0]} » — pas une cuisine libre a
 Titre : le mot « ${dish.keys[0]} » OBLIGATOIRE sur chaque recette (y compris la dernière / vendredi).
 Ingrédient star du thème (ex. tofu soyeux) dans shared_ingredients + une étape four / plaque dédiée.
 Diversité = légumes / herbes / garniture différents. INTERDIT de changer de TYPE de plat.
-INTERDIT wrap, tortillas, bowl, quinoa en salade, vinaigrette à la place de la ${dish.keys[0]}.
+INTERDIT ${dish.avoid} à la place de la ${dish.keys[0]}.
 INTERDIT d'imiter l'exemple JSON (bowl courgette / vinaigrette) — c'est un FORMAT, pas le plat.
 EXCEPTION TOFU : cuisson four autorisée (quiche / tarte / flan / clafoutis / dessert), y compris Lun–Ven.${star ? `\n${star}` : ""}`;
   }

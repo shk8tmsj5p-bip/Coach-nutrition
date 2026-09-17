@@ -18,6 +18,13 @@ const STAR_PROTEINS: Array<{
     grams: 140,
     drop: /crevette|poulet|dinde|saumon|cabillaud|truite|tofu/i,
   },
+  {
+    title: /quiche|clafoutis|\bflan\b|\btarte\b/i,
+    name: "Tofu soyeux",
+    visual: "1/2 bloc",
+    grams: 160,
+    drop: /tofu ferme|poulet|dinde|crevette|saumon|cabillaud|truite|falafel/i,
+  },
 ];
 
 const PROTEIN_HINTS: Array<{
@@ -168,6 +175,27 @@ export function ensureFalafelAirfryer(meal: PlannedMeal): PlannedMeal {
   };
 }
 
+function isWrapMeal(meal: PlannedMeal, ingredients: RecipeIngredient[]) {
+  if (/wrap|tortilla|burrito|pita|galette|naan/i.test(`${meal.baseName} ${meal.theme} ${meal.sharedBase}`)) {
+    return true;
+  }
+  return ingredients.some((ing) => /wrap|tortilla|burrito|pita|galette|naan/i.test(ing.name));
+}
+
+const SIDE_STARCH_RE = /quinoa|\briz\b|p[âa]tes?\b|semoule|boulgour|vermicelle|nouille/i;
+
+function repairWrapStarch(meal: PlannedMeal, ingredients: RecipeIngredient[]) {
+  if (!isWrapMeal(meal, ingredients)) return ingredients;
+  let next = ingredients.filter(
+    (ing) => !SIDE_STARCH_RE.test(ing.name) || /konjac|shirataki|wrap|tortilla|pita|galette|naan/i.test(ing.name),
+  );
+  const hasWrap = next.some((ing) => /wrap|tortilla|burrito|pita|galette|naan/i.test(ing.name));
+  if (!hasWrap) {
+    next = [...next, makeIng("Wrap", "shared", 55, 55, "1 pièce")];
+  }
+  return next;
+}
+
 /** Titre « wrap falafels » ⇒ falafels partagés. Protéine affichée sans ligne d'ingrédient ⇒ on l'ajoute. */
 export function repairMealIntegrity(meal: PlannedMeal): PlannedMeal {
   if (!meal.ingredients.length && isPlaceholderProtein(meal.alexis.protein) && isPlaceholderProtein(meal.elodie.protein)) {
@@ -178,6 +206,7 @@ export function repairMealIntegrity(meal: PlannedMeal): PlannedMeal {
     ingredients = hydrateFromLabel(ingredients, meal.alexis.protein, "alexis");
     ingredients = hydrateFromLabel(ingredients, meal.elodie.protein, "elodie");
   }
+  ingredients = repairWrapStarch(meal, ingredients);
   const next = {
     ...meal,
     ingredients,
@@ -189,8 +218,11 @@ export function repairMealIntegrity(meal: PlannedMeal): PlannedMeal {
 }
 
 export function sharedProteinThemeLine(theme: string) {
-  if (/quiche/i.test(theme)) {
-    return `PLAT UNIQUE : quiche. Tofu soyeux dans shared_ingredients + étape four (même pour Alexis et Élodie). INTERDIT tortillas / wrap / bowl / quinoa / vinaigrette à la place.`;
+  if (/quiche|clafoutis|\bflan\b|\btarte\b/i.test(theme)) {
+    return `PLAT UNIQUE : quiche / tarte. Tofu soyeux dans shared_ingredients + étape four (même pour Alexis et Élodie). INTERDIT tofu ferme, poulet, crevettes ou un 2e brique de protéine à côté. INTERDIT tortillas / wrap / bowl / quinoa / vinaigrette à la place.`;
+  }
+  if (/wrap|tortilla|burrito/i.test(theme)) {
+    return `PLAT UNIQUE : wrap. 1 pièce / pers. = le féculent. INTERDIT quinoa, riz, pâtes, bowl à la place ou à côté.`;
   }
   if (!/falafel/i.test(theme)) return "";
   return `PROTÉINE UNIQUE : falafels pour Alexis ET Élodie (shared_ingredients, grams_alexis et grams_elodie). INTERDIT crevettes / poulet / tofu à la place. Un wrap falafel SANS falafel dans les ingrédients est refusé.`;
