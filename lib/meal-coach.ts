@@ -161,12 +161,10 @@ function slotFor(person: PersonMealCoach, mealType: PlannedMeal["mealType"]): Ma
 
 function leversFor(person: PersonMealCoach) {
   if (person.goal === "prise") {
-    return person.diet === "vegan"
-      ? "densité : + tofu / edamame / riz (jamais cacahuète). Extra kcal = féculent / protéine, pas une 2e sauce."
-      : "densité : + féculent + protéine, un filet d'huile extra OK le midi. Extra kcal = plat, pas une 2e sauce.";
+    return "densité : plus de féculent / protéine déjà dans le plat. Extra kcal = le plat, pas une 2e sauce ni une 2e protéine.";
   }
   if (person.goal === "perte") {
-    return "volume : + crudités / herbes / agrumes / soja / moutarde. Huile serrée. JAMAIS couper la protéine.";
+    return "volume : un peu plus de légumes. Huile serrée. JAMAIS couper la protéine.";
   }
   return "portions calées sur les cibles, même plat.";
 }
@@ -191,20 +189,18 @@ ${personBlock(coach.alexis)}
 ${personBlock(coach.elodie)}
 
 RÈGLES PORTIONS
-- UN seul plat pour les deux. Double déclinaison = protéine vegan / omni + GRAMMES différents, SAUF si le thème/titre EST la protéine (falafel) : alors falafels partagés, pas de crevettes à la place. INTERDIT deux recettes, INTERDIT « bowl Alexis » vs « assiette Élodie ».
-- shared_ingredients : grams_alexis ET grams_elodie OBLIGATOIRES sur féculents, légumes, légumineuses. Herbes / épices / ail : grammes identiques OK.
-- SAUCES COMMUNES : vinaigrette, sauce, marinade, pesto, houmous, satay, nuoc, tahini — UN seul dosage foyer (grams_alexis = grams_elodie, ou un seul weight_g). INTERDIT de splitter huile / soja / moutarde / citron / tahini de la sauce. L'huile de CUISSON du plat (hors sauce) peut rester split.
-- Perte = un peu plus de légumes (+10 % max), herbes, agrume, soja, moutarde — PAS des kilos ni 3 carottes + 1 concombre entier par assiette. Prise = densité (féculent + protéine + tahini / huile).
-- Légumes par personne par plat : 1–2 pièces au total (ex. 1 carotte 80 g + 1/3 concombre 100 g). Plafond ~120 g par légume, ~250 g de légumes en tout. INTERDIT 400 g de carotte ou 1 concombre entier par personne.
-- Légumineuses : 80–140 g / pers. cuites, pas 300 g+. Si le plat est une tartinade / wrap haricot, garder les haricots (éventuellement avec du tofu si Gem l’a mis). INTERDIT d’ajouter tofu ou poulet si une protéine est déjà là.
-- Agrumes : citron et citron vert = deux produits, à garder tous les deux s’ils sont nommés. INTERDIT seulement le doublon du même fruit (« jus de citron » + « citron »).
-- Protéine plancher : ne JAMAIS réduire tofu / poulet / poisson / œufs / edamame pour « faire light ». Le dîner light coupe le riz et l'huile, pas la protéine.
-- Dîner : light pour les deux, mais la prise garde sa protéine ; seule la perte coupe vraiment le féculent (≈ −45 %).
-- Écart kcal > 250 : plus de grammes de ce qui est déjà dans le plat (féculent / protéine du titre), jamais une 2e brique tofu ou poulet collée, jamais de 2e sauce, jamais de beurre de cacahuète (aversion Élodie) ni fromage pour Alexis.
-- Umami sans calories : soja, agrume, moutarde, herbes, gingembre, ail — surtout sur les dîners perte.
-- N'inclus PAS de dessert, yaourt sucré, granola dessert (géré par les templates Paramètres).
-- Satiété vegan prise : un peu plus de la protéine / du féculent déjà dans le plat, pas une 2e brique collée « pour les macros ».
-- Assemblage : même boîte / même ordre, justes portions différentes (ex. « riz : Alexis 180g · Élodie 100g »). Sauce / vinaigrette = UN dosage commun, jamais split. Pas de discours diététique dans les étapes.
+- UN seul plat pour les deux. Double déclinaison = protéine vegan / omni + GRAMMES différents, SAUF si le titre EST la protéine : alors la même pour les deux. INTERDIT deux recettes.
+- shared_ingredients : grams_alexis ET grams_elodie sur féculents, légumes, légumineuses. Herbes / épices : grammes identiques OK.
+- Sauce / marinade = UN seul dosage foyer. INTERDIT de splitter les composants de sauce. L'huile de CUISSON du plat (hors sauce) peut rester split.
+- Perte = un peu plus de légumes (+10 % max), jamais des kilos. Prise = plus de féculent / protéine déjà dans le plat.
+- Légumes : 1–2 pièces / pers. Plafond ~120 g par légume, ~250 g en tout.
+- Légumineuses : 80–140 g / pers. cuites. Si le plat EST une tartinade / wrap de légumineuses, les garder. INTERDIT d'ajouter une 2e protéine si une est déjà là.
+- Agrumes : citron et citron vert = deux produits s'ils sont nommés. INTERDIT le doublon du même fruit.
+- Protéine plancher : ne JAMAIS réduire la protéine du plat pour « faire light ». Le dîner light coupe le féculent et l'huile.
+- Dîner : light pour les deux ; la prise garde sa protéine ; la perte coupe vraiment le féculent (≈ −45 %).
+- Écart kcal > 250 : plus de grammes de ce qui est déjà dans le plat, jamais une 2e brique de protéine, jamais de 2e sauce.
+- N'inclus PAS de dessert (templates Paramètres).
+- Assemblage : même boîte / même ordre, justes portions différentes. Pas de discours diététique dans les étapes.
 - Week-end : légèrement plus généreux, toujours split selon les cibles ci-dessus.`;
 }
 

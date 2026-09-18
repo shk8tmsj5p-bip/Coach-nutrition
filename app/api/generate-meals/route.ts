@@ -537,7 +537,7 @@ ${problems.slice(0, 10).join("\n")}
 Réécris TOUTES les recettes. Titres 100 % du thème « ${theme || "libre"} »${
             dish
               ? ` — chaque titre contient « ${dish.keys[0]} », pas ${dish.avoid} à la place.`
-              : ", familles différentes, aucun plat d'une autre cuisine."
+              : ", identités distinctes, le thème est la star de chaque titre."
           }`,
         );
         try {

@@ -397,8 +397,7 @@ export function formatDessertBatchForPrompt(
   const goalLine = (person: MealCoachHousehold["alexis"]) =>
     `${person.name} · ${person.goal} → ~${targets[person.id]} kcal / part${person.goal === "perte" ? " (extras denses PLUS PETITS, jamais plus)" : ""}`;
   const shared = `MÊME dessert, MÊMES ingrédients. grams_alexis / grams_elodie = portions, PAS deux recettes.
-INTERDIT érythritol pour l'un et sirop d'érable / purée d'amande / pépites uniquement pour l'autre.
-visual_unit DOIT coller aux grammes : 1 cs sirop ≈ 20 g, 1 cs purée d'amande ≈ 18 g, 1 poignée amandes ≈ 15–18 g, 1 cs pépites ≈ 12 g, 1 cs lait ≈ 15 g, 1 cl lait ≈ 10 g. INTERDIT 2 cs = 99 g.`;
+INTERDIT deux versions (light vs gourmand). visual_unit DOIT coller aux grammes. INTERDIT 2 cs = 99 g.`;
   if (slot === "soir") {
     return `DESSERT SOIR BATCH · TRÈS LIGHT (cette semaine)
 Jours : ${days} (${n} soirs × 2 personnes = ${n * 2} parts).
@@ -406,8 +405,7 @@ JSON = 1 PART / PERSONNE.
 ${goalLine(coach.alexis)}
 ${goalLine(coach.elodie)}
 ${shared}
-Base : tofu soyeux et/ou konjac / shirataki. INTERDIT pâte brisée, beurre, crème, mascarpone, plus de 8 g de sucre / sirop par part.
-Gourmand : vanille, cacao, agrume, cannelle, un peu de fruit.
+Base light vegan. INTERDIT pâte, beurre, crème, mascarpone, plus de 8 g de sucre / sirop par part.
 Le dîner Gem Chef est GÉNÉRÉ À PART — ici UNIQUEMENT le dessert soir.`;
   }
   return `DESSERT MIDI BATCH (cette semaine)

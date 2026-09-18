@@ -212,8 +212,8 @@ export function formatStockForPrompt(stock: HouseholdStock) {
     .join("\n");
   const mode =
     stock.intensity === "empty"
-      ? `MODE VIDER LE STOCK : maximise l'usage de CES ingrédients. Courses = uniquement ce qui manque pour une recette cohérente (herbe, agrume, sauce maison). Interdit d'ajouter une 2e protéine « pour le fun » hors stock. Dans tips_and_cautions : « utilise le reste de … ».`
-      : `MODE S'EN SERVIR : CHAQUE recette DOIT mettre en vedette AU MOINS 1 ingrédient du stock (titre + base partagée + une étape dédiée). Tu PEUX compléter par des courses (herbe fraîche, citron, sauce maison).`;
+      ? `MODE VIDER LE STOCK : maximise l'usage de CES ingrédients. Courses = uniquement ce qui manque pour une recette cohérente. Interdit d'ajouter une 2e protéine hors stock « pour le fun ». Dans tips_and_cautions : « utilise le reste de … ».`
+      : `MODE S'EN SERVIR : CHAQUE recette DOIT mettre en vedette AU MOINS 1 ingrédient du stock (titre + base partagée + une étape dédiée). Tu PEUX compléter par des courses cohérentes avec le plat.`;
   return `STOCK FOYER (déjà à la maison — ce n'est PAS la liste de courses) :
 ${lines}
 ${mode}

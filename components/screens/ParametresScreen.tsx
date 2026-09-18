@@ -229,13 +229,13 @@ export default function ParametresScreen() {
           />
           <ToggleRow
             label="Adapter à la météo"
-            hint="Canicule → bowls, salades, crudités."
+            hint="Adapter le type de plat (chaud / froid / léger), pas les ingrédients."
             checked={prefs.weatherAdaptive}
             onChange={(weatherAdaptive) => patchPrefs({ weatherAdaptive })}
           />
           <ToggleRow
             label="Sauces 100% maison"
-            hint="Chaque composant dosé — jamais un seul pot du commerce."
+            hint="Si le plat a une sauce : chaque composant dosé, jamais un pot du commerce. Pas d’obligation d’en inventer une."
             checked={prefs.homemadeSauces}
             onChange={(homemadeSauces) => patchPrefs({ homemadeSauces })}
           />

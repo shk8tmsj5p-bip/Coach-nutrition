@@ -123,7 +123,7 @@ Nom : ${product.name}${brand}
 Densité : ${product.kcalPer100g} kcal / 100 g (P ${product.proteinPer100g} · G ${product.carbsPer100g} · L ${product.fatPer100g})${product.labelRead ? " — lue sur l'étiquette, ne pas inventer d'autres kcal" : ""}
 Portion typique : ${product.typicalGrams} g ≈ ${portion.calories} kcal
 Rôle : ${role}.
-Ce produit EST l'ingrédient star. Si le thème est un dessert classique (riz au lait, pudding, crème, tiramisu…), SUBSTITUE l'ingrédient lourd (riz, biscuits, mascarpone…) par CE produit — n'ajoute pas le classique EN PLUS.
+Ce produit EST l'ingrédient star. Si le thème est un dessert classique, fais-le AVEC ce produit — n'ajoute pas le classique EN PLUS.
 grams_alexis / grams_elodie calculés avec CES kcal/100 g pour tenir la cible.
 INTERDIT d'ignorer le produit, INTERDIT d'en mettre une pincée cosmétique.`;
 }

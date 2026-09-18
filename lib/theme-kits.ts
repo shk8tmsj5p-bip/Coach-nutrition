@@ -135,22 +135,25 @@ export function mealMatchesTheme(meal: PlannedMeal, theme: string) {
   const needle = theme.trim().toLowerCase();
   if (!needle) return true;
   const kit = matchKit(needle);
-  if (kit) {
-    return alreadyThemed(meal, kit) || kit.keys.some((key) => normalizeTitle(meal.theme).includes(normalizeTitle(key)));
-  }
+  const blob = normalizeTitle(`${meal.theme} ${meal.baseName} ${meal.sharedBase}`);
   const tokens = normalizeTitle(needle)
     .split(" ")
     .filter((token) => token.length > 2);
-  const blob = normalizeTitle(`${meal.theme} ${meal.baseName} ${meal.sharedBase}`);
+  if (kit) {
+    if (kit.keys.some((key) => blob.includes(normalizeTitle(key)))) return true;
+    if (alreadyThemed(meal, kit)) return true;
+  }
   return tokens.some((token) => blob.includes(token));
 }
 
 export function conflictsWithTheme(meal: PlannedMeal, theme: string) {
   const kit = matchKit(theme);
   if (!kit) return false;
-  const text = normalizeTitle(`${meal.baseName} ${meal.sharedBase} ${meal.theme}`);
+  const text = normalizeTitle(`${meal.baseName} ${meal.theme}`);
+  if (kit.keys.some((key) => text.includes(normalizeTitle(key)))) return false;
   return KITS.some(
-    (other) => other !== kit && other.markers.some((marker) => text.includes(normalizeTitle(marker))),
+    (other) =>
+      other !== kit && other.keys.some((key) => text.includes(normalizeTitle(key))),
   );
 }
 
@@ -178,23 +181,13 @@ export function themeMismatchProblems(titles: string[], theme: string) {
       continue;
     }
 
-    for (const other of KITS) {
-      if (kit && other === kit) continue;
-      const hits = other.markers.filter((marker) => text.includes(normalizeTitle(marker)));
-      if (hits.length > 0) {
-        problems.push(`« ${title} » n'est pas du thème « ${label} » (${hits.join(", ")})`);
-      }
-    }
-
-    if (kit) {
-      const onTheme =
-        kit.markers.some((marker) => text.includes(normalizeTitle(marker))) ||
-        kit.keys.some((key) => text.includes(normalizeTitle(key))) ||
-        text.includes(themeNorm);
-      if (!onTheme) {
-        problems.push(`« ${title} » n'incarne pas le thème « ${label} » (titre générique)`);
-      }
-    } else if (themeTokens.length > 0 && !themeTokens.some((token) => text.includes(token))) {
+    const onTheme =
+      text.includes(themeNorm) ||
+      (themeTokens.length > 0 && themeTokens.some((token) => text.includes(token))) ||
+      (kit
+        ? kit.keys.some((key) => text.includes(normalizeTitle(key)))
+        : false);
+    if (!onTheme) {
       problems.push(`« ${title} » n'incarne pas le thème « ${label} »`);
     }
   }
@@ -204,31 +197,21 @@ export function themeMismatchProblems(titles: string[], theme: string) {
 /** Consigne Gemini : le thème s'applique à TOUS les plats du lot. */
 export function themeConstraintLine(theme: string, count: number) {
   const label = theme.trim();
-  if (!label) return "Pas de thème imposé — varie les bases.";
-  const kit = matchKit(label);
-  const examples = kit?.dishes ?? label;
-  const forbidden = KITS.filter((other) => other !== kit)
-    .flatMap((other) => other.markers)
-    .slice(0, 22)
-    .join(", ");
+  if (!label) return "Pas de thème imposé — identités distinctes dans le lot.";
   const star = sharedProteinThemeLine(label);
   const dish = dishStarOf(label);
   if (dish) {
     return `THÈME = LE PLAT : « ${label} ».
-Les ${count} recettes SONT des « ${dish.keys[0]} » — pas une cuisine libre autour.
-Titre : le mot « ${dish.keys[0]} » OBLIGATOIRE sur chaque recette (y compris la dernière / vendredi).
-Ingrédient star du thème (ex. tofu soyeux) dans shared_ingredients + une étape four / plaque dédiée.
-Diversité = légumes / herbes / garniture différents. INTERDIT de changer de TYPE de plat.
+Les ${count} recettes SONT des « ${dish.keys[0]} ». Titre : le mot « ${dish.keys[0]} » sur chaque recette.
+Diversité = garniture / légumes / herbes. INTERDIT de changer de TYPE de plat.
 INTERDIT ${dish.avoid} à la place de la ${dish.keys[0]}.
 Le schéma JSON est un format de clés, pas un plat à recopier.
 EXCEPTION TOFU : cuisson four autorisée (quiche / tarte / flan / clafoutis / dessert), y compris Lun–Ven.${star ? `\n${star}` : ""}`;
   }
   return `THÈME IMPOSÉ SUR LES ${count} REPAS : « ${label} ».
-Le thème est la STAR de chaque recette : titre + base partagée + ingrédient majeur + une étape dédiée.
-Plats attendus (cuisine « ${label} ») : ${examples}.
-INTERDIT d'autres cuisines / mots : ${forbidden || "aucune"}.
-INTERDIT de coller « · ${label} » sur un plat générique hors thème.
-Les ${count} recettes, sans exception — 0 plat hors thème.${star ? `\n${star}` : ""}`;
+Chaque recette EST de cette cuisine ou de cet ingrédient-star : titre + base + étape dédiée.
+Invente des plats de cette cuisine. INTERDIT un plat générique avec « · ${label} » collé.
+Les ${count} recettes, sans exception.${star ? `\n${star}` : ""}`;
 }
 
 /** Ne greffe plus le thème en suffixe. Le catalogue / Gemini doit fournir le vrai plat. */

@@ -62,10 +62,10 @@ export const DEFAULT_KITCHEN_PREFS: KitchenPrefs = {
   homemadeSauces: true,
   batchLabel: "Session express · sauces en pots",
   preferredHerbs: ["menthe", "basilic", "persil plat", "ciboulette"],
-  preferredSpices: ["cumin", "paprika fumé", "gingembre frais", "5-épices", "moutarde", "raifort"],
+  preferredSpices: ["cumin", "paprika fumé", "gingembre frais", "5-épices", "raifort"],
   extraAversions: [],
-  extraTastes: ["sauces maison complexes", "herbes fraîches", "umami"],
-  extraRules: ["Toujours une herbe fraîche", "Sauces 100% maison"],
+  extraTastes: ["herbes fraîches", "umami"],
+  extraRules: ["Toujours une herbe fraîche"],
   appliances: { ...ALL_APPLIANCES_ON },
 };
 
@@ -110,7 +110,9 @@ export function parseKitchenPrefs(raw: unknown): KitchenPrefs {
     weatherAdaptive: rec.weatherAdaptive !== false,
     homemadeSauces: rec.homemadeSauces !== false,
     preferredHerbs: asStringList(rec.preferredHerbs, DEFAULT_KITCHEN_PREFS.preferredHerbs),
-    preferredSpices: asStringList(rec.preferredSpices, DEFAULT_KITCHEN_PREFS.preferredSpices),
+    preferredSpices: asStringList(rec.preferredSpices, DEFAULT_KITCHEN_PREFS.preferredSpices).filter(
+      (spice) => !/^moutarde$/i.test(spice),
+    ),
     extraAversions: asStringList(rec.extraAversions, []),
     extraTastes: asStringList(rec.extraTastes, DEFAULT_KITCHEN_PREFS.extraTastes),
     extraRules: asStringList(
@@ -161,16 +163,16 @@ export function formatKitchenPrefsForPrompt(
   const aversions = silentAversions(prefs, profiles);
   const pace =
     prefs.recipePace === "express"
-      ? `TYPE DE RECETTE : EXPRESS S34. Recettes ultra-détaillées mais conçues pour un assemblage et un temps de préparation ultra-rapide. Airfryer parallèle, féculents eau/cuiseur, sauces Thermomix, découpes KitchenAid, montage tupperware. Plats TRÈS gourmands malgré la vitesse (vinaigrette complexe, herbes, épices).`
+      ? `TYPE DE RECETTE : EXPRESS S34. Recettes ultra-détaillées mais conçues pour un assemblage et un temps de préparation ultra-rapide. Airfryer parallèle, féculents eau/cuiseur, découpes KitchenAid, montage tupperware. Plats TRÈS gourmands malgré la vitesse (herbes, épices). Sauce / vinaigrette maison seulement si CE plat en a vraiment une — jamais inventée pour remplir.`
       : prefs.recipePace === "gastro"
-        ? `TYPE DE RECETTE : GOURMET. Tian, rôtis, sauces travaillées, plus de four / plaques. Toujours actionnable en batch.`
+        ? `TYPE DE RECETTE : GOURMET. Plus travaillé, four / plaques. Toujours actionnable en batch.`
         : `TYPE DE RECETTE : ÉQUILIBRÉ. Mix express et un plat plus travaillé par lot.`;
   const heat =
     prefs.heatStyle === "complexe"
-      ? `GOÛT : complexes et très épicées sans piment fort — ${prefs.preferredSpices.join(", ")}. Herbes : ${prefs.preferredHerbs.join(", ")}.`
+      ? `GOÛT : complexes et très épicées, sans piment fort. Épices et herbes choisies pour CE plat / ce thème — pas une palette unique à coller partout.`
       : prefs.heatStyle === "doux"
-        ? `GOÛT : douces et parfumées — herbes, agrumes, huile d'olive. Épices légères.`
-        : `GOÛT : neutres — assaisonnement simple, peu d'épices, herbes discrètes.`;
+        ? `GOÛT : douces et parfumées. Épices légères.`
+        : `GOÛT : neutres — assaisonnement simple, peu d'épices.`;
   const tofu = prefs.tofuWeekdayFresh
     ? "Tofu ferme Lun–Ven : presser, mariner, frais à l'assemblage. EXCEPTION : quiche / tarte / flan / clafoutis / dessert → tofu (surtout soyeux) au four OK en semaine."
     : "Tofu : cuisson autorisée en semaine.";
@@ -181,14 +183,16 @@ export function formatKitchenPrefsForPrompt(
     ? "Tous les dîners : low calorie systématiques (huile ≤ 8 g)."
     : "Dîners : pas de contrainte low cal.";
   const sauces = prefs.homemadeSauces
-    ? "Sauces 100% maison : chaque composant dosé (jamais un seul pot du commerce)."
+    ? "Quand le plat a une sauce : 100% maison, chaque composant dosé (jamais un pot du commerce). INTERDIT d'inventer une sauce ou une vinaigrette pour satisfaire cette règle."
     : "";
   const gear = enabledAppliances(prefs);
   const gearLine =
     gear.length === KITCHEN_APPLIANCES.length
       ? "MATÉRIEL : Thermomix, Airfryer, Cookeo, cuiseur à riz, KitchenAid — tous dispo."
       : `MATÉRIEL AUTORISÉ : ${gear.join(", ") || "plaque / four uniquement"}. Ne pas utiliser les appareils absents.`;
-  const weather = prefs.weatherAdaptive ? "Météo : canicule → bowls / salades / crudités." : "";
+  const weather = prefs.weatherAdaptive
+    ? "Météo : adapter le TYPE de plat (chaud / froid / léger), pas les ingrédients."
+    : "";
   const rules = prefs.extraRules.length
     ? `CRITÈRES LIBRES À RESPECTER : ${prefs.extraRules.join(" · ")}.`
     : "";
