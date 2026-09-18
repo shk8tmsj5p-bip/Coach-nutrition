@@ -96,7 +96,9 @@ export function classifyIngredient(name: string): IngredientKind {
   ) {
     return "protein";
   }
-  if (/lentille|pois chiche|haricot blanc|haricot rouge|edamame/.test(n)) return "legume";
+  if (/lentilles?|pois chiches?|haricots?\s+blancs?|haricots?\s+rouges?|edamame/.test(n)) {
+    return "legume";
+  }
   if (/sauce soja|vinaigre|citron|lime|agave|nuoc|miso/.test(n)) return "sauce";
   if (
     /courgette|carotte|chou|salade|concombre|tomate|poivron|epinard|brocoli|haricot vert|aubergine|champignon|radis|navet|celeri|betterave|oignon|poireau|roquette|mache|fenouil|courge|asperge|petit pois|pousse de soja/.test(

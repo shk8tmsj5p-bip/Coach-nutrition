@@ -50,21 +50,53 @@ function hasFreshGarlic(meal: PlannedMeal) {
 }
 
 /** Même produit (basilic, ail, noix…) = une seule ligne. « Ail en poudre » reste distinct de « Ail ». */
-export function ingredientDedupeKey(name: string) {
-  return foldName(name)
+export function ingredientDedupeKey(name: string, notes?: string) {
+  let key = foldName(name)
     .replace(/\([^)]*\)/g, " ")
-    .replace(/\b(pesto|pistou|marinade|vinaigrette|maison)\b/g, " ")
+    .replace(/\b(pesto|pistou|marinade|vinaigrette|maison)\b/g, " ");
+  const blob = `${key} ${foldName(notes ?? "")}`;
+  if (/\bzeste\b/.test(blob)) {
+    return key.replace(/\bzeste de\b/g, "zeste").replace(/\s+/g, " ").trim();
+  }
+  return key
+    .replace(/\bjus de (citron vert|lime)\b/g, "citron vert")
+    .replace(/\bjus de citron\b/g, "citron")
+    .replace(/\bjus d['’](citron|lime)\b/g, "$1")
+    .replace(/\bcitron jaune\b/g, "citron")
+    .replace(/\bcitron presse\b/g, "citron")
+    .replace(/\blime\b/g, "citron vert")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+function preferIngredientName(a: string, b: string) {
+  const fa = foldName(a);
+  const fb = foldName(b);
+  const jus = (value: string) => /^jus de\b|^jus d['’]/.test(value);
+  if (jus(fa) && !jus(fb)) return b;
+  if (jus(fb) && !jus(fa)) return a;
+  return a.length <= b.length ? a : b;
+}
+
+function mergedNotes(prev: RecipeIngredient, item: RecipeIngredient, name: string) {
+  const blob = `${prev.name} ${item.name} ${prev.notes ?? ""} ${item.notes ?? ""}`;
+  if (/\bzeste\b/i.test(blob)) return prev.notes || item.notes;
+  if (/citron|lime/i.test(name) && /jus/i.test(blob)) {
+    const juiceNote = [prev.notes, item.notes].find(
+      (note) => note && /jus/i.test(note) && !/marinade|vinaigrette/i.test(note),
+    );
+    return juiceNote || "jus";
+  }
+  return prev.notes || item.notes;
 }
 
 export function mergeDuplicateIngredients(ingredients: RecipeIngredient[]): RecipeIngredient[] {
   const out: RecipeIngredient[] = [];
   for (const item of ingredients) {
-    const key = ingredientDedupeKey(item.name);
+    const key = ingredientDedupeKey(item.name, item.notes);
     if (!key) continue;
     const index = out.findIndex((row) => {
-      if (ingredientDedupeKey(row.name) !== key) return false;
+      if (ingredientDedupeKey(row.name, row.notes) !== key) return false;
       if (row.role === item.role) return true;
       return row.role === "shared" || item.role === "shared";
     });
@@ -76,12 +108,14 @@ export function mergeDuplicateIngredients(ingredients: RecipeIngredient[]): Reci
     const prevTotal = prev.gramsAlexis + prev.gramsElodie;
     const nextTotal = item.gramsAlexis + item.gramsElodie;
     const richer = nextTotal > prevTotal ? item : prev;
+    const name = preferIngredientName(prev.name, item.name);
     out[index] = {
       ...richer,
+      name,
       role: prev.role === "shared" || item.role === "shared" ? "shared" : richer.role,
       gramsAlexis: Math.max(prev.gramsAlexis, item.gramsAlexis),
       gramsElodie: Math.max(prev.gramsElodie, item.gramsElodie),
-      notes: richer.notes || prev.notes || item.notes,
+      notes: mergedNotes(prev, item, name),
       visualQuantity: richer.visualQuantity || prev.visualQuantity || item.visualQuantity,
     };
   }

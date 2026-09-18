@@ -196,12 +196,14 @@ RÈGLES PORTIONS
 - SAUCES COMMUNES : vinaigrette, sauce, marinade, pesto, houmous, satay, nuoc, tahini — UN seul dosage foyer (grams_alexis = grams_elodie, ou un seul weight_g). INTERDIT de splitter huile / soja / moutarde / citron / tahini de la sauce. L'huile de CUISSON du plat (hors sauce) peut rester split.
 - Perte = un peu plus de légumes (+10 % max), herbes, agrume, soja, moutarde — PAS des kilos ni 3 carottes + 1 concombre entier par assiette. Prise = densité (féculent + protéine + tahini / huile).
 - Légumes par personne par plat : 1–2 pièces au total (ex. 1 carotte 80 g + 1/3 concombre 100 g). Plafond ~120 g par légume, ~250 g de légumes en tout. INTERDIT 400 g de carotte ou 1 concombre entier par personne.
+- Légumineuses : 80–140 g / pers. cuites, pas 300 g+. Si le plat est une tartinade / wrap haricot, garder les haricots (éventuellement avec du tofu si Gem l’a mis). INTERDIT d’ajouter tofu ou poulet si une protéine est déjà là.
+- Agrumes : citron et citron vert = deux produits, à garder tous les deux s’ils sont nommés. INTERDIT seulement le doublon du même fruit (« jus de citron » + « citron »).
 - Protéine plancher : ne JAMAIS réduire tofu / poulet / poisson / œufs / edamame pour « faire light ». Le dîner light coupe le riz et l'huile, pas la protéine.
 - Dîner : light pour les deux, mais la prise garde sa protéine ; seule la perte coupe vraiment le féculent (≈ −45 %).
-- Écart kcal > 250 : ajouter une ligne profil-only (riz cuit, tofu extra) — jamais de 2e sauce, jamais de beurre de cacahuète (aversion Élodie) ni fromage pour Alexis.
+- Écart kcal > 250 : plus de grammes de ce qui est déjà dans le plat (féculent / protéine du titre), jamais une 2e brique tofu ou poulet collée, jamais de 2e sauce, jamais de beurre de cacahuète (aversion Élodie) ni fromage pour Alexis.
 - Umami sans calories : soja, agrume, moutarde, herbes, gingembre, ail — surtout sur les dîners perte.
 - N'inclus PAS de dessert, yaourt sucré, granola dessert (géré par les templates Paramètres).
-- Satiété vegan prise : tofu + légumineuse + riz, pas un filet d'huile tout seul.
+- Satiété vegan prise : un peu plus de la protéine / du féculent déjà dans le plat, pas une 2e brique collée « pour les macros ».
 - Assemblage : même boîte / même ordre, justes portions différentes (ex. « riz : Alexis 180g · Élodie 100g »). Sauce / vinaigrette = UN dosage commun, jamais split. Pas de discours diététique dans les étapes.
 - Week-end : légèrement plus généreux, toujours split selon les cibles ci-dessus.`;
 }
@@ -351,7 +353,7 @@ function fitProfile(
   let next = ingredients;
   if (person.goal === "prise" && kcalRatio < 0.88) {
     const bump = mealHasEnvelope(ingredients, meal)
-      ? (["oil", "legume", "protein"] as IngredientKind[])
+      ? (["oil", "protein"] as IngredientKind[])
       : (["starch", "oil", "legume"] as IngredientKind[]);
     next = scaleKinds(next, profile, bump, clamp(target.calories / Math.max(decl.calories, 1), 1.05, 1.4), meal);
   } else if (person.goal === "perte" && kcalRatio > 1.12) {
@@ -423,11 +425,70 @@ function capEnvelopePortions(meal: PlannedMeal): PlannedMeal {
   return { ...meal, ingredients };
 }
 
+function profileHasPlateProtein(meal: PlannedMeal, profile: "alexis" | "elodie") {
+  return meal.ingredients.some((item) => {
+    if (classifyIngredient(item.name) !== "protein") return false;
+    if (isDressingIngredient(item, meal)) return false;
+    return profile === "alexis" ? item.gramsAlexis > 0 : item.gramsElodie > 0;
+  });
+}
+
+function legumeItemCap(dinner: boolean, wrap: boolean, hasProtein: boolean) {
+  if (wrap) return hasProtein ? 90 : 130;
+  if (dinner) return hasProtein ? 80 : 110;
+  return hasProtein ? 110 : 140;
+}
+
+/** Haricots / pois chiches : une garniture, pas 520 g sur un wrap. */
+function capLegumePortions(meal: PlannedMeal): PlannedMeal {
+  const dinner = meal.lowCalorie || meal.mealType === "diner";
+  const wrap = mealHasEnvelope(meal.ingredients, meal);
+  let ingredients = meal.ingredients.map((item) => {
+    if (classifyIngredient(item.name) !== "legume") return item;
+    if (isDressingIngredient(item, meal)) return item;
+    const capA = legumeItemCap(dinner, wrap, profileHasPlateProtein(meal, "alexis"));
+    const capE = legumeItemCap(dinner, wrap, profileHasPlateProtein(meal, "elodie"));
+    const a = item.gramsAlexis > 0 ? Math.min(item.gramsAlexis, capA) : 0;
+    const e = item.gramsElodie > 0 ? Math.min(item.gramsElodie, capE) : 0;
+    const visual = visualForIngredient(item.name, Math.max(a, e), item.visualQuantity);
+    return { ...item, gramsAlexis: a, gramsElodie: e, visualQuantity: visual };
+  });
+  for (const profile of ["alexis", "elodie"] as const) {
+    const gramsOf = (item: RecipeIngredient) => (profile === "alexis" ? item.gramsAlexis : item.gramsElodie);
+    const itemCap = legumeItemCap(dinner, wrap, profileHasPlateProtein(meal, profile));
+    const maxTotal = wrap ? itemCap : dinner ? Math.round(itemCap * 1.15) : Math.round(itemCap * 1.25);
+    const legumes = ingredients.filter(
+      (item) =>
+        classifyIngredient(item.name) === "legume" &&
+        !isDressingIngredient(item, meal) &&
+        gramsOf(item) > 0,
+    );
+    const total = legumes.reduce((sum, item) => sum + gramsOf(item), 0);
+    if (total <= maxTotal) continue;
+    const factor = maxTotal / total;
+    ingredients = ingredients.map((item) => {
+      if (!legumes.some((row) => row.id === item.id)) return item;
+      const grams = Math.max(40, roundGrams(gramsOf(item) * factor, "legume"));
+      const next = profile === "alexis" ? { ...item, gramsAlexis: grams } : { ...item, gramsElodie: grams };
+      return {
+        ...next,
+        visualQuantity: visualForIngredient(
+          next.name,
+          Math.max(next.gramsAlexis, next.gramsElodie),
+          next.visualQuantity,
+        ),
+      };
+    });
+  }
+  return { ...meal, ingredients };
+}
+
 /** Assiette réelle : ~1–2 légumes, pas des kilos. Appliqué au load et après scale. */
 export function capVegetablePortions(meal: PlannedMeal): PlannedMeal {
   if (!meal.ingredients.length || meal.baseName === "Aucun repas") return meal;
   const vegged = capVegetablePortionsInner(meal);
-  const wrapped = capEnvelopePortions(vegged);
+  const legumed = capLegumePortions(vegged);
+  const wrapped = capEnvelopePortions(legumed);
   const plated = capPlatedPortions(wrapped);
   return withMacros(plated, plated.ingredients);
 }

@@ -100,8 +100,8 @@ const DISH_STARS: Array<{ keys: string[]; must: RegExp; forbid: RegExp; avoid: s
   {
     keys: ["wrap", "tortilla", "burrito"],
     must: /wrap|tortilla|burrito/i,
-    forbid: /quinoa|bowl\b|risotto|quiche|bo bun|taboul/i,
-    avoid: "quinoa, bowl, riz, pâtes, risotto",
+    forbid: /bowl\b|risotto|quiche|bo bun|taboul/i,
+    avoid: "bowl, risotto, quiche",
   },
 ];
 
@@ -220,14 +220,14 @@ Titre : le mot « ${dish.keys[0]} » OBLIGATOIRE sur chaque recette (y compris l
 Ingrédient star du thème (ex. tofu soyeux) dans shared_ingredients + une étape four / plaque dédiée.
 Diversité = légumes / herbes / garniture différents. INTERDIT de changer de TYPE de plat.
 INTERDIT ${dish.avoid} à la place de la ${dish.keys[0]}.
-INTERDIT d'imiter l'exemple JSON (bowl courgette / vinaigrette) — c'est un FORMAT, pas le plat.
+Le schéma JSON est un format de clés, pas un plat à recopier.
 EXCEPTION TOFU : cuisson four autorisée (quiche / tarte / flan / clafoutis / dessert), y compris Lun–Ven.${star ? `\n${star}` : ""}`;
   }
   return `THÈME IMPOSÉ SUR LES ${count} REPAS : « ${label} ».
 Le thème est la STAR de chaque recette : titre + base partagée + ingrédient majeur + une étape dédiée.
 Plats attendus (cuisine « ${label} ») : ${examples}.
 INTERDIT d'autres cuisines / mots : ${forbidden || "aucune"}.
-INTERDIT de coller « · ${label} » sur un bowl générique, un satay, un zaalouk, une kefta ou l'exemple JSON courgette/edamame.
+INTERDIT de coller « · ${label} » sur un plat générique hors thème.
 Les ${count} recettes, sans exception — 0 plat hors thème.${star ? `\n${star}` : ""}`;
 }
 

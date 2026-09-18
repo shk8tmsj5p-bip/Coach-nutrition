@@ -88,10 +88,13 @@ PAS-À-PAS : uniquement les blocs utiles, phrases courtes et chargées :
 5. Assemblage — légumes + féculent + protéine marinée (si marinade) dans les boîtes. Sauce / mayo au pot. INTERDIT d'y lister soja / gingembre / lait de soja / citron de la sauce. INTERDIT d'y mettre une cuisson (lentilles, riz) ou une découpe (trancher les tomates).
 
 visual_unit obligatoire : légumes en pièces ("1 pièce", "1/3 concombre", "1/2 botte"), sauces/épices en cc/cs. JAMAIS le préfixe « env. ».
-Galette / wrap / pita / tortilla : visual_unit « 1 pièce » = 50–60 g. INTERDIT 120 g sur 1 wrap. Wrap = le féculent. INTERDIT quinoa / riz / pâtes dans le même plat.
+Galette / wrap / pita / tortilla : visual_unit « 1 pièce » = 50–60 g. INTERDIT 120 g sur 1 wrap. Poêle ou four, JAMAIS à l'eau.
 Légumes : 1–2 pièces par personne par plat (ex. 1 carotte 80 g, 1/3 concombre 100 g). INTERDIT 3+ carottes ou 1 concombre entier par assiette. Total légumes ~200–280 g / pers. midi, moins le soir.
 ASSIETTE : 400–520 g / pers. midi, 320–400 g soir (protéine + féculent + légumes, hors sauce). INTERDIT 700 g+ par personne pour un plat.
-Quiche / tarte / flan : UNE protéine star (tofu soyeux) pour Alexis ET Élodie. INTERDIT d'ajouter tofu ferme + poulet + pois chiches en plus « pour les macros ».
+Chaque recette EST équilibrée dès le JSON : une protéine (vegan Alexis, même plat ou déclinaison omni Élodie). INTERDIT un plat sans protéine. INTERDIT d’ajouter tofu / poulet « au cas où » si falafels, tartinade, haricots ou tofu sont déjà le plat.
+Légumineuses : 80–140 g / pers. cuites (pas 300 g+). Si le plat EST une tartinade / wrap haricot, les haricots restent — ce n’est pas un dump.
+Agrumes : citron et citron vert sont DEUX produits. Les garder tous les deux s'ils sont tous les deux dans la recette. INTERDIT deux lignes « jus de citron » + « citron » pour le MÊME fruit.
+Quiche / tarte / flan : le plat EST la quiche (tofu soyeux), pas un wrap / bowl à la place.
 Houmous / nuoc / pesto / satay / vinaigrette = sous-recette maison (ingrédients séparés). TM seulement si on mixe.
 
 Express (défaut) : zéro cuisson lourde, assemblage tupperware. Gastro seulement si les prefs le demandent.
@@ -101,7 +104,7 @@ LOIS CUISINE
 ════════════════════════════════
 - Riz : cuiseur à riz. Cookeo = lentilles, quinoa, vapeur.
 - Galette / naan / pain / wrap : poêle ou four. JAMAIS de cuisson à l'eau.
-- Galette / wrap / pita / tortilla : 1 pièce / pers. ≈ 50–60 g (~140 kcal). Naan ≈ 80 g. C'est LE féculent du plat. INTERDIT quinoa / riz / pâtes / semoule à côté. Plus de kcal = garniture ou protéine, pas un 2e féculent et pas un 2e wrap.
+- Galette / wrap / pita / tortilla : poêle ou four. JAMAIS de cuisson à l'eau. 1 pièce / pers. ≈ 50–60 g (~140 kcal). Naan ≈ 80 g.
 - Wrap falafel / falafel : falafels dans shared_ingredients ET dans les étapes (airfryer °C + min). Alexis ET Élodie. INTERDIT un titre falafel sans falafel, INTERDIT crevettes à la place.
 - Dîners low cal savoureux si les prefs l'exigent (huile ≤ 8 g pour la perte ; la prise garde la protéine).
 - Tofu ferme Lun–Ven : presser, mariner cru, frais — jamais Airfryer / poêle pendant le batch.
@@ -125,45 +128,28 @@ THÈME
 ════════════════════════════════
 Si un thème est fourni (ex. Coréen, Thaï, Italien, Tomate), CHAQUE recette du lot EST de cette cuisine / de cet ingrédient-star.
 Titre, base partagée, ingrédient majeur et une étape dédiée : le thème est central, jamais un sous-titre.
-INTERDIT de coller « · Coréen » (ou autre) sur un bowl satay, zaalouk, kefta, pesto, niçoise.
-INTERDIT d'imiter la CUISINE de l'exemple JSON plus bas — c'est un FORMAT (clés, densités, visual_unit), pas un plat à recopier.
+INTERDIT de coller « · Coréen » (ou autre) sur un plat générique.
+Le schéma JSON plus bas n'est qu'un SQUELETTE de clés (title, visual_unit, grams_alexis). INTERDIT d'en copier un plat, une sauce ou des ingrédients.
 Français express : niçoise, taboulé, velouté TM, pistou — pas un tian de 40 min sauf mode gastro.
-Coréen (sans piment / coriandre / cacahuète) : bibimbap, japchae, kimbap, namul sésame, banchan concombre, marinade soja-poire-ail-sésame (style bulgogi). Nori, daikon, épinards, pousses de soja. Pas de gochujang / piment.
-
-════════════════════════════════
-EXEMPLE S34 (imiter la densité, pas copier le piment)
-════════════════════════════════
-Titre : Bowl fraîcheur courgettes, vinaigrette soja-gingembre-agave
-Base : spaghettis de 1 courgette, 1 carotte râpée, 1/4 chou rouge, edamame, 1/2 botte menthe.
-Sauce : 1 cm gingembre, 3 cs soja, jus d'1/2 citron vert, 1 cs huile sésame, 1 cc agave. TM 10 sec / V7.
-Végane : tofu mariné soja-sésame (cru). Classique : crevettes airfryer 190°C · 8 min.
-Montage : légumes + menthe dans les boîtes, protéines marinées, sauce au pot. PAS de soja/gingembre/citron dans la boîte.`;
+Coréen (sans piment / coriandre / cacahuète) : bibimbap, japchae, kimbap, namul sésame, banchan concombre, marinade soja-poire-ail-sésame (style bulgogi). Nori, daikon, épinards, pousses de soja. Pas de gochujang / piment.`;
 
 export const MEAL_JSON_SHAPE = `{
-  "title": "Bowl fraîcheur courgettes, vinaigrette soja-gingembre-agave",
+  "title": "<titre du plat + sauce nommée>",
   "shared_ingredients": [
-    { "name": "Courgette", "weight_g": 180, "visual_unit": "1 pièce", "prep": "spaghettis KitchenAid" },
-    { "name": "Carotte", "weight_g": 80, "visual_unit": "1 pièce", "prep": "râpé fin KitchenAid" },
-    { "name": "Chou rouge", "weight_g": 80, "visual_unit": "1/4 chou", "prep": "râpé fin" },
-    { "name": "Edamame décortiqués", "grams_alexis": 90, "grams_elodie": 70, "visual_unit": "1 poignée" },
-    { "name": "Menthe fraîche", "weight_g": 15, "visual_unit": "1/2 botte", "prep": "ciselée" },
-    { "name": "Sauce soja", "weight_g": 18, "visual_unit": "1 cs" },
-    { "name": "Citron vert", "weight_g": 30, "visual_unit": "1/2 pièce", "prep": "jus" },
-    { "name": "Huile de sésame", "weight_g": 8, "visual_unit": "1/2 cs" },
-    { "name": "Riz cuit", "grams_alexis": 180, "grams_elodie": 100, "visual_unit": "1 bol" },
-    { "name": "Gingembre frais", "weight_g": 8, "visual_unit": "1 cm" },
-    { "name": "Sirop d'agave", "weight_g": 5, "visual_unit": "1 cc" }
+    { "name": "<ingrédient partagé>", "weight_g": 80, "visual_unit": "1 pièce", "prep": "<coupe si besoin>" },
+    { "name": "<féculent>", "grams_alexis": 150, "grams_elodie": 100, "visual_unit": "1 bol" },
+    { "name": "<composant de sauce>", "weight_g": 12, "visual_unit": "1 cs" }
   ],
-  "profile_1_ingredients": [{ "name": "Tofu ferme", "weight_g": 150, "visual_unit": "1/2 bloc", "prep": "dés, mariné soja-sésame" }],
-  "profile_2_ingredients": [{ "name": "Crevettes décortiquées", "weight_g": 150, "visual_unit": "1 barquette", "prep": "airfryer" }],
+  "profile_1_ingredients": [{ "name": "<protéine vegan>", "weight_g": 140, "visual_unit": "1/2 bloc", "prep": "<prépa>" }],
+  "profile_2_ingredients": [{ "name": "<protéine omni, ou la même si le titre EST la protéine>", "weight_g": 140, "visual_unit": "1 filet", "prep": "<prépa>" }],
   "step_groups": [
-    { "section": "Cuissons Airfryer", "steps": ["190°C · 8 min : crevettes Élodie. Pois chiches rôtis Alexis si besoin. Tofu : hors panier."] },
-    { "section": "Cuissons Eau / Plaques", "steps": ["Edamame : 3 min à l'eau bouillante, rafraîchir.", "Riz : cuiseur à riz.", "Haricots verts : eau 8 min.", "Pommes de terre : eau 18 min, dés."] },
-    { "section": "Thermomix", "steps": ["Vinaigrette soja-gingembre-agave : gingembre 1 cm, sauce soja 18 g, jus de citron vert, huile sésame 1/2 cs, agave 1 cc. 10 sec / V7. Racler. 5 sec / V7. Pots hermétiques."] },
-    { "section": "Découpes KitchenAid", "steps": ["Courgette : spaghettis KitchenAid.", "Carotte : râpé fin.", "Chou rouge : râpé fin.", "Menthe : ciselée."] },
-    { "section": "Assemblage", "steps": ["Boîtes : courgettes, carottes, chou, edamame, menthe. Tofu pressé mariné Alexis / crevettes Élodie. Sauce au pot — pas de soja ni citron dans la boîte."] }
+    { "section": "Cuissons Airfryer", "steps": ["<°C · min — omettre le groupe si rien à cuire>"] },
+    { "section": "Cuissons Eau / Plaques", "steps": ["<une durée par ingrédient — omettre si rien>"] },
+    { "section": "Thermomix", "steps": ["<uniquement si mixage réel — omettre sinon>"] },
+    { "section": "Découpes KitchenAid", "steps": ["<une phrase par légume>"] },
+    { "section": "Assemblage", "steps": ["<boîtes + pot sauce>"] }
   ],
-  "tips_and_cautions": ["Conservez la sauce à part et mélangez au moment de servir."]
+  "tips_and_cautions": ["<logistique batch uniquement>"]
 }`;
 
 export function formatPastMealsForPrompt(pastMeals?: string[]) {
