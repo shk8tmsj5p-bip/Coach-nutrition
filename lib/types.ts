@@ -13,7 +13,8 @@ export type Appliance =
   | "Airfryer"
   | "Four"
   | "Plaque"
-  | "KitchenAid";
+  | "KitchenAid"
+  | "Mixer";
 export type WorkoutSource = "strava" | "apple-health" | "manual";
 
 export interface Macros {

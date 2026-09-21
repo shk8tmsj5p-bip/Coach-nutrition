@@ -5,39 +5,22 @@ import { Check, Copy, Moon, Sun } from "lucide-react";
 import { useProfile } from "@/context/ProfileContext";
 import { useTheme } from "@/context/ThemeContext";
 import { Card, SectionTitle } from "@/components/ui/Card";
-import { ChipSelector } from "@/components/parametres/ChipSelector";
 import { MealTemplatesEditor } from "@/components/parametres/MealTemplatesEditor";
 import { StatusBadge, type ConnectionTone } from "@/components/parametres/StatusBadge";
 import { TagInput } from "@/components/parametres/TagInput";
 import { ToggleRow } from "@/components/parametres/ToggleRow";
 import { HouseholdLockCard } from "@/components/parametres/HouseholdLockCard";
 import {
-  HEAT_STYLE_LABEL,
   KITCHEN_APPLIANCES,
   loadKitchenPrefs,
-  RECIPE_PACE_LABEL,
-  type HeatStyle,
   type KitchenApplianceId,
   type KitchenPrefs,
-  type RecipePace,
 } from "@/lib/kitchen-prefs";
 import { hydrateKitchenPrefsFromSupabase, persistKitchenPrefs } from "@/lib/supabase/parametres";
 import { storage } from "@/lib/storage";
 import { HEALTH_WEBHOOK_PATH } from "@/lib/health-webhook";
 import type { SlotTemplate } from "@/lib/types";
 import { cn } from "@/lib/utils";
-
-const PACE_OPTIONS: { id: RecipePace; label: string }[] = [
-  { id: "express", label: RECIPE_PACE_LABEL.express },
-  { id: "equilibre", label: RECIPE_PACE_LABEL.equilibre },
-  { id: "gastro", label: RECIPE_PACE_LABEL.gastro },
-];
-
-const HEAT_OPTIONS: { id: HeatStyle; label: string }[] = [
-  { id: "complexe", label: HEAT_STYLE_LABEL.complexe },
-  { id: "doux", label: HEAT_STYLE_LABEL.doux },
-  { id: "neutre", label: HEAT_STYLE_LABEL.neutre },
-];
 
 const LEGACY_KEY_FIELDS = ["openai", "anthropic", "supabaseUrl", "supabaseAnon", "strava"] as const;
 
@@ -101,7 +84,6 @@ export default function ParametresScreen() {
   const [draftKeys, setDraftKeys] = useState<StoredKeys>(emptyKeys);
   const [savedKeys, setSavedKeys] = useState<StoredKeys>(emptyKeys);
   const [connections, setConnections] = useState<ConnectionsStatus | null>(null);
-  const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
   const webhookUrl =
@@ -124,40 +106,37 @@ export default function ParametresScreen() {
     window.setTimeout(() => setToast(null), 2400);
   }
 
-  function patchPrefs(patch: Partial<KitchenPrefs>) {
-    setPrefs((current) => ({ ...current, ...patch }));
+  function persistPrefs(next: KitchenPrefs) {
+    void persistKitchenPrefs({ ...next, extraTastes: next.extraRules }).then((error) => {
+      if (error) showToast("Préférences en local (Supabase incomplet)");
+    });
   }
 
-  async function save() {
-    setSaving(true);
-    try {
-      const nextKeys: StoredKeys = {
-        gemini: draftKeys.gemini.trim() || savedKeys.gemini,
-        webhook: draftKeys.webhook.trim() || savedKeys.webhook,
-      };
-      storage.setJSON("api-keys", nextKeys);
-      setSavedKeys(nextKeys);
-      setDraftKeys(emptyKeys);
+  function patchPrefs(patch: Partial<KitchenPrefs>) {
+    setPrefs((current) => {
+      const next = { ...current, ...patch };
+      persistPrefs(next);
+      return next;
+    });
+  }
 
-      const prefError = await persistKitchenPrefs({
-        ...prefs,
-        extraTastes: prefs.extraRules,
-      });
-      const alexisError = await updateAversions("alexis", alexisAversions);
-      const elodieError = await updateAversions("elodie", elodieAversions);
-      const templatesError = await updateMealTemplates({
-        alexis: alexisTemplates,
-        elodie: elodieTemplates,
-      });
-      const remote = [prefError, alexisError, elodieError, templatesError].filter(Boolean);
-      showToast(
-        remote.length
-          ? "Préférences enregistrées en local (Supabase incomplet)"
-          : "Préférences enregistrées",
-      );
-    } finally {
-      setSaving(false);
-    }
+  function patchAversions(profileId: "alexis" | "elodie", next: string[]) {
+    if (profileId === "alexis") setAlexisAversions(next);
+    else setElodieAversions(next);
+    void updateAversions(profileId, next).then((error) => {
+      if (error) showToast("Aversions en local (Supabase incomplet)");
+    });
+  }
+
+  function commitKey(field: keyof StoredKeys, raw: string) {
+    setDraftKeys((current) => ({ ...current, [field]: raw }));
+    const trimmed = raw.trim();
+    if (!trimmed) return;
+    setSavedKeys((current) => {
+      const next = { ...current, [field]: trimmed };
+      storage.setJSON("api-keys", next);
+      return next;
+    });
   }
 
   async function copyWebhook(url = webhookUrl, key = "main") {
@@ -189,31 +168,19 @@ export default function ParametresScreen() {
 
       <SectionTitle className="mb-1.5 mt-3">Règles à respecter</SectionTitle>
       <Card compact>
-        <p className="text-[13px] font-semibold">Type de recettes</p>
-        <div className="mt-1.5">
-          <ChipSelector value={prefs.recipePace} options={PACE_OPTIONS} onChange={(recipePace) => patchPrefs({ recipePace })} />
-        </div>
-        <p className="mt-1.5 text-[11px] leading-snug text-health-muted">
-          Un seul choix. Express = assemblage ultra-rapide, toujours gourmand.
-        </p>
-
-        <p className="mt-3 text-[13px] font-semibold">Saveurs</p>
-        <div className="mt-1.5">
-          <ChipSelector
-            stacked
-            value={prefs.heatStyle}
-            options={HEAT_OPTIONS}
-            onChange={(heatStyle) => patchPrefs({ heatStyle })}
-          />
-        </div>
-
-        <p className="mt-3 text-[13px] font-semibold">Lois du foyer</p>
+        <p className="text-[13px] font-semibold">Lois du foyer</p>
         <div className="mt-0.5">
           <ToggleRow
-            label="Tofu cru uniquement en semaine"
-            hint="Lun–Ven : pressé, mariné, servi frais. Cuit OK desserts et week-end."
-            checked={prefs.tofuWeekdayFresh}
-            onChange={(tofuWeekdayFresh) => patchPrefs({ tofuWeekdayFresh })}
+            label="Recettes express"
+            hint="Préparation très rapide. Sinon le classique : recettes détaillées, matériel du foyer."
+            checked={prefs.recipePace === "express"}
+            onChange={(on) => patchPrefs({ recipePace: on ? "express" : "equilibre" })}
+          />
+          <ToggleRow
+            label="Épices complexes"
+            hint="Choisir des recettes qui jouent vraiment des épices. Pas en coller si le plat n’en a pas."
+            checked={prefs.heatStyle === "complexe"}
+            onChange={(on) => patchPrefs({ heatStyle: on ? "complexe" : "neutre" })}
           />
           <ToggleRow
             label="Pas de simili-carné en semaine"
@@ -222,16 +189,22 @@ export default function ParametresScreen() {
             onChange={(mockMeatsWeekendOnly) => patchPrefs({ mockMeatsWeekendOnly })}
           />
           <ToggleRow
-            label="Dîners Low Calorie systématiques"
-            hint="Tous les soirs : variante allégée."
+            label="Dîners Low Calorie"
+            hint="Tous les soirs : low cal. Gem dose comme il veut."
             checked={prefs.dinnersLowCal}
             onChange={(dinnersLowCal) => patchPrefs({ dinnersLowCal })}
           />
           <ToggleRow
             label="Adapter à la météo"
-            hint="Adapter le type de plat (chaud / froid / léger), pas les ingrédients."
+            hint="Éclairage chaud / froid selon le jour à Eschentzwiller. Pas un menu imposé."
             checked={prefs.weatherAdaptive}
             onChange={(weatherAdaptive) => patchPrefs({ weatherAdaptive })}
+          />
+          <ToggleRow
+            label="Légumes de saison"
+            hint="Privilégier les légumes du moment (Alsace). Pas une liste fermée."
+            checked={prefs.seasonalProduce}
+            onChange={(seasonalProduce) => patchPrefs({ seasonalProduce })}
           />
           <ToggleRow
             label="Sauces 100% maison"
@@ -243,7 +216,7 @@ export default function ParametresScreen() {
 
         <p className="mt-3 text-[13px] font-semibold">+ Critère libre</p>
         <p className="mt-0.5 text-[11px] text-health-muted">
-          Gem Chef les lit à chaque génération (ex. toujours une herbe fraîche).
+          Optionnel. Gem les lit si tu en ajoutes. Ne force pas un ingrédient sur toutes les recettes.
         </p>
         <div className="mt-1.5">
           <TagInput
@@ -267,7 +240,7 @@ export default function ParametresScreen() {
         <div className="mt-1">
           <TagInput
             tags={alexisAversions}
-            onChange={setAlexisAversions}
+            onChange={(next) => patchAversions("alexis", next)}
             placeholder="Ajouter (ex. coriandre)"
             accent="coral"
           />
@@ -278,7 +251,7 @@ export default function ParametresScreen() {
         <div className="mt-1">
           <TagInput
             tags={elodieAversions}
-            onChange={setElodieAversions}
+            onChange={(next) => patchAversions("elodie", next)}
             placeholder="Ajouter (ex. beurre de cacahuète)"
             accent="violet"
           />
@@ -293,14 +266,19 @@ export default function ParametresScreen() {
               key={item.id}
               label={item.label}
               checked={prefs.appliances[item.id]}
-              onChange={(on) =>
-                patchPrefs({
-                  appliances: { ...prefs.appliances, [item.id]: on } as Record<
+            onChange={(on) =>
+              setPrefs((current) => {
+                const next = {
+                  ...current,
+                  appliances: { ...current.appliances, [item.id]: on } as Record<
                     KitchenApplianceId,
                     boolean
                   >,
-                })
-              }
+                };
+                persistPrefs(next);
+                return next;
+              })
+            }
             />
           ))}
         </div>
@@ -310,7 +288,7 @@ export default function ParametresScreen() {
       <p className="mb-1.5 px-0.5 text-[11px] leading-snug text-health-muted">
         Modèles stables par jour. À l’ajout d’un ingrédient, Gemini estime les kcal d’après ta phrase
         (lait d’avoine ≠ flocons). Les desserts s’ajoutent au déjeuner / dîner. Le plat vient de Repas.
-        Enregistrer met à jour Aujourd’hui.
+        Un changement s’applique tout de suite à Aujourd’hui.
       </p>
       <MealTemplatesEditor
         profileId="alexis"
@@ -352,7 +330,7 @@ export default function ParametresScreen() {
           label="Clé Gemini"
           value={draftKeys.gemini}
           hasSaved={Boolean(savedKeys.gemini) || Boolean(connections?.gemini)}
-          onChange={(geminiKey) => setDraftKeys((current) => ({ ...current, gemini: geminiKey }))}
+          onChange={(geminiKey) => commitKey("gemini", geminiKey)}
         />
       </Card>
 
@@ -399,7 +377,7 @@ export default function ParametresScreen() {
           label="Secret webhook"
           value={draftKeys.webhook}
           hasSaved={Boolean(savedKeys.webhook) || Boolean(connections?.healthWebhook)}
-          onChange={(webhook) => setDraftKeys((current) => ({ ...current, webhook }))}
+          onChange={(webhook) => commitKey("webhook", webhook)}
         />
       </Card>
 
@@ -424,15 +402,6 @@ export default function ParametresScreen() {
           />
         </div>
       </Card>
-
-      <button
-        type="button"
-        onClick={() => void save()}
-        disabled={saving}
-        className="mt-3 w-full rounded-card bg-health-ink py-3 text-[14px] font-semibold text-health-on-fill disabled:opacity-50"
-      >
-        {saving ? "Enregistrement…" : "Enregistrer les préférences"}
-      </button>
 
       {toast && (
         <div className="fixed bottom-24 left-1/2 z-[90] -translate-x-1/2 rounded-full bg-health-ink px-4 py-2 text-[13px] font-medium text-health-on-fill shadow-card">

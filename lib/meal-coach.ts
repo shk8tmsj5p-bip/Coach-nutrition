@@ -182,26 +182,17 @@ function personBlock(person: PersonMealCoach) {
 }
 
 export function formatMealCoachForPrompt(coach: MealCoachHousehold) {
-  return `COACH NUTRITION (source de vérité — portions par profil, MÊME plat)
+  return `COACH NUTRITION (cibles kcal par profil — MÊME plat. L'app recale les grammes Alexis / Élodie.)
 
 ${personBlock(coach.alexis)}
 
 ${personBlock(coach.elodie)}
 
 RÈGLES PORTIONS
-- UN seul plat pour les deux. Double déclinaison = protéine vegan / omni + GRAMMES différents, SAUF si le titre EST la protéine : alors la même pour les deux. INTERDIT deux recettes.
-- shared_ingredients : grams_alexis ET grams_elodie sur féculents, légumes, légumineuses. Herbes / épices : grammes identiques OK.
-- Sauce / marinade = UN seul dosage foyer. INTERDIT de splitter les composants de sauce. L'huile de CUISSON du plat (hors sauce) peut rester split.
-- Perte = un peu plus de légumes (+10 % max), jamais des kilos. Prise = plus de féculent / protéine déjà dans le plat.
-- Légumes : 1–2 pièces / pers. Plafond ~120 g par légume, ~250 g en tout.
-- Légumineuses : 80–140 g / pers. cuites. Si le plat EST une tartinade / wrap de légumineuses, les garder. INTERDIT d'ajouter une 2e protéine si une est déjà là.
-- Agrumes : citron et citron vert = deux produits s'ils sont nommés. INTERDIT le doublon du même fruit.
-- Protéine plancher : ne JAMAIS réduire la protéine du plat pour « faire light ». Le dîner light coupe le féculent et l'huile.
-- Dîner : light pour les deux ; la prise garde sa protéine ; la perte coupe vraiment le féculent (≈ −45 %).
-- Écart kcal > 250 : plus de grammes de ce qui est déjà dans le plat, jamais une 2e brique de protéine, jamais de 2e sauce.
-- N'inclus PAS de dessert (templates Paramètres).
-- Assemblage : même boîte / même ordre, justes portions différentes. Pas de discours diététique dans les étapes.
-- Week-end : légèrement plus généreux, toujours split selon les cibles ci-dessus.`;
+- UN seul plat. Protéine vegan / omni (la même si le titre EST la protéine). INTERDIT deux recettes.
+- JSON = 1 assiette / pers., weight_g d'un cuisinier. Coller aux cibles ci-dessus. Extra kcal = ce qui est déjà dans le plat, pas une 2e protéine ni un 2e féculent.
+- Dîner : coller aux cibles soir.
+- N'inclus PAS de dessert (templates Paramètres).`;
 }
 
 export function portionsDiffer(a: number, b: number, ratio = 0.12) {

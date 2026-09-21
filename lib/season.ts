@@ -87,6 +87,32 @@ export function weatherLabelFromCode(code: number): string {
   return "Nuageux";
 }
 
+export function seasonLabelFr(season: Season) {
+  if (season === "spring") return "printemps";
+  if (season === "summer") return "été";
+  if (season === "autumn") return "automne";
+  return "hiver";
+}
+
+export function weatherClimateFr(kind: WeatherKind, tempC: number | null) {
+  const sky =
+    kind === "heat"
+      ? "très chaud"
+      : kind === "clear"
+        ? "ciel clair"
+        : kind === "cloud"
+          ? "couvert"
+          : kind === "rain"
+            ? "pluie"
+            : kind === "snow"
+              ? "neige"
+              : kind === "fog"
+                ? "brouillard"
+                : "";
+  const temp = tempC != null && Number.isFinite(tempC) ? `${Math.round(tempC)} °C` : "";
+  return [sky, temp].filter(Boolean).join(", ");
+}
+
 export function weatherLabel(kind: WeatherKind, code?: number | null) {
   if (code != null && Number.isFinite(code)) return weatherLabelFromCode(code);
   if (kind === "clear" || kind === "heat") return "Soleil";

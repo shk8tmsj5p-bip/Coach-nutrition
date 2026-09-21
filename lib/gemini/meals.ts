@@ -11,7 +11,7 @@ import {
 } from "@/lib/recipe-copy";
 import { expandPreparedSauces, isPreparedSauceName } from "@/lib/homemade-sauces";
 import { equalizeSharedSauce } from "@/lib/ingredient-groups";
-import { dishStarOf, stripThemeSticker, themeConstraintLine } from "@/lib/theme-kits";
+import { stripThemeSticker, themeConstraintLine } from "@/lib/theme-kits";
 import { repairMealIntegrity } from "@/lib/recipe-integrity";
 import { isDessertRecipe } from "@/lib/recipe-kind";
 import { culinaryRole, describeIngredientUse } from "@/lib/swap-coherence";
@@ -40,43 +40,38 @@ export type GeminiMealJson = {
   tips_and_cautions: unknown;
 };
 
-/** Sauce only if the dish actually has one — never invent a vinaigrette to fill a box. */
+/** If the dish has a sauce, name it and group its ingredients — don't invent one. */
 const SAUCE_IF_PRESENT =
-  "Sauce / vinaigrette / marinade : UNIQUEMENT si CE plat en a vraiment une. Alors elle est NOMMÉE, cohérente avec la cuisine du plat, et chaque composant est une ligne dosée. Marinade ET sauce de service = deux groupes seulement si les deux existent. INTERDIT d'inventer une sauce pour remplir.";
+  "Sauce / vinaigrette / marinade : seulement si CE plat en a vraiment. Alors un groupe nommé, chaque ingrédient en ligne dosée. INTERDIT d'en inventer une pour remplir.";
 
 const CULINARY_LAWS = `Tu es Gem Chef Cuistot. Condensé, gourmand, actionnable. Zéro blabla diététique.
 
 Foyer : Alexis vegan, Élodie omnivore. MÊME plat. Protéine vegan / omni SAUF si le titre EST la protéine (ex. falafel) : alors la MÊME pour les deux. INTERDIT de remplacer la star du titre.
 
-PRÉFÉRENCES FOYER = source de vérité (bloc plus bas). Aversions : omettre, jamais « sans X ».
-Assaisonnement : selon les prefs (complexe = couches adaptées à CE plat / ce thème, pas une palette unique). JAMAIS coriandre. JAMAIS piment / cayenne / jalapeño (omettre, ne pas l'écrire).
+PRÉFÉRENCES FOYER = source de vérité (bloc plus bas) : aversions, type de recette, goût. Les aversions ne vont pas dans la recette et ne se mentionnent pas. Épices : celles du plat, pas un rajout.
 
-SAUCES : seulement si CE plat en a une. Alors maison, nommée, composants en lignes dosées. La sauce correspond à la cuisine du plat. INTERDIT d'inventer une vinaigrette ou une 2e sauce pour « marquer ». INTERDIT un pot du commerce (« satay 40g », pesto rayon). Satay : sésame, jamais cacahuète. Une ligne par ingrédient, jamais la sauce ET ses composants. Marinade dans son groupe ; à l'assemblage on met la protéine marinée, pas les ingrédients de marinade. Dessert : aucune sauce salée.
+SAUCES / VINAIGRETTES / MARINADES : seulement si CE plat en a vraiment. Alors un groupe nommé (Sauce, Vinaigrette, Marinade…) avec chaque ingrédient en ligne dosée, pour que ce soit lisible. INTERDIT d'inventer une sauce. INTERDIT une seule ligne « pesto du commerce » / « satay 40g » sans ses ingrédients.
 
-APPAREILS : seulement s'ils servent. Omettre un groupe vide.
-- Thermomix : mixage réel avec vitesse / temps. Pas pour saupoudrer une épice.
-- Airfryer : vraie cuisson °C + min. Si falafels / crevettes / poulet sont dans les ingrédients, le groupe Airfryer est obligatoire. Pas d'Airfryer pour tofu ferme en semaine.
-- KitchenAid : nomme la coupe réelle. Ciseler = couteau.
+APPAREILS : le foyer a Thermomix TM31, KitchenAid, Cookeo, Airfryer, mixer, cuiseur à riz (détail Paramètres). Utilise-les au mieux pour CE plat. Omettre un robot qui ne sert à rien.
+- Grillade / croustillant : privilégier l'Airfryer, avec °C + min.
+- KitchenAid : nomme la coupe (râpé fin, râpé épais, lamelles). Ciseler = couteau.
 - Riz : cuiseur à riz. Cookeo : légumineuses / vapeur, pas le riz.
-- Galette / naan / pain / wrap / pita : poêle ou four, jamais à l'eau.
 
 PAS-À-PAS : phrases courtes, blocs utiles seulement. Eau : UNE durée par ingrédient, jamais un temps unique pour un mélange. Assemblage = boîtes + pot sauce. INTERDIT d'y mettre une cuisson ou une découpe.
 
-PORTIONS (détail dans COACH NUTRITION) : JSON = 1 repas / pers. grams_alexis / grams_elodie sur féculent, légume, légumineuse. Sauce = un dosage foyer. visual_unit obligatoire, jamais « env. ». Légumes 1–2 pièces / pers., total ~200–280 g midi. Assiette ~400–520 g midi, 320–400 g soir. Wrap 1 pièce ≈ 50–60 g. Légumineuses 80–140 g cuites. Une protéine déjà dans le plat : ne pas en coller une 2e. Citron et citron vert = deux produits (garder les deux s'ils sont là ; pas « jus de citron » + « citron » du même fruit).
+PORTIONS : JSON = 1 assiette / pers. (Lun–Ven : l'app ×2). Même plat, weight_g d'un cuisinier. Coller aux cibles COACH NUTRITION. L'app recale Alexis / Élodie. Extra kcal = ce qui est déjà dans le plat, pas une 2e protéine ni un 2e féculent.
 
-BATCH : tofu ferme Lun–Ven pressé, mariné cru, pas cuit (sauf quiche / tarte / flan / clafoutis / dessert au four). Simili-carnés : week-end. Dîners low cal si les prefs l'exigent. Pas de dessert dans le plat. tips = logistique batch seulement.
-
-THÈME : s'il est fourni, chaque recette EST cette cuisine ou cet ingrédient-star (titre + base + étape). Invente des plats de cette cuisine. INTERDIT un sous-titre collé (« · Coréen » sur un plat générique). Le JSON plus bas est un SQUELETTE de clés — INTERDIT d'en copier un plat, une sauce ou des ingrédients.`;
+THÈME : s'il est fourni, c'est une piste d'idées (cuisine, ingrédient, plat). Invente à partir de ça.`;
 
 export const MEAL_JSON_SHAPE = `{
   "title": "<titre du plat>",
   "shared_ingredients": [
-    { "name": "<ingrédient partagé>", "weight_g": 80, "visual_unit": "1 pièce", "prep": "<coupe si besoin>" },
-    { "name": "<féculent>", "grams_alexis": 150, "grams_elodie": 100, "visual_unit": "1 bol" },
-    { "name": "<autre partagé>", "weight_g": 12, "visual_unit": "1 cs" }
+    { "name": "<ingrédient partagé>", "weight_g": 80, "prep": "<coupe si besoin>" },
+    { "name": "<féculent>", "weight_g": 120 },
+    { "name": "<autre partagé>", "weight_g": 12 }
   ],
-  "profile_1_ingredients": [{ "name": "<protéine vegan>", "weight_g": 140, "visual_unit": "1/2 bloc", "prep": "<prépa>" }],
-  "profile_2_ingredients": [{ "name": "<protéine omni, ou la même si le titre EST la protéine>", "weight_g": 140, "visual_unit": "1 filet", "prep": "<prépa>" }],
+  "profile_1_ingredients": [{ "name": "<protéine vegan>", "weight_g": 140, "prep": "<prépa>" }],
+  "profile_2_ingredients": [{ "name": "<protéine omni, ou la même si le titre EST la protéine>", "weight_g": 140, "prep": "<prépa>" }],
   "step_groups": [
     { "section": "Cuissons Airfryer", "steps": ["<°C · min — omettre le groupe si rien à cuire>"] },
     { "section": "Cuissons Eau / Plaques", "steps": ["<une durée par ingrédient — omettre si rien>"] },
@@ -328,9 +323,10 @@ function inferAppliances(steps: string[], ingredients: RecipeIngredient[]): Appl
   }
   if (!cold && /\d+\s*°c/.test(text) && /airfryer|air fryer/.test(text)) list.push("Airfryer");
   if (text.includes("four") || text.includes("chaleur tournante")) list.push("Four");
-  if (steps.some(isKitchenAidCut) || /râpé fin|lamelles|spaghettis/.test(noteText)) {
+  if (steps.some(isKitchenAidCut) || /râpé fin|râpé épais|lamelles|spaghettis/.test(noteText)) {
     list.push("KitchenAid");
   }
+  if (/\bmixer\b|\bmixeur\b/.test(text) && !list.includes("Thermomix")) list.push("Mixer");
   if (text.includes("poêle") || text.includes("plaque")) list.push("Plaque");
   return list;
 }
@@ -487,36 +483,23 @@ export function weekdaysPrompt(
   pastMeals?: string[],
   kitchenContext?: string,
 ) {
-  const dish = dishStarOf(theme);
   const batches = WEEKDAY_BATCHES.map(
     (pair, index) =>
-      `${index + 1}. recipes[${index}] = ${pair.label} — ${pair.mealType}${pair.lowCalorie ? " · DÎNER LOW CAL (cibles soir COACH NUTRITION, huile serrée, féculent allégé, protéine gardée)" : " · déjeuner (cibles midi COACH NUTRITION par profil, pas une moyenne foyer)"}`,
+      `${index + 1}. recipes[${index}] = ${pair.label} — ${pair.mealType}${pair.lowCalorie ? " · DÎNER LOW CAL (cibles soir COACH NUTRITION)" : " · déjeuner (cibles midi COACH NUTRITION)"}`,
   ).join("\n");
   return culinaryPrompt(
     `Génère EXACTEMENT 5 recettes BATCH Lundi–Vendredi, niveau S34 (détaillées ; sauce maison seulement si le plat en a une).
-Règle portions : JSON = 1 repas / personne. L'utilisateur cuisinera ×2 (4 assiettes foyer).
-grams_alexis / grams_elodie obligatoires sur féculents, légumes, légumineuses. Sauces = weight_g unique (voir COACH NUTRITION).
+JSON = 1 assiette / pers., weight_g. L'app ×2 (4 assiettes foyer).
 Batch ×2 : jours ALTERNÉS (Lun+Mer, Mar+Jeu). Vendredi déj+dîner = même base, dîner plaqué plus léger.
-Tofu ferme : presser, mariner, servir frais — sauf quiche / tarte / flan / dessert (four OK).
-visual_unit OBLIGATOIRE sur chaque légume / herbe / agrume.
 ${themeConstraintLine(theme, 5)}
 ORDRE JSON STRICT — ne permute JAMAIS les index :
 ${batches}
-recipes[2] et recipes[3] = SOIRS uniquement, vraiment low cal selon les cibles soir de CHAQUE profil (plus de légumes, moins d'huile/féculent, protéine intacte).
+recipes[2] et recipes[3] = SOIRS uniquement, low cal (cibles soir COACH NUTRITION).
 recipes[4] = même base Ven midi + soir ; le soir sera dressé plus léger.
-${
-      dish
-        ? `Les 5 titres restent des « ${dish.keys[0]} » distinctes (légume / herbe / garniture). INTERDIT un 5e plat d'un autre type (${dish.avoid}).
-Tofu soyeux / quiche : four OK Lun–Ven. Tofu ferme hors quiche : pressé, mariné, frais.`
-        : `Les 5 titres doivent être nettement distincts. Sauce seulement si le plat en a une.
-Tofu ferme Lun–Ven : hors Airfryer, mariné cru au frais, dressé à l'assemblage. Quiche / tarte / flan / dessert : four OK.`
-    }
+Les 5 titres doivent être nettement distincts. Sauce seulement si le plat en a une.
 ${SAUCE_IF_PRESENT}
 
 step_groups : n'inclure un robot QUE s'il apporte quelque chose. Omettre un bloc vide.
-Airfryer seulement si vraie cuisson (jamais le tofu ferme cru en semaine) — obligatoire si falafels / crevettes / poulet dans les ingrédients.
-Thermomix seulement pour mixer / émulsionner.
-KitchenAid seulement si une coupe robot sert.
 
 JSON :
 { "recipes": [ ${MEAL_JSON_SHAPE}, ... 5 objets ] }`,
@@ -534,17 +517,14 @@ export function weekendPrompt(
 ) {
   return culinaryPrompt(
     `Génère EXACTEMENT 4 repas FRAIS week-end, niveau S34.
-Règle : 1 recette = 1 seul repas / personne (pas de double batch).
-Portions : grams_alexis / grams_elodie selon COACH NUTRITION (sauf sauces / vinaigrettes : dosage foyer unique).
-Week-end : tofu poêlé / four / airfryer OK. Simili-carnés OK.
+JSON = 1 assiette / pers., weight_g (pas de double batch).
 ${themeConstraintLine(theme, 4)}
-ORDRE JSON STRICT — les 4 dans le thème, sans exception :
+ORDRE JSON STRICT :
 1. recipes[0] = Samedi DÉJEUNER (cibles midi COACH NUTRITION)
-2. recipes[1] = Samedi DÎNER LOW CAL (cibles soir, huile serrée, féculent allégé, protéine gardée)
+2. recipes[1] = Samedi DÎNER LOW CAL (cibles soir COACH NUTRITION)
 3. recipes[2] = Dimanche DÉJEUNER (cibles midi COACH NUTRITION)
-4. recipes[3] = Dimanche DÎNER LOW CAL (cibles soir, huile serrée, féculent allégé, protéine gardée)
+4. recipes[3] = Dimanche DÎNER LOW CAL (cibles soir COACH NUTRITION)
 ${SAUCE_IF_PRESENT} step_groups : n'inclure un robot QUE s'il apporte quelque chose ; omettre un bloc vide.
-Airfryer seulement si vraie cuisson. Thermomix seulement pour mixer / émulsionner.
 
 JSON :
 { "recipes": [ ${MEAL_JSON_SHAPE}, ... 4 objets ] }`,
@@ -572,8 +552,8 @@ export function recipeFromPhotoPrompt(
       `${photoBlock}
 
 Génère 1 recette BATCH fidèle à la photo pour : ${pair.label}, niveau S34.
-Règle : JSON = 1 repas / personne. L'utilisateur cuisinera ×2 (4 assiettes foyer).
-Type : ${pair.mealType}${pair.lowCalorie ? ", créneau DÎNER" : " (déjeuner)"}${fit === "adapt" && pair.lowCalorie ? " — RÉADAPTER en low cal (huile serrée, féculent allégé, protéine gardée) SANS perdre la star de la photo." : fit === "as-is" ? " — TEL QUEL même le soir : ne pas alléger pour le dîner." : "."}
+JSON = 1 assiette / pers., weight_g. L'app ×2 (4 assiettes foyer).
+Type : ${pair.mealType}${pair.lowCalorie ? ", créneau DÎNER" : " (déjeuner)"}${fit === "adapt" && pair.lowCalorie ? " — RÉADAPTER en low cal (cibles soir) SANS perdre la star de la photo." : fit === "as-is" ? " — TEL QUEL même le soir : ne pas alléger pour le dîner." : "."}
 ${themeLine}
 ${SAUCE_IF_PRESENT} step_groups : robot seulement si la photo le justifie ; omettre un bloc vide.
 
@@ -587,10 +567,10 @@ JSON : un objet ${MEAL_JSON_SHAPE} ou { "recipes": [objet] }.`,
     `${photoBlock}
 
 Génère 1 repas frais (${slot.day} ${slot.mealType}) fidèle à la photo, niveau S34.
-Règle week-end : 1 recette = 1 seul repas / personne.
+JSON = 1 assiette / pers., weight_g.
 ${slot.lowCalorie || slot.mealType === "diner" ? (fit === "adapt" ? "Dîner : réadapter light (cibles soir) sans perdre la star." : "Dîner TEL QUEL : ne pas alléger.") : "Déjeuner."}
 ${themeLine}
-Sous-recettes + weight_g + visual_unit + réglages appareils : obligatoires.
+${SAUCE_IF_PRESENT} step_groups : robot seulement si la photo le justifie ; omettre un bloc vide.
 
 JSON : un objet ${MEAL_JSON_SHAPE} ou { "recipes": [objet] }.`,
     fit === "as-is" ? null : coachBias,
@@ -611,14 +591,11 @@ export function singlePrompt(
   if (pair) {
     return culinaryPrompt(
       `Génère 1 recette BATCH pour : ${pair.label}, niveau S34 (détaillée ; sauce maison seulement si le plat en a une).
-Règle : JSON = 1 repas / personne. L'utilisateur cuisinera ×2 (4 assiettes foyer).
-grams_alexis / grams_elodie selon COACH NUTRITION (sauf sauces : dosage foyer unique).
+JSON = 1 assiette / pers., weight_g. L'app ×2 (4 assiettes foyer).
 Les 2 portions sont sur des jours ALTERNÉS, jamais consécutifs.
-Tofu : presser, mariner, servir frais (cuisson seulement si dessert).
-Type : ${pair.mealType}${pair.lowCalorie ? ", DÎNER LOW CAL (cibles soir, huile serrée, féculent allégé, protéine gardée)" : " (déjeuner, cibles midi par profil)"}.
+Type : ${pair.mealType}${pair.lowCalorie ? ", DÎNER LOW CAL (cibles soir COACH NUTRITION)" : " (déjeuner, cibles midi)"}.
 ${themeLine}
 ${SAUCE_IF_PRESENT} step_groups : robot seulement si valeur ajoutée ; omettre un bloc vide.
-Thermomix seulement pour mixer / émulsionner.
 
 JSON : un objet ${MEAL_JSON_SHAPE} ou { "recipes": [objet] }.`,
       coachBias,
@@ -628,11 +605,9 @@ JSON : un objet ${MEAL_JSON_SHAPE} ou { "recipes": [objet] }.`,
   }
   return culinaryPrompt(
     `Génère 1 repas frais (${slot.day} ${slot.mealType}), niveau S34.
-Règle week-end : 1 recette = 1 seul repas / personne. Tofu cuit et simili-carnés autorisés.
-Portions grams_alexis / grams_elodie selon COACH NUTRITION (sauf sauces : dosage foyer unique).
-${slot.lowCalorie || slot.mealType === "diner" ? "Dîner low calorie (cibles soir, huile serrée, féculent allégé, protéine gardée)." : "Déjeuner : cibles midi par profil."}
+JSON = 1 assiette / pers., weight_g.
+${slot.lowCalorie || slot.mealType === "diner" ? "Dîner low calorie (cibles soir COACH NUTRITION)." : "Déjeuner : cibles midi."}
 ${themeLine}
-Sous-recettes + weight_g + visual_unit + réglages appareils : obligatoires.
 ${SAUCE_IF_PRESENT} step_groups : robot seulement si valeur ajoutée ; omettre un bloc vide.
 
 JSON : un objet ${MEAL_JSON_SHAPE} ou { "recipes": [objet] }.`,
@@ -694,7 +669,7 @@ function todaySlotBrief(mealType: MealType) {
     case "collation":
       return `COLLATION du jour. Vise ~15 % des kcal journalières. Dense en protéine, pas un snack industriel sucré.`;
     case "diner":
-      return `DÎNER du jour, LOW CAL : cibles soir COACH NUTRITION (hors dessert). Huile serrée, féculent allégé, protéine gardée.`;
+      return `DÎNER du jour, LOW CAL : cibles soir COACH NUTRITION (hors dessert).`;
     default:
       return `DÉJEUNER du jour : cibles midi COACH NUTRITION (hors dessert).`;
   }
@@ -845,11 +820,11 @@ export function todaySwapPrompt(
 ) {
   return culinaryPrompt(
     `Génère 1 SEUL repas FRAIS pour AUJOURD'HUI — pas un batch de la semaine, pas un couple Lun+Mer.
-Règle : 1 recette = 1 portion / personne (comme un repas week-end). INTERDIT de doubler.
-MÊME plat pour Alexis et Élodie. grams_alexis / grams_elodie selon COACH NUTRITION (sauf sauces : un seul dosage foyer). INTERDIT deux recettes.
+JSON = 1 assiette / pers., weight_g. INTERDIT de doubler.
+MÊME plat pour Alexis et Élodie. INTERDIT deux recettes.
 PAS de dessert, yaourt sucré, granola dessert (déjà sur la carte Aujourd'hui).
 ${todaySlotBrief(mealType)}
-Repas du jour (pas une session batch Lun–Ven) : tofu cuit et simili-carnés OK si le plat le demande.
+Repas du jour (pas une session batch Lun–Ven).
 Sauce maison dosée SI le plat en a une. INTERDIT d'en coller une pour remplir.
 ${themeConstraintLine(theme, 1)}
 ${SAUCE_IF_PRESENT} step_groups : robot seulement si valeur ajoutée ; omettre un bloc vide.
@@ -871,9 +846,9 @@ export function applySwapPrompt(
 ) {
   return culinaryPrompt(
     `Réadapte TOUTE la recette "${meal.baseName}" en remplaçant "${ingredientName}" par "${replacement}".
-Garde thème, double déclinaison, visual_unit, sous-recettes, réglages appareils. Omettre un step_group vide.
+Garde thème, double déclinaison, réglages appareils. Omettre un step_group vide.
 ${SAUCE_IF_PRESENT}
-Recalcule grammes, visual_unit, étapes. Astuces = logistique batch seulement.
+Recalcule weight_g et étapes. Astuces = logistique batch seulement.
 
 JSON : un objet ${MEAL_JSON_SHAPE}.`,
     undefined,

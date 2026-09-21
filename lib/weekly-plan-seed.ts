@@ -5,7 +5,7 @@ import type {
 } from "@/lib/types";
 
 const BATCH = "Quantités = 1 repas. Batch : cuire ×2 par personne (2 repas).";
-const LOWCAL = "Dîner low cal : féculent léger, huile ≤ 8 g, volume légumes.";
+const LOWCAL = "Dîner low cal.";
 
 function decl(
   protein: string,

@@ -5,6 +5,7 @@ import { RefreshCw, Sparkles, X } from "lucide-react";
 import { ToggleRow } from "@/components/parametres/ToggleRow";
 import { Card } from "@/components/ui/Card";
 import { useProfile } from "@/context/ProfileContext";
+import { useSeasonWeather } from "@/context/SeasonContext";
 import { loadHouseholdCoachBias } from "@/lib/coach-apply";
 import { requestGenerateMeals } from "@/lib/gemini/client";
 import { loadKitchenPrefs, formatKitchenPrefsForPrompt } from "@/lib/kitchen-prefs";
@@ -44,6 +45,7 @@ export function SwapProposalSheet({
   ) => void;
 }) {
   const { catalog } = useProfile();
+  const { season, weather, tempC } = useSeasonWeather();
   const availableTypes = MEAL_TYPE_OPTIONS.filter((option) =>
     profiles.some((profile) =>
       meals.some(
@@ -93,7 +95,11 @@ export function SwapProposalSheet({
           banned,
         );
         const kitchenContext = [
-          formatKitchenPrefsForPrompt(loadKitchenPrefs(), [catalog.alexis, catalog.elodie]),
+          formatKitchenPrefsForPrompt(loadKitchenPrefs(), [catalog.alexis, catalog.elodie], {
+            season,
+            weather,
+            tempC,
+          }),
           formatMealCoachForPrompt(buildMealCoachFromProfiles(catalog.alexis, catalog.elodie)),
           formatStockForPrompt(loadLocalStock()),
         ]

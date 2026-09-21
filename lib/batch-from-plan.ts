@@ -618,16 +618,8 @@ function mealText(meal: PlannedMeal) {
   return `${meal.baseName} ${meal.steps.join(" ")} ${meal.appliances.join(" ")}`.toLowerCase();
 }
 
-function isWeekdayBatchMeal(meal: PlannedMeal) {
-  return !WEEKEND_INDEXES.includes(meal.dayIndex);
-}
-
-function isDessertOrBaking(meal: PlannedMeal) {
-  return /dessert|gâteau|gateau|brownie|cake|muffin|pâtisserie|patisserie/i.test(mealText(meal));
-}
-
-function weekdayTofuIsFresh(meal: PlannedMeal) {
-  return isWeekdayBatchMeal(meal) && !isDessertOrBaking(meal);
+function weekdayTofuIsFresh(_meal: PlannedMeal) {
+  return false;
 }
 
 function isFreshTofuIng(ing: RecipeIngredient, meal: PlannedMeal) {

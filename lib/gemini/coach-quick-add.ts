@@ -49,7 +49,7 @@ export function coachQuickAddPrompt(opts: {
   const diet = opts.diet === "omnivore" ? "omnivore" : "vegan (aucun produit animal)";
   const aversions = opts.aversions.filter(Boolean).join(", ") || "aucune";
   return `Tu es le coach nutrition du foyer. ${opts.name} est ${diet}.
-Aversions à OMETTRE silencieusement (jamais « sans X ») : ${aversions}.
+Aversions foyer (ne pas les mettre dans la recette, ne pas les citer) : ${aversions}.
 
 Pour CHAQUE créneau, propose 1 SEUL aliment à ajouter MAINTENANT sur le plat déjà préparé / déjà en boîte.
 Contraintes :

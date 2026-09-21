@@ -1,6 +1,5 @@
 import type { PlannedMeal } from "@/lib/types";
 import { normalizeTitle } from "@/lib/recipe-diversity";
-import { sharedProteinThemeLine } from "@/lib/recipe-integrity";
 
 export function stripThemeSticker(title: string, theme: string) {
   const t = theme.trim();
@@ -157,61 +156,16 @@ export function conflictsWithTheme(meal: PlannedMeal, theme: string) {
   );
 }
 
-export function themeMismatchProblems(titles: string[], theme: string) {
-  const label = theme.trim();
-  if (!label) return [];
-  const kit = matchKit(label);
-  const dish = dishStarOf(label);
-  const themeNorm = normalizeTitle(label);
-  const themeTokens = themeNorm.split(" ").filter((token) => token.length > 2);
-  const problems: string[] = [];
-
-  for (const title of titles) {
-    const text = normalizeTitle(title);
-    if (!text) continue;
-
-    if (dish) {
-      if (!dish.must.test(title)) {
-        problems.push(`« ${title} » n'est pas une « ${dish.keys[0]} » (thème « ${label} »)`);
-      }
-      const banned = title.match(dish.forbid);
-      if (banned) {
-        problems.push(`« ${title} » remplace le thème « ${label} » par ${banned[0]}`);
-      }
-      continue;
-    }
-
-    const onTheme =
-      text.includes(themeNorm) ||
-      (themeTokens.length > 0 && themeTokens.some((token) => text.includes(token))) ||
-      (kit
-        ? kit.keys.some((key) => text.includes(normalizeTitle(key)))
-        : false);
-    if (!onTheme) {
-      problems.push(`« ${title} » n'incarne pas le thème « ${label} »`);
-    }
-  }
-  return problems;
+/** Thème = piste d'idées, pas un verrou sur le titre. */
+export function themeMismatchProblems(_titles: string[], _theme: string): string[] {
+  return [];
 }
 
-/** Consigne Gemini : le thème s'applique à TOUS les plats du lot. */
+/** Consigne Gemini : le thème est une piste, pas un plat à recopier mot pour mot. */
 export function themeConstraintLine(theme: string, count: number) {
   const label = theme.trim();
-  if (!label) return "Pas de thème imposé — identités distinctes dans le lot.";
-  const star = sharedProteinThemeLine(label);
-  const dish = dishStarOf(label);
-  if (dish) {
-    return `THÈME = LE PLAT : « ${label} ».
-Les ${count} recettes SONT des « ${dish.keys[0]} ». Titre : le mot « ${dish.keys[0]} » sur chaque recette.
-Diversité = garniture / légumes / herbes. INTERDIT de changer de TYPE de plat.
-INTERDIT ${dish.avoid} à la place de la ${dish.keys[0]}.
-Le schéma JSON est un format de clés, pas un plat à recopier.
-EXCEPTION TOFU : cuisson four autorisée (quiche / tarte / flan / clafoutis / dessert), y compris Lun–Ven.${star ? `\n${star}` : ""}`;
-  }
-  return `THÈME IMPOSÉ SUR LES ${count} REPAS : « ${label} ».
-Chaque recette EST de cette cuisine ou de cet ingrédient-star : titre + base + étape dédiée.
-Invente des plats de cette cuisine. INTERDIT un plat générique avec « · ${label} » collé.
-Les ${count} recettes, sans exception.${star ? `\n${star}` : ""}`;
+  if (!label) return "";
+  return `Piste thème : « ${label} ». Invente ${count} recette(s) qui s'en inspirent (cuisine, ingrédient ou plat).`;
 }
 
 /** Ne greffe plus le thème en suffixe. Le catalogue / Gemini doit fournir le vrai plat. */

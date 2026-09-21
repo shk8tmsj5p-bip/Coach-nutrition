@@ -148,7 +148,7 @@ function paneFromSaved(saved: WeekLunchDessert | null): DessertPane {
 
 export default function RepasScreen() {
   const { view, catalog } = useProfile();
-  const { season, weather } = useSeasonWeather();
+  const { season, weather, tempC } = useSeasonWeather();
   const [tab, setTab] = useState<Tab>("plan");
   const [planQty, setPlanQty] = useState<QtyMode>("batch");
   const [batchQty, setBatchQty] = useState<QtyMode>("batch");
@@ -226,7 +226,7 @@ export default function RepasScreen() {
       const aversions = silentAversions(prefs, [catalog.alexis, catalog.elodie]);
       const gear = enabledAppliances(prefs);
       return [
-        `Aversions à OMETTRE (ne jamais écrire « sans X ») : ${aversions.join(", ") || "aucune"}.`,
+        `Aversions foyer (ne pas les mettre dans la recette, ne pas les citer) : ${aversions.join(", ") || "aucune"}.`,
         `MATÉRIEL AUTORISÉ : ${gear.join(", ") || "plaque / four"}. Ne pas inventer d'appareil absent.`,
         "Alexis vegan · Élodie omnivore. Même plat. MODE TEL QUEL : pas de cibles kcal, pas de dîner light forcé.",
         formatStockForPrompt(loadLocalStock()),
@@ -234,7 +234,11 @@ export default function RepasScreen() {
         .filter(Boolean)
         .join("\n\n");
     }
-    const prefs = formatKitchenPrefsForPrompt(loadKitchenPrefs(), [catalog.alexis, catalog.elodie]);
+    const prefs = formatKitchenPrefsForPrompt(loadKitchenPrefs(), [catalog.alexis, catalog.elodie], {
+      season,
+      weather,
+      tempC,
+    });
     return [prefs, formatMealCoachForPrompt(coach), formatStockForPrompt(loadLocalStock())]
       .filter(Boolean)
       .join("\n\n");
@@ -1047,7 +1051,7 @@ export default function RepasScreen() {
             onShuffle={() => setInspoOffset((n) => n + 1)}
             busy={busy}
             canClear={plan.some((meal) => !isEmptyMeal(meal)) || Boolean(lunchDessert) || Boolean(dinnerDessert)}
-            coachHint={`Portions selon Suivi : Alexis ${goalLabel(catalog.alexis.primaryGoal)} · Élodie ${goalLabel(catalog.elodie.primaryGoal)}. Même plat, grammes différents (sauf sauces).`}
+            coachHint={`Portions selon Suivi : Alexis ${goalLabel(catalog.alexis.primaryGoal)} · Élodie ${goalLabel(catalog.elodie.primaryGoal)}. Même plat.`}
             recipePreview={recipePreview}
             recipeFit={recipeFit}
             onRecipeFitChange={setRecipeFit}
@@ -1210,9 +1214,9 @@ export default function RepasScreen() {
           hint={
             recipePhoto
               ? recipeFit === "as-is"
-                ? "Tel quel, même plat pour vous deux. En semaine, ça couvre les 2 créneaux du batch."
-                : "Réadaptée à vos cibles (portions, dîner light, aversions). En semaine = le couple batch."
-              : "En semaine, la génération couvre les 2 créneaux du batch. Le week-end, un seul repas frais."
+                ? "Tel quel, même plat pour vous deux. Un plat déjà posé (P1, P2…) sera remplacé. En semaine = le couple batch."
+                : "Réadaptée à vos cibles. Un plat déjà posé (P1, P2…) sera remplacé. En semaine = le couple batch."
+              : "Un plat déjà posé affiche son tag (P1, P2…). Le générer le remplace. En semaine = les 2 créneaux du batch ; week-end = ce repas seulement."
           }
           onClose={() => setPickSlot(false)}
           onSelect={(slotId) => {

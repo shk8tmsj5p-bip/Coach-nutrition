@@ -33,7 +33,6 @@ import {
 } from "@/lib/week-dessert";
 import { ensureDessertProductInMeal, isDessertSlot, parseDessertProduct, type DessertSlot } from "@/lib/dessert-product";
 import { diversityProblems } from "@/lib/recipe-diversity";
-import { dishStarOf, themeMismatchProblems } from "@/lib/theme-kits";
 import { mockSuggestDessertSwap, mockSuggestSwap, suggestionsFitRecipe } from "@/lib/swap-coherence";
 import { swapProposalsFromPlanned } from "@/lib/swap-proposals";
 import {
@@ -95,11 +94,6 @@ function applyRecipes(
     WEEKDAY_BATCHES.forEach((pair, index) => {
       const json = recipes[index];
       if (!json) return;
-      const title = String(json.title ?? "");
-      if (theme.trim() && themeMismatchProblems([title], theme).length > 0) {
-        console.warn("[MEAL GEN] skip hors thème", pair.label, title);
-        return;
-      }
       next = next.map((meal) =>
         pair.slotIds.includes(meal.id)
           ? {
@@ -123,11 +117,6 @@ function applyRecipes(
         if (index < 0) return slot;
         const json = recipes[index];
         if (!json) return slot;
-        const title = String(json.title ?? "");
-        if (theme.trim() && themeMismatchProblems([title], theme).length > 0) {
-          console.warn("[MEAL GEN] skip weekend hors thème", slot.id, title);
-          return slot;
-        }
         return {
           ...geminiToPlannedMeal(json, slot, theme),
           servingsPerPerson: 1 as const,
@@ -141,11 +130,6 @@ function applyRecipes(
 
   const slot = plan.find((meal) => meal.id === slotId);
   if (!slot || !recipes[0]) return plan;
-  const singleTitle = String(recipes[0].title ?? "");
-  if (theme.trim() && themeMismatchProblems([singleTitle], theme).length > 0) {
-    console.warn("[MEAL GEN] skip single hors thème", slot.id, singleTitle);
-    return plan;
-  }
   const pair = pairForSlot(slot.id);
   const targets = pair?.slotIds ?? [slot.id];
   return annotatePlan(
@@ -344,19 +328,12 @@ CORRECTION : ta réponse précédente n'était pas du JSON utilisable. Renvoie U
         if (coach && (mealType === "dejeuner" || mealType === "diner")) {
           planned = scalePlanToGoals([planned], coach)[0] ?? planned;
         }
-        const themeIssues = theme.trim()
-          ? themeMismatchProblems([planned.baseName], theme)
-          : [];
-        const themeWarning =
-          themeIssues.length > 0
-            ? "Thème un peu approximatif — tu peux régénérer un plat."
-            : undefined;
         console.log("[MEAL GEN] using", used.tier, used.model, "today-swap", planned.baseName);
         return NextResponse.json({
           proposals: swapProposalsFromPlanned(planned, theme, mealType),
           mock: false,
           model: used.model,
-          warning: [used.warning, themeWarning].filter(Boolean).join(" ") || undefined,
+          warning: used.warning || undefined,
         });
       } catch (error) {
         const raw = error instanceof Error ? error.message : "Gemini indisponible";
@@ -522,31 +499,21 @@ CORRECTION : ta réponse précédente n'était pas du JSON utilisable. Renvoie U
       }
       if (recipes.length === 0) throw new Error("JSON sans recette");
       const titles = recipes.map((item) => String(item.title ?? ""));
-      let problems = recipePhoto
-        ? diversityProblems(titles, pastMeals)
-        : [...diversityProblems(titles, pastMeals), ...themeMismatchProblems(titles, theme)];
+      let problems = diversityProblems(titles, pastMeals);
       const elapsed = Date.now() - started;
       if (problems.length > 0 && (body.mode === "weekdays" || body.mode === "weekend") && elapsed < 50_000) {
-        console.warn("[MEAL GEN] retry — thème/diversité:", problems.slice(0, 5).join(" | "));
-        const dish = dishStarOf(theme);
+        console.warn("[MEAL GEN] retry — diversité:", problems.slice(0, 5).join(" | "));
         const retry = await callGeminiPro(
           `${prompt}
 
-CORRECTION OBLIGATOIRE — ta proposition violait le thème et/ou la diversité :
+CORRECTION OBLIGATOIRE — titres déjà vus ou trop proches :
 ${problems.slice(0, 10).join("\n")}
-Réécris TOUTES les recettes. Titres 100 % du thème « ${theme || "libre"} »${
-            dish
-              ? ` — chaque titre contient « ${dish.keys[0]} », pas ${dish.avoid} à la place.`
-              : ", identités distinctes, le thème est la star de chaque titre."
-          }`,
+Réécris TOUTES les recettes. Identités distinctes.`,
         );
         try {
           const retryRecipes = extractRecipes(parseGeminiJson(retry.text));
           const retryTitles = retryRecipes.map((item) => String(item.title ?? ""));
-          const retryProblems = [
-            ...diversityProblems(retryTitles, pastMeals),
-            ...themeMismatchProblems(retryTitles, theme),
-          ];
+          const retryProblems = diversityProblems(retryTitles, pastMeals);
           if (
             retryRecipes.length >= recipes.length &&
             retryProblems.length <= problems.length
@@ -559,14 +526,6 @@ Réécris TOUTES les recettes. Titres 100 % du thème « ${theme || "libre"} »$
           console.warn("[MEAL GEN] retry JSON raté — on garde le premier lot", error);
         }
       }
-      const themeIssues =
-        theme.trim() && !recipePhoto
-          ? themeMismatchProblems(recipes.map((item) => String(item.title ?? "")), theme)
-          : [];
-      const themeWarning =
-        themeIssues.length > 0
-          ? `Un plat n'était pas « ${theme.trim()} » — ce créneau n'a pas été remplacé. Régénère-le.`
-          : undefined;
       console.log(
         "[MEAL GEN] using",
         used.tier,
@@ -582,7 +541,7 @@ Réécris TOUTES les recettes. Titres 100 % du thème « ${theme || "libre"} »$
         plan: scaled,
         mock: false,
         model: used.model,
-        warning: [used.warning, themeWarning].filter(Boolean).join(" ") || undefined,
+        warning: used.warning || undefined,
       });
     } catch (error) {
       const raw = error instanceof Error ? error.message : "Gemini indisponible";

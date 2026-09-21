@@ -118,7 +118,7 @@ function sanitizeMeal(meal: PlannedMeal): PlannedMeal {
   const repaired = capVegetablePortions(repairMealIntegrity(expanded));
   const clean = ensureFalafelAirfryer(
     deriveAppliances(
-      dropColdAirfryer(rewriteRiceCooker(scrubForcedRobots(scrubWeekdayTofuAirfryer(repaired)))),
+      dropColdAirfryer(rewriteRiceCooker(scrubForcedRobots(repaired))),
     ),
   );
   const ingredients = mergeDuplicateIngredients(clean.ingredients);
@@ -130,105 +130,20 @@ function sanitizeMeal(meal: PlannedMeal): PlannedMeal {
   };
 }
 
-function isTofuCookSentence(line: string) {
-  return (
-    /tofu/i.test(line) &&
-    /\d+\s*°c|\d+\s*min|airfryer|rôti|cuire/i.test(line) &&
-    !/presser|mariner|frais|réserver|frigo|froid|hors panier/i.test(line)
-  );
-}
-
 function isRealAirfryerLine(line: string) {
   if (/tofu/i.test(line) && /hors panier|presser|mariner|frais|réserver/i.test(line)) return false;
   if (/pas d['’]?airfryer|pas de cuisson airfryer/i.test(line)) return false;
   return /\d+\s*°c|airfryer/i.test(line);
 }
 
-/** Week-end → Lun–Ven : tofu pressé / mariné, pas cuit (sauf dessert). */
+/** Historique / Favoris : même recette, juste le jour cible. */
 export function adaptReplayMeal(meal: PlannedMeal, targetDayIndex: number): PlannedMeal {
-  const next = { ...structuredClone(meal), dayIndex: targetDayIndex };
-  if (WEEKEND_INDEXES.includes(targetDayIndex)) return next;
-  return scrubWeekdayTofuAirfryer(next);
+  return { ...structuredClone(meal), dayIndex: targetDayIndex };
 }
 
 export function weekendReplayNotice(meal: PlannedMeal) {
   if (!isWeekendSlot(meal)) return undefined;
-  const tofu = meal.ingredients.some((item) => /tofu/i.test(item.name));
-  if (tofu) {
-    return "Plat de week-end : en semaine, tofu pressé et mariné (pas cuit comme le dimanche). Même recette, quantités d’aujourd’hui.";
-  }
   return "Plat de week-end : en semaine, même recette, quantités recalées. Ce n’est pas un nouveau batch.";
-}
-
-function scrubWeekdayTofuAirfryer(meal: PlannedMeal): PlannedMeal {
-  if (WEEKEND_INDEXES.includes(meal.dayIndex)) return meal;
-  if (!meal.ingredients.some((item) => /tofu/i.test(item.name))) return tidyStepSections(meal);
-  if (
-    /dessert|gâteau|gateau|brownie|cake|muffin|quiche|tarte|flan|clafoutis|clafouti/i.test(
-      `${meal.baseName} ${meal.theme} ${meal.steps.join(" ")}`,
-    )
-  ) {
-    return tidyStepSections(meal);
-  }
-
-  const fresh = "Tofu : presser, mariner, réserver au frais.";
-  const out: string[] = [];
-  let section: string | null = null;
-  let bucket: string[] = [];
-  const tofuBits: string[] = [];
-
-  function flush() {
-    if (section) {
-      const isAf = /airfryer/i.test(section);
-      const keep = isAf ? bucket.filter(isRealAirfryerLine) : bucket;
-      const leftoverTofu = isAf
-        ? bucket.filter((line) => /tofu/i.test(line) && !isTofuCookSentence(line) && !isRealAirfryerLine(line))
-        : [];
-      tofuBits.push(...leftoverTofu);
-      if (keep.length > 0) {
-        out.push(`§ ${section}`, ...keep);
-      }
-    } else {
-      out.push(...bucket);
-    }
-    bucket = [];
-  }
-
-  for (const line of meal.steps) {
-    if (isStepSection(line)) {
-      flush();
-      section = stepSectionLabel(line);
-      continue;
-    }
-    const parts = line.split(/(?<=[.!?])\s+/).map((item) => item.trim()).filter(Boolean);
-    for (const sentence of parts.length ? parts : [line]) {
-      if (/tofu/i.test(sentence) && isTofuCookSentence(sentence)) {
-        tofuBits.push(fresh);
-        continue;
-      }
-      if (/tofu/i.test(sentence) && /hors panier|presser|mariner|frais|réserver/i.test(sentence)) {
-        tofuBits.push(sentence === "Tofu hors panier." ? fresh : sentence);
-        continue;
-      }
-      bucket.push(sentence);
-    }
-  }
-  flush();
-
-  const tofuLine = tofuBits.find((line) => /presser|mariner|frais/i.test(line)) ?? fresh;
-  if (!out.some((line) => /tofu/i.test(line) && /presser|mariner|frais/i.test(line))) {
-    const idx = out.findIndex((line) => /assemblage|kitchenaid/i.test(line));
-    if (idx >= 0) out.splice(idx + 1, 0, tofuLine);
-    else out.push("§ Découpes KitchenAid & Assemblage", tofuLine);
-  }
-
-  return tidyStepSections({
-    ...meal,
-    steps: out.filter((line, index) => out.indexOf(line) === index),
-    appliances: out.some((line) => isRealAirfryerLine(line))
-      ? meal.appliances
-      : meal.appliances.filter((item) => item !== "Airfryer"),
-  });
 }
 
 function tidyStepSections(meal: PlannedMeal): PlannedMeal {
@@ -321,9 +236,10 @@ function deriveAppliances(meal: PlannedMeal): PlannedMeal {
   }
   if (!cold && /airfryer/.test(text) && /\d+\s*°c/.test(text)) list.push("Airfryer");
   if (/four|chaleur tournante/.test(text)) list.push("Four");
-  if (meal.steps.some(isKitchenAidCut) || /râpé fin|lamelles|spaghettis/.test(`${text} ${notes}`)) {
+  if (meal.steps.some(isKitchenAidCut) || /râpé fin|râpé épais|lamelles|spaghettis/.test(`${text} ${notes}`)) {
     list.push("KitchenAid");
   }
+  if (/\bmixer\b|\bmixeur\b/.test(`${text} ${notes}`) && !list.includes("Thermomix")) list.push("Mixer");
   if (/poêle|plaque/.test(text)) list.push("Plaque");
   const unique = [...new Set(list)];
   return { ...meal, appliances: unique };

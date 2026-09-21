@@ -58,7 +58,7 @@ export function rewriteTmAsHandMix(line: string) {
 }
 
 export function isKitchenAidCut(line: string) {
-  return /kitchenaid|râpé fin|rape fin|lamelles|spaghettis/i.test(line);
+  return /kitchenaid|râpé fin|rape fin|râpé épais|rape epais|lamelles|spaghettis/i.test(line);
 }
 
 /** Tips batch : conservation / pots / frigo uniquement. */

@@ -96,13 +96,12 @@ MODE TEL QUEL
 Reproduis la recette photographiée, fidèle (star, sauce, technique, équilibre).
 INTERDIT de la réécrire pour viser les kcal coach, INTERDIT de la transformer en dîner light, INTERDIT de changer la star ou le style.
 PRIORITÉ ABSOLUE : ce MODE TEL QUEL écrase les blocs « PORTIONS COACH » et « dîners low cal » plus haut dans le prompt.
-Garde les proportions relatives de la photo. JSON = 1 repas / personne (batch semaine : l'utilisateur cuisinera ×2).
-visual_unit + grams_alexis / grams_elodie : même plat, split léger seulement si les quantités de la photo le permettent — sauces en dosage foyer unique.`;
+Garde les proportions relatives de la photo. JSON = 1 assiette / pers., weight_g (batch semaine : l'app ×2).`;
   }
   return `${shared}
 
 MODE RÉADAPTER
 Garde le plat reconnaissable (titre, ingrédient star, sauce).
-Réadapte à TOUS les critères foyer : COACH NUTRITION (grammes par profil), dîner low cal si soir, tofu semaine, prefs cuisine, matériel, stock si actif.
-Même plat pour les deux.`;
+Réadapte à TOUS les critères foyer : COACH NUTRITION (cibles kcal), dîner low cal si soir, prefs cuisine, matériel, stock si actif.
+Même plat pour les deux. JSON = 1 assiette / pers., weight_g.`;
 }
