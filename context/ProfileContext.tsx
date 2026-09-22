@@ -17,14 +17,13 @@ import { overlayLocalGoals, saveAppliedAdjustments, saveMealTemplates, saveProfi
 import { hydrateKitchenPrefsFromSupabase } from "@/lib/supabase/parametres";
 import type { GoalPatch } from "@/lib/goals";
 import type { AppliedAdjustments } from "@/lib/coach-adjustments";
-import type { Macros, Profile, ProfileId, SlotTemplate, SportRoutine, ViewMode } from "@/lib/types";
+import type { Macros, Profile, ProfileId, SlotTemplate, SportRoutine } from "@/lib/types";
 
 interface ProfileContextValue {
-  view: ViewMode;
-  setView: (view: ViewMode) => void;
+  profile: ProfileId;
+  setProfile: (profile: ProfileId) => void;
   activeProfiles: Profile[];
   catalog: Record<ProfileId, Profile>;
-  isCouple: boolean;
   accentFor: (id: ProfileId) => "coral" | "violet";
   fromSupabase: boolean;
   updateGoals: (profileId: ProfileId, patch: GoalPatch) => Promise<string | null>;
@@ -46,7 +45,7 @@ interface ProfileContextValue {
 const ProfileContext = createContext<ProfileContextValue | null>(null);
 
 export function ProfileProvider({ children }: { children: ReactNode }) {
-  const [view, setViewState] = useState<ViewMode>("alexis");
+  const [profile, setProfileState] = useState<ProfileId>("alexis");
   const [catalog, setCatalog] = useState<Record<ProfileId, Profile>>(() =>
     overlayLocalGoals(mockProfiles),
   );
@@ -54,9 +53,9 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
   const [hydrated, setHydrated] = useState(false);
 
   useEffect(() => {
-    const saved = storage.get("view") as ViewMode | null;
-    if (saved === "alexis" || saved === "elodie" || saved === "couple") {
-      setViewState(saved);
+    const saved = storage.get("view");
+    if (saved === "elodie" || saved === "alexis") {
+      setProfileState(saved);
     }
 
     const supabase = createBrowserSupabaseClient();
@@ -76,8 +75,8 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
     void hydrateKitchenPrefsFromSupabase();
   }, []);
 
-  const setView = useCallback((next: ViewMode) => {
-    setViewState(next);
+  const setProfile = useCallback((next: ProfileId) => {
+    setProfileState(next);
     storage.set("view", next);
   }, []);
 
@@ -154,14 +153,11 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
   );
 
   const value = useMemo<ProfileContextValue>(() => {
-    const activeProfiles =
-      view === "couple" ? [catalog.alexis, catalog.elodie] : [catalog[view]];
     return {
-      view,
-      setView,
-      activeProfiles,
+      profile,
+      setProfile,
+      activeProfiles: [catalog[profile]],
       catalog,
-      isCouple: view === "couple",
       accentFor: (id) => catalog[id].accent,
       fromSupabase,
       updateGoals,
@@ -173,8 +169,8 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
       updateMealTemplates,
     };
   }, [
-    view,
-    setView,
+    profile,
+    setProfile,
     catalog,
     fromSupabase,
     updateGoals,

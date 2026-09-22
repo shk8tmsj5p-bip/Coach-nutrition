@@ -46,7 +46,6 @@ import {
   withDessertPrefix,
 } from "@/lib/meal-templates";
 import { createBrowserSupabaseClient } from "@/lib/supabase/client";
-import { profileIdsForView } from "@/lib/supabase/filters";
 import { fetchTodayActivity } from "@/lib/supabase/health-logs";
 import { ensureDemoMeals } from "@/lib/supabase/seed-today";
 import { formatDetectedLine, macrosFromIngredients, parseFoodTextLocal } from "@/lib/food-log";
@@ -274,7 +273,7 @@ type LogMode = "text" | "barcode" | "photo" | null;
 type SyncStatus = "loading" | "seeded" | "ready" | "offline" | "error";
 
 export default function AujourdhuiScreen() {
-  const { activeProfiles, view, catalog } = useProfile();
+  const { activeProfiles, profile, catalog } = useProfile();
   const { season, weather } = useSeasonWeather();
   const [meals, setMeals] = useState<MealEntry[]>([]);
   const [ratings, setRatings] = useState<Record<ProfileId, DailyFeelScores>>({
@@ -398,7 +397,7 @@ export default function AujourdhuiScreen() {
 
   const reload = useCallback(async () => {
     const supabase = createBrowserSupabaseClient();
-    const ids = profileIdsForView(view);
+    const ids = [profile];
     const date = todayISO();
     const [{ plan, theme }, dessert, evening] = await Promise.all([
       loadWeekPlan(mondayOf(date)),
@@ -469,14 +468,14 @@ export default function AujourdhuiScreen() {
     setMovement(activity.movement);
     setStatus(seed.seeded ? "seeded" : "ready");
     setStatusDetail(seed.seeded ? "Journée à jour (templates + plan)" : "Lecture filtrée par profile_id");
-  }, [view, householdTemplates]);
+  }, [profile, householdTemplates]);
 
   useEffect(() => {
     void reload();
   }, [reload]);
 
   function persistTargets(profileId: ProfileId): ProfileId[] {
-    return view === "couple" ? HOUSEHOLD_IDS : [profileId];
+    return [profileId];
   }
 
   function applyLocalSlot(
@@ -839,7 +838,7 @@ export default function AujourdhuiScreen() {
 
   async function onSwap() {
     const hasMeal = meals.some(
-      (meal) => profileIdsForView(view).includes(meal.profileId) && !meal.isSkipped,
+      (meal) => meal.profileId === profile && !meal.isSkipped,
     );
     if (!hasMeal) {
       flash("Aucun repas à remplacer aujourd'hui");
@@ -858,7 +857,7 @@ export default function AujourdhuiScreen() {
       return;
     }
     setBusy(true);
-    const result = await swapMeal(supabase, profileIdsForView(view), mealType, proposals);
+    const result = await swapMeal(supabase, [profile], mealType, proposals);
     setBusy(false);
     if (result.error) {
       flash(result.error);
@@ -882,7 +881,7 @@ export default function AujourdhuiScreen() {
     setBusy(true);
     const result = await fetchTodayMeals(
       supabase,
-      profileIdsForView(view),
+      [profile],
       yesterdayISO(),
     );
     setBusy(false);
@@ -906,7 +905,7 @@ export default function AujourdhuiScreen() {
       return;
     }
     setBusy(true);
-    const result = await copyYesterdayMeals(supabase, profileIdsForView(view), types);
+    const result = await copyYesterdayMeals(supabase, [profile], types);
     setBusy(false);
     if (result.error) {
       flash(result.error);
@@ -1124,7 +1123,6 @@ export default function AujourdhuiScreen() {
   const catSnapshot = useMemo(() => {
     void sessionTick;
     return buildTodayCatSnapshot({
-      view,
       profiles: activeProfiles,
       meals,
       ratings,
@@ -1134,7 +1132,7 @@ export default function AujourdhuiScreen() {
       season,
       weather,
     });
-  }, [activeProfiles, meals, movement, ratings, season, view, weather, weekPlan, workouts, sessionTick]);
+  }, [activeProfiles, meals, movement, ratings, season, weather, weekPlan, workouts, sessionTick]);
   const catLine = useMemo(() => pickTodayCatLine(catSnapshot).text, [catSnapshot]);
   const lunchStreak = useMemo(() => {
     const today = todayISO();
@@ -1412,7 +1410,6 @@ export default function AujourdhuiScreen() {
 
       <TodayDelight
         profiles={delightProfiles}
-        couple={view === "couple"}
         armed={status !== "loading"}
       />
 

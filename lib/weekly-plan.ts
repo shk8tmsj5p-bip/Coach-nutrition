@@ -670,14 +670,6 @@ export function applyFullRecipeToBatch(
   return applyRecipeToSlots(plan, pair?.slotIds ?? [slotId], recipe, theme);
 }
 
-export function ingredientsForView(
-  ingredients: RecipeIngredient[],
-  view: "alexis" | "elodie" | "couple",
-): RecipeIngredient[] {
-  if (view === "couple") return ingredients;
-  return ingredients.filter((item) => item.role === "shared" || item.role === view);
-}
-
 export function gramsFor(item: RecipeIngredient, profileId: "alexis" | "elodie") {
   return profileId === "alexis" ? item.gramsAlexis : item.gramsElodie;
 }

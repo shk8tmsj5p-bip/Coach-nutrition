@@ -10,18 +10,16 @@ import { stripCoachNote } from "@/lib/coach-ingredients";
 import { groupMealIngredients, isDressingIngredient } from "@/lib/ingredient-groups";
 import { aisleStyle } from "@/lib/plan-colors";
 import { aisleFor, isUnlistedShoppingIng } from "@/lib/shopping-from-plan";
-import { formatIngredientLine, scaleVisualQuantity, formatVisualAndWeight } from "@/lib/visual-quantity";
-import { gramsFor, ingredientsForView, isEmptyMeal } from "@/lib/weekly-plan";
+import { formatIngredientLine, scaleVisualQuantity, visualForIngredient } from "@/lib/visual-quantity";
+import { isEmptyMeal } from "@/lib/weekly-plan";
 import { isWeekLunchDessert } from "@/lib/week-dessert";
-import { portionsDiffer } from "@/lib/meal-coach";
 import { cookQtyCaption, cookScale, type QtyMode } from "@/lib/qty-scale";
-import type { PlannedMeal, RecipeDeclination, RecipeIngredient, ViewMode } from "@/lib/types";
+import type { PlannedMeal, RecipeIngredient } from "@/lib/types";
 import { cn, mealTypeLabel } from "@/lib/utils";
 
 export function MealPlanCard({
   meal,
   planTag,
-  view,
   busy,
   qtyMode = "repas",
   defaultOpen = false,
@@ -33,7 +31,6 @@ export function MealPlanCard({
 }: {
   meal: PlannedMeal;
   planTag?: string;
-  view: ViewMode;
   busy?: boolean;
   qtyMode?: QtyMode;
   defaultOpen?: boolean;
@@ -45,9 +42,7 @@ export function MealPlanCard({
 }) {
   const [open, setOpen] = useState(defaultOpen);
   const empty = isEmptyMeal(meal);
-  const visibleIngredients = ingredientsForView(meal.ingredients, view).filter(
-    (item) => !isUnlistedShoppingIng(item.name),
-  );
+  const visibleIngredients = meal.ingredients.filter((item) => !isUnlistedShoppingIng(item.name));
   const scale = cookScale(meal, qtyMode);
   const visibleTips = meal.tips.filter((line) => isLogisticsTip(line));
 
@@ -101,8 +96,6 @@ export function MealPlanCard({
         </div>
       )}
 
-      {!empty && <Declinations meal={meal} view={view} />}
-
       {open && !empty && (
         <div className="mt-3 border-t border-health-line pt-3">
           <p className="text-[11px] font-semibold uppercase tracking-wide text-health-muted">
@@ -116,7 +109,7 @@ export function MealPlanCard({
                 ) : null}
                 <div className="space-y-0.5">
                   {group.items.map((item) => (
-                    <IngredientRow key={item.id} item={item} meal={meal} view={view} scale={scale} />
+                    <IngredientRow key={item.id} item={item} meal={meal} scale={scale} />
                   ))}
                 </div>
               </div>
@@ -198,12 +191,10 @@ export function MealPlanCard({
 function IngredientRow({
   item,
   meal,
-  view,
   scale,
 }: {
   item: RecipeIngredient;
   meal: PlannedMeal;
-  view: ViewMode;
   scale: number;
 }) {
   const coachBoost = /dont [+\-−]?\d+\s*g coach/i.test(item.notes ?? "");
@@ -215,13 +206,13 @@ function IngredientRow({
         : stripCoachNote(sanitizeCopy(item.notes))
       : "";
   const who = item.role === "alexis" ? "Alexis" : item.role === "elodie" ? "Élodie" : "";
-  const qty = ingredientQtyText(item, meal, view, scale);
+  const qty = ingredientQtyText(item, meal, scale);
   const full = [qty, who, notes].filter(Boolean).join(" · ");
   return (
     <div className="flex items-center gap-1.5 text-[13px] leading-tight">
       <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: aisle.hex }} />
       <HoldTip label={full} className={cn("font-medium", coachBoost && "text-coral-dark")}>
-        <IngredientQty item={item} meal={meal} view={view} scale={scale} />
+        <IngredientQty item={item} meal={meal} scale={scale} />
         {who ? (
           <span
             className={cn(
@@ -244,49 +235,38 @@ function IngredientRow({
 }
 
 function ingredientQtyText(
-  item: Parameters<typeof gramsFor>[0] & { visualQuantity?: string; name: string; role?: RecipeIngredient["role"] },
+  item: RecipeIngredient,
   meal: PlannedMeal,
-  view: ViewMode,
   scale: number,
 ) {
-  const visual = scaleVisualQuantity(item.visualQuantity, scale);
-  if (view === "couple") {
-    const gramsA = Math.round(item.gramsAlexis * scale);
-    const gramsE = Math.round(item.gramsElodie * scale);
-    if (gramsA > 0 && gramsE > 0) {
-      if (!isDressingIngredient(item as RecipeIngredient, meal) && portionsDiffer(gramsA, gramsE)) {
-        const maxG = Math.max(item.gramsAlexis, item.gramsElodie, 1);
-        const visualA = scaleVisualQuantity(item.visualQuantity, scale * (item.gramsAlexis / maxG));
-        const visualE = scaleVisualQuantity(item.visualQuantity, scale * (item.gramsElodie / maxG));
-        return `${item.name} : Alexis ${formatVisualAndWeight(gramsA, visualA)} · Élodie ${formatVisualAndWeight(gramsE, visualE)}`;
-      }
-      if (isDressingIngredient(item as RecipeIngredient, meal)) {
-        return formatIngredientLine({ name: item.name, grams: gramsA || gramsE, visual });
-      }
-      const grams = gramsA + gramsE;
-      const visualTotal = scaleVisualQuantity(
-        item.visualQuantity,
-        scale * ((gramsA + gramsE) / Math.max(gramsA, gramsE, 1)),
-      );
-      return formatIngredientLine({ name: item.name, grams, visual: visualTotal });
+  const gramsA = Math.round(item.gramsAlexis * scale);
+  const gramsE = Math.round(item.gramsElodie * scale);
+  const ref = Math.max(item.gramsAlexis, item.gramsElodie, 1);
+  const visual = scaleVisualQuantity(visualForIngredient(item.name, ref, item.visualQuantity), scale);
+  if (gramsA > 0 && gramsE > 0) {
+    if (isDressingIngredient(item, meal)) {
+      return formatIngredientLine({ name: item.name, grams: gramsA || gramsE, visual });
     }
-    return formatIngredientLine({ name: item.name, grams: gramsA || gramsE, visual });
+    const grams = gramsA + gramsE;
+    const visualTotal = scaleVisualQuantity(
+      visualForIngredient(item.name, ref, item.visualQuantity),
+      scale * ((gramsA + gramsE) / ref),
+    );
+    return formatIngredientLine({ name: item.name, grams, visual: visualTotal });
   }
-  return formatIngredientLine({ name: item.name, grams: Math.round(gramsFor(item, view) * scale), visual });
+  return formatIngredientLine({ name: item.name, grams: gramsA || gramsE, visual });
 }
 
 function IngredientQty({
   item,
   meal,
-  view,
   scale,
 }: {
-  item: Parameters<typeof gramsFor>[0] & { visualQuantity?: string; name: string; role?: RecipeIngredient["role"] };
+  item: RecipeIngredient;
   meal: PlannedMeal;
-  view: ViewMode;
   scale: number;
 }) {
-  return <>{ingredientQtyText(item, meal, view, scale)}</>;
+  return <>{ingredientQtyText(item, meal, scale)}</>;
 }
 
 function RecipeSteps({ steps }: { steps: string[] }) {
@@ -313,49 +293,6 @@ function RecipeSteps({ steps }: { steps: string[] }) {
           </p>
         );
       })}
-    </div>
-  );
-}
-
-function Declinations({ meal, view }: { meal: PlannedMeal; view: ViewMode }) {
-  if (view === "couple") {
-    return (
-      <div className="mt-3 grid grid-cols-2 gap-2">
-        <ProfileMacros name="Alexis" accent="coral" decl={meal.alexis} />
-        <ProfileMacros name="Élodie" accent="violet" decl={meal.elodie} />
-      </div>
-    );
-  }
-  const decl = view === "elodie" ? meal.elodie : meal.alexis;
-  return (
-    <p className="mt-3 text-[13px]">
-      <span className="font-semibold">Protéine : </span>
-      {decl.protein}
-      <span className="mt-0.5 block tabular-nums text-health-muted">
-        {decl.calories} kcal · {decl.proteinG}g P · {decl.carbsG}g G · {decl.fatG}g L
-      </span>
-    </p>
-  );
-}
-
-function ProfileMacros({
-  name,
-  accent,
-  decl,
-}: {
-  name: string;
-  accent: "coral" | "violet";
-  decl: RecipeDeclination;
-}) {
-  return (
-    <div className={cn("rounded-xl p-2.5", accent === "coral" ? "bg-coral-soft" : "bg-violet-soft")}>
-      <p className={cn("text-[11px] font-semibold", accent === "coral" ? "text-coral" : "text-violet")}>
-        {name}
-      </p>
-      <p className="mt-0.5 text-[12px] leading-snug">{decl.protein}</p>
-      <p className="mt-1 text-[11px] tabular-nums text-health-muted">
-        {decl.calories} kcal · {decl.proteinG}g P · {decl.carbsG}g G
-      </p>
     </div>
   );
 }

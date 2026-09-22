@@ -2,7 +2,6 @@ import type { AppliedAdjustments } from "@/lib/coach-adjustments";
 import type { CatFeelMood } from "@/lib/cat-feel";
 
 export type ProfileId = "alexis" | "elodie";
-export type ViewMode = ProfileId | "couple";
 
 export type DietType = "vegan" | "omnivore";
 export type MealType = "petit-dejeuner" | "dejeuner" | "diner" | "collation";

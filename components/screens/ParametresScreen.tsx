@@ -1,15 +1,16 @@
 "use client";
 
-import { useEffect, useState, type ReactNode, type Ref } from "react";
-import { Check, Copy, Moon, Sun } from "lucide-react";
+import { useEffect, useState, type Ref } from "react";
+import { Check, Copy } from "lucide-react";
 import { useProfile } from "@/context/ProfileContext";
-import { useTheme } from "@/context/ThemeContext";
-import { Card, SectionTitle } from "@/components/ui/Card";
+import { Card } from "@/components/ui/Card";
 import { MealTemplatesEditor } from "@/components/parametres/MealTemplatesEditor";
+import { SettingsHubBar, type SettingsHubId } from "@/components/parametres/SettingsHubBar";
 import { StatusBadge, type ConnectionTone } from "@/components/parametres/StatusBadge";
 import { TagInput } from "@/components/parametres/TagInput";
 import { ToggleRow } from "@/components/parametres/ToggleRow";
 import { HouseholdLockCard } from "@/components/parametres/HouseholdLockCard";
+import { PlanActionSheet } from "@/components/repas/PlanActionSheet";
 import {
   KITCHEN_APPLIANCES,
   loadKitchenPrefs,
@@ -20,7 +21,6 @@ import { hydrateKitchenPrefsFromSupabase, persistKitchenPrefs } from "@/lib/supa
 import { storage } from "@/lib/storage";
 import { HEALTH_WEBHOOK_PATH } from "@/lib/health-webhook";
 import type { SlotTemplate } from "@/lib/types";
-import { cn } from "@/lib/utils";
 
 const LEGACY_KEY_FIELDS = ["openai", "anthropic", "supabaseUrl", "supabaseAnon", "strava"] as const;
 
@@ -71,7 +71,7 @@ function webhookTone(
 
 export default function ParametresScreen() {
   const { catalog, updateAversions, updateMealTemplates } = useProfile();
-  const { scheme, setScheme } = useTheme();
+  const [sheet, setSheet] = useState<SettingsHubId | null>(null);
   const [prefs, setPrefs] = useState<KitchenPrefs>(() => loadKitchenPrefs());
   const [alexisAversions, setAlexisAversions] = useState(catalog.alexis.aversions);
   const [elodieAversions, setElodieAversions] = useState(catalog.elodie.aversions);
@@ -161,13 +161,20 @@ export default function ParametresScreen() {
     <div>
       <h1 className="text-[22px] font-bold tracking-tight">Paramètres</h1>
       <p className="mt-0.5 text-[12px] text-health-muted">
-        Cuisine foyer, petit-déj, collations & desserts, connexions
+        Accès, cuisine, habitudes, connexions
       </p>
 
-      <HouseholdLockCard alertsOn={Boolean(connections?.alerts)} />
+      <SettingsHubBar onOpen={setSheet} />
 
-      <SectionTitle className="mb-1.5 mt-3">Règles à respecter</SectionTitle>
-      <Card compact>
+      {sheet === "acces" ? (
+        <PlanActionSheet title="Accès" onClose={() => setSheet(null)}>
+          <HouseholdLockCard hideTitle alertsOn={Boolean(connections?.alerts)} />
+        </PlanActionSheet>
+      ) : null}
+
+      {sheet === "regles" ? (
+        <PlanActionSheet title="Règles" onClose={() => setSheet(null)}>
+          <Card compact>
         <p className="text-[13px] font-semibold">Lois du foyer</p>
         <div className="mt-0.5">
           <ToggleRow
@@ -228,8 +235,12 @@ export default function ParametresScreen() {
           />
         </div>
       </Card>
+        </PlanActionSheet>
+      ) : null}
 
-      <Card compact className="mt-1.5">
+      {sheet === "aversions" ? (
+        <PlanActionSheet title="Aversions" onClose={() => setSheet(null)}>
+      <Card compact>
         <p className="text-[13px] font-semibold">Gérer les aversions</p>
         <p className="mt-0.5 text-[11px] text-health-muted">
           Ingrédients bannis par profil — omis à la génération.
@@ -257,8 +268,12 @@ export default function ParametresScreen() {
           />
         </div>
       </Card>
+        </PlanActionSheet>
+      ) : null}
 
-      <Card compact className="mt-1.5">
+      {sheet === "materiel" ? (
+        <PlanActionSheet title="Matériel" onClose={() => setSheet(null)}>
+      <Card compact>
         <p className="text-[13px] font-semibold">Matériel à disposition</p>
         <div className="mt-0.5">
           {KITCHEN_APPLIANCES.map((item) => (
@@ -283,12 +298,15 @@ export default function ParametresScreen() {
           ))}
         </div>
       </Card>
+        </PlanActionSheet>
+      ) : null}
 
-      <SectionTitle className="mb-1.5 mt-3">Petit-déj, collations & desserts</SectionTitle>
+      {sheet === "habitudes" ? (
+        <PlanActionSheet title="Habitudes" onClose={() => setSheet(null)}>
       <p className="mb-1.5 px-0.5 text-[11px] leading-snug text-health-muted">
-        Modèles stables par jour. À l’ajout d’un ingrédient, Gemini estime les kcal d’après ta phrase
-        (lait d’avoine ≠ flocons). Les desserts s’ajoutent au déjeuner / dîner. Le plat vient de Repas.
-        Un changement s’applique tout de suite à Aujourd’hui.
+        Petit-déj, collations et desserts — modèles stables par jour. À l’ajout d’un ingrédient, Gemini
+        estime les kcal d’après ta phrase (lait d’avoine ≠ flocons). Les desserts s’ajoutent au déjeuner
+        / dîner. Le plat vient de Repas. Un changement s’applique tout de suite à Aujourd’hui.
       </p>
       <MealTemplatesEditor
         profileId="alexis"
@@ -310,8 +328,11 @@ export default function ParametresScreen() {
           void updateMealTemplates({ elodie: next });
         }}
       />
+        </PlanActionSheet>
+      ) : null}
 
-      <SectionTitle className="mb-1.5 mt-3">Connexions & clés API</SectionTitle>
+      {sheet === "cles" ? (
+        <PlanActionSheet title="Clés API" onClose={() => setSheet(null)}>
       <Card compact>
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
@@ -380,31 +401,11 @@ export default function ParametresScreen() {
           onChange={(webhook) => commitKey("webhook", webhook)}
         />
       </Card>
-
-      <SectionTitle className="mb-1.5 mt-3">Thème & apparence</SectionTitle>
-      <Card compact>
-        <p className="text-[13px] font-semibold">Mode d&apos;affichage</p>
-        <p className="mt-0.5 text-[11px] text-health-muted">
-          Même réglage que le bouton Lune / Soleil en haut de l&apos;écran.
-        </p>
-        <div className="mt-2 grid grid-cols-2 gap-1.5">
-          <ThemeChoice
-            active={scheme === "light"}
-            icon={<Sun size={16} />}
-            label="Clair"
-            onClick={() => setScheme("light")}
-          />
-          <ThemeChoice
-            active={scheme === "dark"}
-            icon={<Moon size={16} />}
-            label="Sombre"
-            onClick={() => setScheme("dark")}
-          />
-        </div>
-      </Card>
+        </PlanActionSheet>
+      ) : null}
 
       {toast && (
-        <div className="fixed bottom-24 left-1/2 z-[90] -translate-x-1/2 rounded-full bg-health-ink px-4 py-2 text-[13px] font-medium text-health-on-fill shadow-card">
+        <div className="fixed bottom-24 left-1/2 z-[120] -translate-x-1/2 rounded-full bg-health-ink px-4 py-2 text-[13px] font-medium text-health-on-fill shadow-card">
           {toast}
         </div>
       )}
@@ -462,28 +463,3 @@ function ProfileWebhookCopy({
   );
 }
 
-function ThemeChoice({
-  active,
-  icon,
-  label,
-  onClick,
-}: {
-  active: boolean;
-  icon: ReactNode;
-  label: string;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn(
-        "flex items-center justify-center gap-1.5 rounded-xl py-2 text-[13px] font-semibold",
-        active ? "bg-health-ink text-health-on-fill" : "bg-health-bg text-health-muted",
-      )}
-    >
-      {icon}
-      {label}
-    </button>
-  );
-}

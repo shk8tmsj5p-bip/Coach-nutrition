@@ -64,11 +64,46 @@ function mentionedIn(ing: RecipeIngredient, text: string) {
   return first.length >= 4 && hay.includes(first);
 }
 
+const PREFIX_HEADS: Array<{ id: DressingGroupId; head: RegExp }> = [
+  { id: "marinade", head: /^marinade\b/i },
+  { id: "vinaigrette", head: /^vinaigrette\b/i },
+  { id: "pesto", head: /^(pesto|pistou)\b/i },
+  { id: "houmous", head: /^(houmous|hummus)\b/i },
+  { id: "satay", head: /^(sauce\s+)?satay\b/i },
+  { id: "nuoc", head: /^(sauce\s+)?nuoc\b/i },
+  { id: "tahini", head: /^(sauce\s+)?tahini\b/i },
+  { id: "mayo", head: /^(mayo|mayonnaise|a[iï]oli)\b/i },
+  { id: "sauce", head: /^sauce\b(?!\s*soja)/i },
+];
+
+/** Gem prefixe souvent « Marinade Yassa - Citron » faute de champ groupe. */
+export function peelSauceGroupPrefix(name: string): { name: string; group: DressingGroupId | null } {
+  const raw = name.trim();
+  if (/^sauce soja\b/i.test(raw)) return { name: raw, group: null };
+  const split = raw.match(/^(.+?)\s*[-–:·]\s+(.+)$/);
+  if (split) {
+    const left = split[1]!.trim();
+    const right = split[2]!.trim();
+    if (right && left.length <= 48) {
+      for (const row of PREFIX_HEADS) {
+        if (row.head.test(left)) return { name: right, group: row.id };
+      }
+    }
+  }
+  return { name: raw, group: null };
+}
+
+export function displayIngredientName(name: string) {
+  return peelSauceGroupPrefix(name).name;
+}
+
 function namedGroupOf(ing: RecipeIngredient): DressingGroupId | null {
-  const blob = ing.name;
+  const peeled = peelSauceGroupPrefix(ing.name);
+  if (peeled.group) return peeled.group;
+  const blob = peeled.name;
   for (const def of DRESSING_GROUP_DEFS) {
     if (def.id === "sauce" && !/\bsauce\b/i.test(blob)) continue;
-    if (def.nameRx.test(blob)) return def.id;
+    if (def.nameRx.test(ing.name) || def.nameRx.test(blob)) return def.id;
   }
   return null;
 }

@@ -147,7 +147,7 @@ function paneFromSaved(saved: WeekLunchDessert | null): DessertPane {
 }
 
 export default function RepasScreen() {
-  const { view, catalog } = useProfile();
+  const { catalog } = useProfile();
   const { season, weather, tempC } = useSeasonWeather();
   const [tab, setTab] = useState<Tab>("plan");
   const [planQty, setPlanQty] = useState<QtyMode>("batch");
@@ -1185,7 +1185,7 @@ export default function RepasScreen() {
             ))}
           </div>
           {favPane === "favoris" ? (
-            <FavoritesPanel list={favorites} view={view} onOpen={setOpenFavorite} />
+            <FavoritesPanel list={favorites} onOpen={setOpenFavorite} />
           ) : (
             <RejectedPanel
               list={rejected}
@@ -1224,7 +1224,6 @@ export default function RepasScreen() {
       {swapMeal && (
         <SwapIngredientSheet
           meal={swapMeal}
-          view={view}
           busy={busy}
           onClose={() => setSwapMeal(null)}
           onSuggest={async (ingredientId, ingredientName) => {
@@ -1330,7 +1329,6 @@ export default function RepasScreen() {
         <RecipeDetailSheet
           meal={openRecipe.meal}
           planTag={openRecipe.tag}
-          view={view}
           busy={busy}
           qtyMode={planQty}
           onQtyMode={setPlanQty}
@@ -1376,7 +1374,6 @@ export default function RepasScreen() {
             dessertPane.product,
           )}
           planTag={dessertTagOf(dessertSlot)}
-          view={view}
           busy={busy}
           qtyMode={planQty}
           onQtyMode={setPlanQty}
@@ -1475,7 +1472,6 @@ export default function RepasScreen() {
       {openFavorite && (
         <FavoriteRecipeSheet
           item={openFavorite}
-          view={view}
           busy={busy}
           onClose={() => setOpenFavorite(null)}
           onPlace={() => setPlaceFavorite(openFavorite)}

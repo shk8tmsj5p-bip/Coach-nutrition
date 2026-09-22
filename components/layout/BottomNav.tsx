@@ -3,15 +3,16 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Flame, Home, Settings, TrendingUp, Utensils } from "lucide-react";
+import { APP_TAB_HREFS } from "@/lib/tabs";
 import { cn } from "@/lib/utils";
 
-const TABS = [
-  { href: "/", label: "Aujourd'hui", icon: Home },
-  { href: "/repas", label: "Repas", icon: Utensils },
-  { href: "/suivi", label: "Suivi", icon: TrendingUp },
-  { href: "/metabolique", label: "Métabo.", icon: Flame },
-  { href: "/parametres", label: "Réglages", icon: Settings },
-] as const;
+const TAB_META = {
+  "/": { label: "Aujourd'hui", icon: Home },
+  "/repas": { label: "Repas", icon: Utensils },
+  "/suivi": { label: "Suivi", icon: TrendingUp },
+  "/metabolique": { label: "Métabo.", icon: Flame },
+  "/parametres": { label: "Réglages", icon: Settings },
+} as const;
 
 export function BottomNav() {
   const pathname = usePathname();
@@ -22,14 +23,14 @@ export function BottomNav() {
       style={{ paddingBottom: "var(--safe-bottom)" }}
     >
       <ul className="grid grid-cols-5 px-1 pt-1.5">
-        {TABS.map((tab) => {
-          const active =
-            tab.href === "/" ? pathname === "/" : pathname.startsWith(tab.href);
+        {APP_TAB_HREFS.map((href) => {
+          const tab = TAB_META[href];
+          const active = href === "/" ? pathname === "/" : pathname.startsWith(href);
           const Icon = tab.icon;
           return (
-            <li key={tab.href}>
+            <li key={href}>
               <Link
-                href={tab.href}
+                href={href}
                 className={cn(
                   "flex flex-col items-center gap-0.5 py-1.5 text-[10px] font-medium",
                   active ? "text-health-ink" : "text-health-muted",

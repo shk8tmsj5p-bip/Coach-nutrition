@@ -123,7 +123,7 @@ export function LogSheet({
   const pinSave = (mode === "text" && textReview) || (mode === "photo" && photoReady);
 
   return (
-    <div className="fixed inset-0 z-[70] flex items-end justify-center bg-black/30">
+    <div className="fixed inset-0 z-[110] flex items-end justify-center bg-black/30">
       <div className="flex max-h-[calc(100dvh-var(--safe-top)-12px)] w-full max-w-[430px] flex-col overflow-hidden rounded-t-[24px] bg-white shadow-card">
         <div className={cn("min-h-0 overflow-y-auto p-4", pinSave ? "pb-3" : "pb-8")}>
         <div className="mb-3 flex items-center justify-between">

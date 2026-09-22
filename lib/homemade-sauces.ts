@@ -95,11 +95,7 @@ export function mergeDuplicateIngredients(ingredients: RecipeIngredient[]): Reci
   for (const item of ingredients) {
     const key = ingredientDedupeKey(item.name, item.notes);
     if (!key) continue;
-    const index = out.findIndex((row) => {
-      if (ingredientDedupeKey(row.name, row.notes) !== key) return false;
-      if (row.role === item.role) return true;
-      return row.role === "shared" || item.role === "shared";
-    });
+    const index = out.findIndex((row) => ingredientDedupeKey(row.name, row.notes) === key);
     if (index < 0) {
       out.push(item);
       continue;
@@ -109,12 +105,21 @@ export function mergeDuplicateIngredients(ingredients: RecipeIngredient[]): Reci
     const nextTotal = item.gramsAlexis + item.gramsElodie;
     const richer = nextTotal > prevTotal ? item : prev;
     const name = preferIngredientName(prev.name, item.name);
+    const gramsAlexis = Math.max(prev.gramsAlexis, item.gramsAlexis);
+    const gramsElodie = Math.max(prev.gramsElodie, item.gramsElodie);
+    const bothSides = gramsAlexis > 0 && gramsElodie > 0;
+    const crossed =
+      (prev.role === "alexis" && item.role === "elodie") ||
+      (prev.role === "elodie" && item.role === "alexis");
     out[index] = {
       ...richer,
       name,
-      role: prev.role === "shared" || item.role === "shared" ? "shared" : richer.role,
-      gramsAlexis: Math.max(prev.gramsAlexis, item.gramsAlexis),
-      gramsElodie: Math.max(prev.gramsElodie, item.gramsElodie),
+      role:
+        prev.role === "shared" || item.role === "shared" || crossed || bothSides
+          ? "shared"
+          : richer.role,
+      gramsAlexis,
+      gramsElodie,
       notes: mergedNotes(prev, item, name),
       visualQuantity: richer.visualQuantity || prev.visualQuantity || item.visualQuantity,
     };

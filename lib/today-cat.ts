@@ -13,7 +13,6 @@ import type {
   PlannedMeal,
   Profile,
   ProfileId,
-  ViewMode,
   Workout,
 } from "@/lib/types";
 
@@ -32,7 +31,6 @@ export type CatSignal =
   | "hello";
 
 export type TodayCatSnapshot = {
-  couple: boolean;
   name: string;
   otherName: string | null;
   period: "matin" | "midi" | "soir";
@@ -99,7 +97,6 @@ function pick<T>(seed: string, items: T[]) {
 }
 
 export function buildTodayCatSnapshot(opts: {
-  view: ViewMode;
   profiles: Profile[];
   meals: MealEntry[];
   ratings: Record<ProfileId, DailyFeelScores>;
@@ -112,26 +109,17 @@ export function buildTodayCatSnapshot(opts: {
 }): TodayCatSnapshot {
   const date = opts.date ?? todayISO();
   const period = dayPeriod(parisHour());
-  const couple = opts.view === "couple";
-  const focus = couple ? opts.profiles[0] : (opts.profiles[0] ?? null);
-  const name = couple ? "Vous deux" : (focus?.name ?? "Toi");
-  const otherName = couple ? null : opts.profiles[0]?.id === "alexis" ? "Élodie" : "Alexis";
+  const focus = opts.profiles[0] ?? null;
+  const name = focus?.name ?? "Toi";
+  const otherName = focus?.id === "alexis" ? "Élodie" : "Alexis";
 
-  const ids = couple ? (["alexis", "elodie"] as ProfileId[]) : focus ? [focus.id] : [];
+  const ids = focus ? [focus.id] : [];
   const allMeals = ids.length > 0 && ids.every((id) => mealsAccountedToday(opts.meals, id));
 
-  const nextEmpty = couple
-    ? firstEmpty(opts.meals, "alexis", period) ?? firstEmpty(opts.meals, "elodie", period)
-    : focus
-      ? firstEmpty(opts.meals, focus.id, period)
-      : null;
+  const nextEmpty = focus ? firstEmpty(opts.meals, focus.id, period) : null;
 
   const weekPlatWaiting = (["dejeuner", "diner"] as const).some((slot) => {
     if (!plannedMealForDay(opts.weekPlan, date, slot)) return false;
-    if (couple) {
-      return !isFilledMeal(slotOfProfile(opts.meals, "alexis", slot)) ||
-        !isFilledMeal(slotOfProfile(opts.meals, "elodie", slot));
-    }
     return focus ? !isFilledMeal(slotOfProfile(opts.meals, focus.id, slot)) : false;
   });
 
@@ -157,7 +145,6 @@ export function buildTodayCatSnapshot(opts: {
   const stepsBusy = ids.some((id) => (opts.movement[id]?.steps ?? 0) >= 8000);
 
   return {
-    couple,
     name,
     otherName,
     period,
@@ -205,7 +192,7 @@ function mealCue(type: MealType, period: TodayCatSnapshot["period"]) {
 }
 
 export function pickTodayCatLine(snap: TodayCatSnapshot, date = todayISO()) {
-  const seed = `${date}:${snap.period}:${snap.couple ? "c" : snap.name}`;
+  const seed = `${date}:${snap.period}:${snap.name}`;
 
   if (snap.stressed) {
     return {

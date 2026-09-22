@@ -1,4 +1,5 @@
 import { envelopePieceGrams, isEnvelopeIngredient } from "@/lib/recipe-macros";
+import { displayIngredientName } from "@/lib/ingredient-groups";
 
 function formatGrams(grams: number) {
   if (grams <= 0) return "";
@@ -85,7 +86,6 @@ const PRODUCE_UNITS: { keys: string[]; unit: string; gramsPer: number }[] = [
   { keys: ["tomates cerises", "tomate cerise"], unit: "barquette", gramsPer: 250 },
   { keys: ["courgette"], unit: "pièce", gramsPer: 200 },
   { keys: ["concombre"], unit: "pièce", gramsPer: 300 },
-  { keys: ["carotte"], unit: "pièce", gramsPer: 80 },
   { keys: ["poivron"], unit: "pièce", gramsPer: 160 },
   { keys: ["tomate"], unit: "pièce", gramsPer: 120 },
   { keys: ["oignon"], unit: "pièce", gramsPer: 100 },
@@ -98,12 +98,10 @@ const PRODUCE_UNITS: { keys: string[]; unit: string; gramsPer: number }[] = [
   { keys: ["radis"], unit: "botte", gramsPer: 150 },
   { keys: ["ail"], unit: "gousse", gramsPer: 5 },
   { keys: ["gingembre"], unit: "cm", gramsPer: 8 },
-  { keys: ["champignon"], unit: "barquette", gramsPer: 250 },
   { keys: ["naan"], unit: "pièce", gramsPer: 80 },
   { keys: ["pita"], unit: "pièce", gramsPer: 60 },
   { keys: ["galette sarrasin"], unit: "pièce", gramsPer: 70 },
   { keys: ["galette", "wrap", "tortilla"], unit: "pièce", gramsPer: 55 },
-  { keys: ["tofu"], unit: "bloc", gramsPer: 400 },
   { keys: ["citronnelle"], unit: "tige", gramsPer: 20 },
   { keys: ["pak choi", "pakchoi"], unit: "pièce", gramsPer: 150 },
 ];
@@ -121,9 +119,16 @@ function formatVisualLabel(amount: number, unit: string) {
   return `${qty} ${unit}`.trim();
 }
 
+/** Tofu / champignons / carotte : grammes seuls — jamais bloc, barquette ni pièces. */
+export function isGramsOnlyIngredient(name: string) {
+  const n = name.toLowerCase();
+  return /\btofu\b/.test(n) || /champignon/.test(n) || /carotte/.test(n);
+}
+
 /** Unité courses pour un légume / herbe / protéine en pièces, si Gemini l'a oubliée. */
 export function inferVisualUnit(name: string, grams: number) {
   if (!name?.trim() || !Number.isFinite(grams) || grams <= 0) return undefined;
+  if (isGramsOnlyIngredient(name)) return undefined;
   const n = name.toLowerCase();
   if (/huile|vinaigre|eau|sel|poivre|cumin|paprika|épice|epice|moutarde|tahini|soja|agave|miso/.test(n)) {
     return undefined;
@@ -268,6 +273,7 @@ function visualMatchesGrams(name: string, grams: number, visual: string) {
 }
 
 export function visualForIngredient(name: string, grams: number, visual?: string) {
+  if (isGramsOnlyIngredient(name)) return undefined;
   const given = visual?.trim().replace(/^(env\.?|environ)\s+/i, "");
   const inferred = inferSpoonUnit(name, grams) || inferVisualUnit(name, grams);
   if (isEnvelopeIngredient(name)) {
@@ -313,5 +319,5 @@ export function formatIngredientLine(opts: {
   const who = opts.who ? ` · ${opts.who}` : "";
   const tags =
     opts.tags && opts.tags.length > 0 ? ` - [${[...new Set(opts.tags)].join(", ")}]` : "";
-  return `${opts.name} : ${qty || "—"}${who}${tags}`;
+  return `${displayIngredientName(opts.name)} : ${qty || "—"}${who}${tags}`;
 }

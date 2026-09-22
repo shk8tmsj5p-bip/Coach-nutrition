@@ -188,7 +188,7 @@ function CookbookTable({
 }: {
   headers: [string, string, string];
   rows: BatchStepRecipeBlock[];
-  tone: "coral" | "sky" | "violet" | "cream";
+  tone: "coral" | "sky" | "amber" | "violet" | "cream";
   perItem?: boolean;
   groupByFamily?: boolean;
   onOpenRecipe?: (recipeNo: string) => void;
@@ -198,9 +198,11 @@ function CookbookTable({
       ? "bg-coral-soft text-coral-dark"
       : tone === "sky"
         ? "bg-sky-50 text-sky-800 dark:bg-sky-950/50 dark:text-sky-200"
-        : tone === "violet"
-          ? "bg-violet-soft text-violet-dark"
-          : "bg-[#F3EBE0] text-amber-900 dark:bg-[#3A342C] dark:text-amber-200";
+        : tone === "amber"
+          ? "bg-[#F3EBE0] text-amber-900 dark:bg-[#3A342C] dark:text-amber-200"
+          : tone === "violet"
+            ? "bg-violet-soft text-violet-dark"
+            : "bg-[#F3EBE0] text-amber-900 dark:bg-[#3A342C] dark:text-amber-200";
 
   return (
     <div className="mt-2 overflow-hidden rounded-xl bg-health-bg">
@@ -295,23 +297,46 @@ function CookbookTable({
   );
 }
 
-function sectionTone(step: BatchStep): "coral" | "sky" | "violet" | "cream" {
-  if (step.time === "1" || /airfryer/i.test(step.title)) return "coral";
-  if (step.time === "2" || /eau|féculent/i.test(step.title)) return "sky";
-  if (step.time === "3" || /sauce/i.test(step.title)) return "violet";
+function isWaterStep(step: BatchStep) {
+  return /eau|féculent/i.test(step.title) && !/poêle|poele/i.test(step.title);
+}
+
+function isPanStep(step: BatchStep) {
+  return /poêle|poele|plaque/i.test(step.title) && !/eau|féculent|boîte/i.test(step.title);
+}
+
+function isSauceStep(step: BatchStep) {
+  return step.rowMode === "sauce" || /^(\d+\.\s*)?sauces?\b/i.test(step.title);
+}
+
+function isCutStep(step: BatchStep) {
+  return step.rowMode === "per-item" || /découpe/i.test(step.title);
+}
+
+function isBoxStep(step: BatchStep) {
+  return /boîte|assemblage/i.test(step.title);
+}
+
+function sectionTone(step: BatchStep): "coral" | "sky" | "amber" | "violet" | "cream" {
+  if (/airfryer/i.test(step.title)) return "coral";
+  if (isWaterStep(step)) return "sky";
+  if (isPanStep(step)) return "amber";
+  if (isSauceStep(step)) return "violet";
   return "cream";
 }
 
 function sectionHeaders(step: BatchStep): [string, string, string] {
-  if (step.time === "1" || /airfryer/i.test(step.title)) return ["Px", "Protéines", "Réglage"];
-  if (step.time === "2" || /eau|féculent/i.test(step.title)) return ["Px", "Ingrédient", "Cuisson"];
-  if (step.time === "4" || /découpe/i.test(step.title)) return ["Px", "Légume", "Découpe"];
+  if (/airfryer/i.test(step.title)) return ["Px", "À griller", "Réglage"];
+  if (isWaterStep(step)) return ["Px", "Ingrédient", "Cuisson"];
+  if (isPanStep(step)) return ["Px", "À poêler", "Cuisson"];
+  if (isCutStep(step)) return ["Px", "Légume", "Découpe"];
   return ["Px", "Légumes", "Geste"];
 }
 
-function sectionShell(tone: "coral" | "sky" | "violet" | "cream") {
+function sectionShell(tone: "coral" | "sky" | "amber" | "violet" | "cream") {
   if (tone === "coral") return "border-coral/25 bg-health-card";
   if (tone === "sky") return "border-sky-300/40 dark:border-sky-500/25 bg-health-card";
+  if (tone === "amber") return "border-amber-300/45 dark:border-amber-500/30 bg-health-card";
   if (tone === "violet") return "border-violet/25 bg-health-card";
   return "border-health-line bg-health-card";
 }
@@ -409,10 +434,10 @@ export function BatchGuidePanel({
                 {step.title.replace(/^\d+\.\s*/, "")}
               </p>
             </div>
-            {(step.time === "4" || step.time === "5" || /boîte|découpe/i.test(step.title)) && step.detail ? (
+            {(isCutStep(step) || isBoxStep(step)) && step.detail ? (
               <p className="mt-1 text-[11px] leading-snug text-health-muted">{step.detail}</p>
             ) : null}
-            {step.time === "5" || /boîte|assemblage/i.test(step.title) ? (
+            {isBoxStep(step) ? (
               <div className="mt-2 space-y-2">
                 {rows.map((block) => (
                   <AssemblyCard
@@ -422,7 +447,7 @@ export function BatchGuidePanel({
                   />
                 ))}
               </div>
-            ) : step.rowMode === "sauce" || step.time === "3" ? (
+            ) : isSauceStep(step) ? (
               <SauceList rows={rows} onOpenRecipe={onOpenRecipe} />
             ) : (
               <CookbookTable
@@ -430,7 +455,7 @@ export function BatchGuidePanel({
                 rows={rows}
                 tone={tone}
                 perItem={step.rowMode === "per-item"}
-                groupByFamily={step.time === "4"}
+                groupByFamily={isCutStep(step)}
                 onOpenRecipe={onOpenRecipe}
               />
             )}

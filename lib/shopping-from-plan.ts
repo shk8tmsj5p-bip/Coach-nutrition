@@ -1,7 +1,7 @@
 import type { PlannedMeal, RecipeIngredient, ShoppingListItem } from "@/lib/types";
 import { planTagByMealId } from "@/lib/meal-tags";
-import { formatIngredientLine, parseVisualQuantity, visualForIngredient } from "@/lib/visual-quantity";
-import { isDressingIngredient, sharedSauceGrams } from "@/lib/ingredient-groups";
+import { formatIngredientLine, isGramsOnlyIngredient, parseVisualQuantity, visualForIngredient } from "@/lib/visual-quantity";
+import { displayIngredientName, isDressingIngredient, sharedSauceGrams } from "@/lib/ingredient-groups";
 import { isEmptyMeal } from "@/lib/weekly-plan";
 import { storage } from "@/lib/storage";
 import { loadWeekShopping, persistWeekShopping } from "@/lib/supabase/shopping-list";
@@ -440,14 +440,15 @@ function pickCanonName(raw: string, startOnly: boolean) {
 }
 
 export function shoppingDisplayName(raw: string) {
-  const fromStart = pickCanonName(raw, true);
+  const peeled = displayIngredientName(raw);
+  const fromStart = pickCanonName(peeled, true);
   if (fromStart) return fromStart;
-  const stripped = stripPrepWords(raw);
+  const stripped = stripPrepWords(peeled);
   return (
     pickCanonName(stripped, true) ??
     pickCanonName(stripped, false) ??
-    pickCanonName(raw, false) ??
-    (stripped ? titleCaseFr(stripped) : raw.trim())
+    pickCanonName(peeled, false) ??
+    (stripped ? titleCaseFr(stripped) : peeled.trim())
   );
 }
 
@@ -529,7 +530,8 @@ function formatMergedVisual(amount: number, unitKey: string) {
   return `${qty} ${unitKey}`;
 }
 
-function shoppingVisualOf(ing: { visualQuantity?: string; notes?: string }) {
+function shoppingVisualOf(ing: { name?: string; visualQuantity?: string; notes?: string }) {
+  if (ing.name && isGramsOnlyIngredient(ing.name)) return undefined;
   if (ing.visualQuantity?.trim()) return ing.visualQuantity.split(/[·,]/)[0]?.trim();
   const notes = ing.notes?.trim() ?? "";
   const hit = notes.match(

@@ -22,15 +22,13 @@ type ProfileReady = {
 
 export function TodayDelight({
   profiles,
-  couple,
   armed,
 }: {
   profiles: ProfileReady[];
-  couple: boolean;
   armed: boolean;
 }) {
   const [message, setMessage] = useState<string | null>(null);
-  const signature = `${couple}:${profiles.map((p) => `${p.id}:${p.meals}:${p.session}:${p.journal}`).join("|")}`;
+  const signature = profiles.map((p) => `${p.id}:${p.meals}:${p.session}:${p.journal}`).join("|");
   const pending = useMemo(() => {
     if (!armed) return [];
     const date = todayISO();
@@ -49,17 +47,14 @@ export function TodayDelight({
   useEffect(() => {
     if (pending.length === 0) return;
     const date = todayISO();
-    const shared = couple && pending.length > 1;
-    const text = shared
-      ? delightCopy([...new Set(pending.flatMap((item) => item.layers))])
-      : delightCopy(pending[0].layers, couple ? pending[0].name : undefined);
+    const text = delightCopy(pending[0].layers);
     setMessage(text);
     const hide = window.setTimeout(() => {
       for (const item of pending) markDelightShown(item.id, item.layers, date);
       setMessage(null);
     }, 2600);
     return () => window.clearTimeout(hide);
-  }, [couple, pending]);
+  }, [pending]);
 
   if (!message) return null;
 

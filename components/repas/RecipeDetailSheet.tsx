@@ -7,14 +7,13 @@ import { MealPlanCard } from "@/components/repas/MealPlanCard";
 import { FavoriteHeart } from "@/components/today/FavoriteHeart";
 import { RejectMealButton } from "@/components/today/RejectMealButton";
 import { qtyModeChoices, qtyModeShortLabel, type QtyMode } from "@/lib/qty-scale";
-import type { PlannedMeal, ViewMode } from "@/lib/types";
+import type { PlannedMeal } from "@/lib/types";
 import { isWeekLunchDessert } from "@/lib/week-dessert";
 import { cn } from "@/lib/utils";
 
 export function RecipeDetailSheet({
   meal,
   planTag,
-  view,
   busy,
   qtyMode,
   onQtyMode,
@@ -31,7 +30,6 @@ export function RecipeDetailSheet({
 }: {
   meal: PlannedMeal;
   planTag?: string;
-  view: ViewMode;
   busy?: boolean;
   qtyMode: QtyMode;
   onQtyMode: (mode: QtyMode) => void;
@@ -102,7 +100,6 @@ export function RecipeDetailSheet({
               key={`${meal.batchId}-${qtyMode}`}
               meal={meal}
               planTag={planTag}
-              view={view}
               busy={busy}
               qtyMode={qtyMode}
               defaultOpen

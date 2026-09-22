@@ -377,8 +377,9 @@ function recipePages(meal: NumberedRecipe) {
 }
 
 function MasterCook({ session, weekLabel }: { session: BatchSession; weekLabel: string }) {
-  const air = session.steps.find((step) => step.time === "1");
-  const water = session.steps.find((step) => step.time === "2");
+  const tm = session.steps.find((step) => /sauce/i.test(step.title));
+  const cuts = session.steps.find((step) => /découpe/i.test(step.title));
+  const water = session.steps.find((step) => /eau|féculent/i.test(step.title) && !/poêle|poele/i.test(step.title));
   return (
     <>
       <p style={{ ...muted, fontWeight: 700, letterSpacing: 0.9, textTransform: "uppercase", color: "#E25538" }}>
@@ -401,21 +402,30 @@ function MasterCook({ session, weekLabel }: { session: BatchSession; weekLabel: 
         </p>
       ))}
 
-      {air?.recipes?.length ? (
+      {tm?.recipes?.length ? (
         <div style={{ marginTop: 10 }}>
-          <p style={h2}>1. {air.title.replace(/^\d+\.\s*/, "")}</p>
+          <p style={h2}>{tm.title}</p>
+          <PdfSauceList rows={tm.recipes} />
+        </div>
+      ) : null}
+
+      {cuts?.recipes?.length ? (
+        <div style={{ marginTop: 10 }}>
+          <p style={h2}>{cuts.title}</p>
           <PdfTable
-            headers={["Px", "Protéines", "Réglage"]}
-            rows={air.recipes}
-            headBg="#FFE8E2"
-            headColor="#E25538"
+            headers={["Px", "Légume", "Découpe"]}
+            rows={cuts.recipes}
+            headBg="#F3EBE0"
+            headColor="#92400E"
+            perItem
+            groupByFamily
           />
         </div>
       ) : null}
 
       {water?.recipes?.length ? (
         <div style={{ marginTop: 10 }}>
-          <p style={h2}>2. {water.title.replace(/^\d+\.\s*/, "")}</p>
+          <p style={h2}>{water.title}</p>
           <PdfTable
             headers={["Px", "Ingrédient", "Cuisson"]}
             rows={water.recipes}
@@ -430,28 +440,33 @@ function MasterCook({ session, weekLabel }: { session: BatchSession; weekLabel: 
 }
 
 function MasterFinish({ session }: { session: BatchSession }) {
-  const tm = session.steps.find((step) => step.time === "3");
-  const cuts = session.steps.find((step) => step.time === "4");
+  const air = session.steps.find((step) => /airfryer/i.test(step.title));
+  const pan = session.steps.find(
+    (step) => /poêle|poele|plaque/i.test(step.title) && !/eau|féculent|boîte/i.test(step.title),
+  );
 
   return (
     <>
-      {tm?.recipes?.length ? (
+      {air?.recipes?.length ? (
         <div>
-          <p style={{ ...h2, marginTop: 0 }}>3. Sauces</p>
-          <PdfSauceList rows={tm.recipes} />
+          <p style={{ ...h2, marginTop: 0 }}>{air.title}</p>
+          <PdfTable
+            headers={["Px", "À griller", "Réglage"]}
+            rows={air.recipes}
+            headBg="#FFE8E2"
+            headColor="#E25538"
+          />
         </div>
       ) : null}
 
-      {cuts?.recipes?.length ? (
+      {pan?.recipes?.length ? (
         <div style={{ marginTop: 14 }}>
-          <p style={h2}>4. Découpes</p>
+          <p style={h2}>{pan.title}</p>
           <PdfTable
-            headers={["Px", "Légume", "Découpe"]}
-            rows={cuts.recipes}
+            headers={["Px", "À poêler", "Cuisson"]}
+            rows={pan.recipes}
             headBg="#F3EBE0"
             headColor="#92400E"
-            perItem
-            groupByFamily
           />
         </div>
       ) : null}
@@ -570,7 +585,7 @@ export function BatchPdfDocument({
   session: BatchSession;
   weekLabel: string;
 }) {
-  const boxRows = session.steps.find((step) => step.time === "5")?.recipes ?? [];
+  const boxRows = session.steps.find((step) => /boîte/i.test(step.title))?.recipes ?? [];
   const bodies: ReactNode[] = [
     <MasterCook key="cook" session={session} weekLabel={weekLabel} />,
     <MasterFinish key="finish" session={session} />,

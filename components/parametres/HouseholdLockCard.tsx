@@ -10,7 +10,13 @@ import {
 import { Card, SectionTitle } from "@/components/ui/Card";
 import { FACEID_STORAGE_KEY } from "@/lib/auth/constants";
 
-export function HouseholdLockCard({ alertsOn }: { alertsOn?: boolean }) {
+export function HouseholdLockCard({
+  alertsOn,
+  hideTitle,
+}: {
+  alertsOn?: boolean;
+  hideTitle?: boolean;
+}) {
   const [faceOn, setFaceOn] = useState(false);
   const [canFace, setCanFace] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -148,7 +154,7 @@ export function HouseholdLockCard({ alertsOn }: { alertsOn?: boolean }) {
 
   return (
     <>
-      <SectionTitle className="mb-1.5 mt-3">Accès foyer</SectionTitle>
+      {hideTitle ? null : <SectionTitle className="mb-1.5 mt-3">Accès foyer</SectionTitle>}
       <Card compact>
         <p className="text-[13px] font-semibold">Un seul code, pas d’identifiant</p>
         <p className="mt-0.5 text-[11px] leading-snug text-health-muted">

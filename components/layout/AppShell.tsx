@@ -3,7 +3,7 @@
 import { usePathname } from "next/navigation";
 import { ProfileToggle } from "@/components/layout/ProfileToggle";
 import { BottomNav } from "@/components/layout/BottomNav";
-import { useProfileSwipe } from "@/components/layout/useProfileSwipe";
+import { useTabSwipe } from "@/components/layout/useTabSwipe";
 import { GeminiWaitHost } from "@/components/ui/GeminiWait";
 import { SeasonWeatherProvider } from "@/context/SeasonContext";
 
@@ -24,7 +24,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 }
 
 function SwipableShell({ children }: { children: React.ReactNode }) {
-  const swipe = useProfileSwipe();
+  const swipe = useTabSwipe();
   return (
     <div className="relative mx-auto min-h-dvh w-full max-w-[430px] bg-health-bg">
       <div

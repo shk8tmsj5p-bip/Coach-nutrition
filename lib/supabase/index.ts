@@ -1,5 +1,4 @@
 export { isSupabaseConfigured, getSupabaseBrowserEnv } from "./env";
-export { profileIdsForView } from "./filters";
 export type {
   Database,
   ProfilRow,

@@ -2,27 +2,26 @@
 
 import { useMemo, useState } from "react";
 import { X } from "lucide-react";
-import { ingredientsForView, pairForSlot } from "@/lib/weekly-plan";
+import { displayIngredientName } from "@/lib/ingredient-groups";
+import { pairForSlot } from "@/lib/weekly-plan";
 import { isWeekLunchDessert } from "@/lib/week-dessert";
-import type { PlannedMeal, ViewMode } from "@/lib/types";
+import type { PlannedMeal } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 export function SwapIngredientSheet({
   meal,
-  view,
   busy,
   onClose,
   onSuggest,
   onPick,
 }: {
   meal: PlannedMeal;
-  view: ViewMode;
   busy: boolean;
   onClose: () => void;
   onSuggest: (ingredientId: string, ingredientName: string) => Promise<string[]>;
   onPick: (ingredientId: string, replacement: string) => Promise<void>;
 }) {
-  const options = useMemo(() => ingredientsForView(meal.ingredients, view), [meal.ingredients, view]);
+  const options = useMemo(() => meal.ingredients, [meal.ingredients]);
   const [selectedId, setSelectedId] = useState(options[0]?.id ?? "");
   const [suggestions, setSuggestions] = useState<string[] | null>(null);
   const [loading, setLoading] = useState(false);
@@ -76,7 +75,7 @@ export function SwapIngredientSheet({
                 selectedId === item.id ? "bg-health-ink text-white" : "bg-health-bg",
               )}
             >
-              {item.name}
+              {displayIngredientName(item.name)}
               {item.role !== "shared" && (
                 <span className="ml-1 text-[11px] opacity-70">
                   {item.role === "alexis" ? "Alexis" : "Élodie"}

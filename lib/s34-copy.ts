@@ -8,7 +8,7 @@ import {
   scaleVisualQuantity,
   visualForIngredient,
 } from "@/lib/visual-quantity";
-import { portionsDiffer } from "@/lib/meal-coach";
+import { displayIngredientName } from "@/lib/ingredient-groups";
 
 function gramsOf(ing: RecipeIngredient, scale: number) {
   return Math.round((ing.gramsAlexis + ing.gramsElodie) * scale);
@@ -46,16 +46,11 @@ export function splitRecipeParts(meal: NumberedRecipe) {
 export function visualPhrase(ing: RecipeIngredient, scale: number) {
   const visual = visualOf(ing, scale);
   const prep = prepOf(ing);
-  const name = ing.name;
+  const name = displayIngredientName(ing.name);
   if (prep && /spaghetti|râpé|rape|lamelle|dés|cubes|émincé|emince/i.test(prep)) {
     return `${prep} (${visual} ${name.toLowerCase()})`;
   }
   if (prep) return `${visual} ${name.toLowerCase()} (${prep})`;
-  if (ing.role === "shared" && !isSauceIngredient(ing) && portionsDiffer(ing.gramsAlexis, ing.gramsElodie)) {
-    const a = Math.round(ing.gramsAlexis * scale);
-    const e = Math.round(ing.gramsElodie * scale);
-    return `${visual} ${name.toLowerCase()} (Alexis ${a}g · Élodie ${e}g)`;
-  }
   return `${visual} ${name.toLowerCase()}`;
 }
 
@@ -70,7 +65,7 @@ export function proteinQty(ing: RecipeIngredient, scale: number) {
   const g = Math.round((ing.role === "elodie" ? ing.gramsElodie : ing.gramsAlexis) * scale);
   const visual = visualOf(ing, scale);
   const prep = prepOf(ing);
-  return `${g}g ${ing.name}${prep ? ` (${prep})` : visual && !visual.endsWith("g") ? ` · ${visual}` : ""}`;
+  return `${g}g ${displayIngredientName(ing.name)}${prep ? ` (${prep})` : visual && !visual.endsWith("g") ? ` · ${visual}` : ""}`;
 }
 
 function sentences(lines: string[]) {
@@ -90,6 +85,7 @@ export function compactPasAPas(meal: NumberedRecipe) {
     if (isStepSection(line)) {
       const label = stepSectionLabel(line);
       if (/airfryer/i.test(label)) current = "Protéines (Airfryer)";
+      else if (/poêle|poele/i.test(label) && !/eau|féculent/i.test(label)) current = "Poêle";
       else if (/eau|plaque|féculent|cookeo|cuiseur/i.test(label)) current = "Féculents";
       else if (/thermomix/i.test(label)) current = "Sauce (TM)";
       else if (/assemblage|dressage|montage/i.test(label) && !/découpe/i.test(label)) current = "Assemblage";
@@ -98,9 +94,13 @@ export function compactPasAPas(meal: NumberedRecipe) {
       continue;
     }
     if (isFluffLine(line)) continue;
-    (bucket[current] ??= []).push(line);
+    const dest =
+      /poêle|poele|sauter|faire revenir|à la plaque/i.test(line) && !/eau bouillante|cookeo|cuiseur/i.test(line)
+        ? "Poêle"
+        : current;
+    (bucket[dest] ??= []).push(line);
   }
-  const order = ["Sauce (TM)", "Protéines (Airfryer)", "Féculents", "Découpes", "Assemblage"];
+  const order = ["Sauce (TM)", "Découpes", "Féculents", "Protéines (Airfryer)", "Poêle", "Assemblage"];
   for (const label of order) {
     const text = sentences(bucket[label] ?? []).slice(0, label === "Découpes" ? 8 : 2).join(" ");
     if (text) groups.push({ label, text });
@@ -252,17 +252,102 @@ export function cellSetting(block: BatchStepRecipeBlock) {
   return action.length > 72 ? `${action.slice(0, 70)}…` : action;
 }
 
+function foldCopy(text: string) {
+  return text
+    .toLowerCase()
+    .replace(/œ/g, "oe")
+    .replace(/æ/g, "ae")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+}
+
+function copyTokens(text: string) {
+  return foldCopy(text)
+    .replace(/[^a-z0-9%]+/g, " ")
+    .split(/\s+/)
+    .filter((token) => token.length >= 2);
+}
+
+/** Déjà sur la ligne (nom / qty / réglage) ou habille le réglage sans geste (classique, bouillante…). */
+const COOK_CHROME = new Set([
+  "a",
+  "au",
+  "aux",
+  "avec",
+  "dans",
+  "de",
+  "des",
+  "du",
+  "en",
+  "et",
+  "indique",
+  "indiquee",
+  "la",
+  "le",
+  "les",
+  "min",
+  "minute",
+  "minutes",
+  "ou",
+  "pour",
+  "selon",
+  "si",
+  "sur",
+  "temps",
+  "un",
+  "une",
+  "airfryer",
+  "bouillante",
+  "classique",
+  "classiquement",
+  "cookeo",
+  "cuire",
+  "cuiseur",
+  "cuisson",
+  "eau",
+  "four",
+  "fremissante",
+  "habituel",
+  "habituelle",
+  "habituellement",
+  "normal",
+  "normale",
+  "normalement",
+  "plaque",
+  "poele",
+  "poeler",
+  "revenir",
+  "sauter",
+  "sec",
+  "simple",
+  "simplement",
+  "standard",
+  "thermomix",
+  "traditionnel",
+  "traditionnelle",
+]);
+
 export function blockHowto(block: BatchStepRecipeBlock) {
   const action = block.action.trim();
   if (!action) return "";
-  if (/cuisson parallèle vegan|cuire le féculent, égoutter/i.test(action)) return "";
   const setting = (block.setting ?? "").trim();
-  if (setting && (action === setting || action.startsWith(setting))) return "";
-  const names = block.ingredients.map((ing) => ing.name.toLowerCase());
-  const restatesQty = names.length > 0 && names.every((name) => action.toLowerCase().includes(name.split(/[\s,(]/)[0] ?? name));
-  if (restatesQty && setting && /cuiseur|cookeo|eau/i.test(action) && !/airfryer|retourner|falafel/i.test(action) && action.length < 80) {
+  if (setting && (foldCopy(action) === foldCopy(setting) || foldCopy(action).startsWith(foldCopy(setting)))) {
     return "";
   }
+  const known = new Set<string>([
+    ...COOK_CHROME,
+    ...copyTokens(setting),
+    ...block.ingredients.flatMap((ing) => [
+      ...copyTokens(ing.name),
+      ...copyTokens(ing.quantity),
+      ...copyTokens(ing.visual ?? ""),
+    ]),
+  ]);
+  const withoutFacts = foldCopy(action)
+    .replace(/[a-z0-9%' -]{3,60}?\d+\s*min/g, " ")
+    .replace(/\d+\s*°c/g, " ");
+  const leftover = copyTokens(withoutFacts).filter((token) => !known.has(token) && !/^\d+$/.test(token));
+  if (leftover.length === 0) return "";
   return action;
 }
 
@@ -274,10 +359,10 @@ export function shortCoverDays(coverLabel: string) {
 }
 
 export function splitMasterSteps(session: BatchSession) {
-  const cook = session.steps.filter((step) => /^[12]$/.test(step.time));
-  const rest = session.steps.filter((step) => !/^[12]$/.test(step.time) && step.time !== "W");
+  const prep = session.steps.filter((step) => /sauce|découpe|eau|féculent/i.test(step.title) && !/poêle|poele|boîte/i.test(step.title));
+  const heat = session.steps.filter((step) => /airfryer|poêle|poele|plaque/i.test(step.title) && !/eau|féculent|boîte/i.test(step.title));
   const weekend = session.steps.find((step) => step.time === "W");
-  return { cook, rest, weekend };
+  return { cook: prep, rest: heat, weekend };
 }
 
 export function stepByKey(session: BatchSession, time: string): BatchStep | undefined {

@@ -6,15 +6,11 @@ import { Card } from "@/components/ui/Card";
 import { MealPlanCard } from "@/components/repas/MealPlanCard";
 import type { FavoriteRecipe } from "@/lib/favorites";
 import { groupFavoritesByTheme, searchFavorites, themeLabel } from "@/lib/favorites";
-import type { ViewMode } from "@/lib/types";
-
 export function FavoritesPanel({
   list,
-  view,
   onOpen,
 }: {
   list: FavoriteRecipe[];
-  view: ViewMode;
   onOpen: (item: FavoriteRecipe) => void;
 }) {
   const [query, setQuery] = useState("");
@@ -85,7 +81,6 @@ export function FavoritesPanel({
 
 export function FavoriteRecipeSheet({
   item,
-  view,
   busy,
   onClose,
   onPlace,
@@ -93,7 +88,6 @@ export function FavoriteRecipeSheet({
   onSaveMeta,
 }: {
   item: FavoriteRecipe;
-  view: ViewMode;
   busy?: boolean;
   onClose: () => void;
   onPlace: () => void;
@@ -142,7 +136,7 @@ export function FavoriteRecipeSheet({
           </button>
 
           <div className="mt-3">
-            <MealPlanCard meal={{ ...item.recipe, baseName: title || item.title, theme: themeLabel(theme) }} view={view} defaultOpen />
+            <MealPlanCard meal={{ ...item.recipe, baseName: title || item.title, theme: themeLabel(theme) }} defaultOpen />
           </div>
 
           <button

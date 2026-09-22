@@ -1,22 +1,23 @@
 "use client";
 
 import { useCallback, useRef } from "react";
-import { useProfile } from "@/context/ProfileContext";
-import { cycleView, ignoreProfileSwipeTarget } from "@/lib/view-cycle";
+import { usePathname, useRouter } from "next/navigation";
+import { cycleTabHref, ignoreTabSwipeTarget, tabHrefFromPath } from "@/lib/tabs";
 
 const THRESHOLD_PX = 64;
 
-export function useProfileSwipe() {
-  const { view, setView } = useProfile();
+export function useTabSwipe() {
+  const pathname = usePathname();
+  const router = useRouter();
   const start = useRef<{ x: number; y: number; ignore: boolean } | null>(null);
-  const viewRef = useRef(view);
-  viewRef.current = view;
+  const pathRef = useRef(pathname);
+  pathRef.current = pathname;
 
   const onPointerDown = useCallback((event: React.PointerEvent) => {
     start.current = {
       x: event.clientX,
       y: event.clientY,
-      ignore: ignoreProfileSwipeTarget(event.target),
+      ignore: ignoreTabSwipeTarget(event.target),
     };
   }, []);
 
@@ -28,9 +29,12 @@ export function useProfileSwipe() {
       const dx = event.clientX - origin.x;
       const dy = event.clientY - origin.y;
       if (Math.abs(dx) < THRESHOLD_PX || Math.abs(dx) <= Math.abs(dy)) return;
-      setView(cycleView(viewRef.current, dx < 0 ? 1 : -1));
+      const current = tabHrefFromPath(pathRef.current);
+      const next = cycleTabHref(pathRef.current, dx < 0 ? 1 : -1);
+      if (next === current) return;
+      router.push(next);
     },
-    [setView],
+    [router],
   );
 
   const onPointerCancel = useCallback(() => {

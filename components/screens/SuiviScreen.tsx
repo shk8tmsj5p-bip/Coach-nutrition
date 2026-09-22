@@ -50,7 +50,7 @@ import { formatKg, formatKcal, formatKm, formatMin, formatSteps } from "@/lib/ut
 import type { RenphoOcrResult } from "@/lib/gemini/renpho";
 
 export default function SuiviScreen() {
-  const { activeProfiles, view, catalog, updateGoals } = useProfile();
+  const { activeProfiles, profile, catalog, updateGoals } = useProfile();
   const fileRef = useRef<HTMLInputElement>(null);
   const [byProfile, setByProfile] = useState<Record<ProfileId, Pesee[]>>({
     alexis: [],
@@ -151,7 +151,7 @@ export default function SuiviScreen() {
     setOcrBusy(true);
     setNotice(null);
     try {
-      const fallback = view === "elodie" ? "elodie" : "alexis";
+      const fallback = profile;
       const form = new FormData();
       form.append("image", file);
       form.append("profileId", fallback);
@@ -166,7 +166,7 @@ export default function SuiviScreen() {
       };
       if (!payload.extracted) throw new Error(payload.error ?? "OCR impossible");
       setReview({
-        draft: draftFromOcr(payload.extracted, fallback, allRows, view !== "couple"),
+        draft: draftFromOcr(payload.extracted, fallback, allRows, true),
         extracted: payload.extracted,
         mock: payload.mock,
         warning: payload.warning,
@@ -304,7 +304,7 @@ export default function SuiviScreen() {
           draft={review.draft}
           extracted={review.extracted}
           rows={allRows}
-          lockProfile={view !== "couple"}
+          lockProfile
           mock={review.mock}
           warning={review.warning}
           saving={saving}
