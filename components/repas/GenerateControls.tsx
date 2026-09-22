@@ -15,7 +15,6 @@ export function GenerateControls({
   onGenerateSingle,
   onHistory,
   onClearWeek,
-  coachHint,
   suggestions = [],
   onShuffle,
   recipePreview,
@@ -28,7 +27,6 @@ export function GenerateControls({
   onThemeChange: (value: string) => void;
   busy: boolean;
   canClear?: boolean;
-  coachHint?: string;
   suggestions?: string[];
   onShuffle?: () => void;
   recipePreview?: string | null;
@@ -77,20 +75,7 @@ export function GenerateControls({
       </div>
       {suggestions.length > 0 ? (
         <div className="mt-2">
-          <div className="mb-1.5 flex items-center justify-between gap-2">
-            <p className="text-[11px] text-health-muted">Pistes du moment · vos critères</p>
-            {onShuffle ? (
-              <button
-                type="button"
-                disabled={busy}
-                onClick={onShuffle}
-                className="text-[11px] font-semibold text-health-ink disabled:opacity-40"
-              >
-                Autres pistes
-              </button>
-            ) : null}
-          </div>
-          <div className="flex flex-wrap gap-1.5">
+          <div className="flex flex-wrap items-center gap-1.5">
             {suggestions.map((item) => (
               <button
                 key={item}
@@ -105,6 +90,16 @@ export function GenerateControls({
                 {item}
               </button>
             ))}
+            {onShuffle ? (
+              <button
+                type="button"
+                disabled={busy}
+                onClick={onShuffle}
+                className="px-1 text-[11px] font-semibold text-health-ink disabled:opacity-40"
+              >
+                Autres pistes
+              </button>
+            ) : null}
           </div>
         </div>
       ) : null}
@@ -112,10 +107,7 @@ export function GenerateControls({
       <label className="mt-3 block text-[11px] font-semibold uppercase tracking-wide text-health-muted">
         Photo d’une recette
       </label>
-      <p className="mt-0.5 text-[11px] leading-snug text-health-muted">
-        Livre, écran ou plat. Même recette pour vous deux. Ensuite : tel quel, ou réadaptée à vos objectifs.
-      </p>
-      <div className="mt-2 grid grid-cols-2 gap-2">
+      <div className="mt-1.5 grid grid-cols-2 gap-2">
         <ImagePickButton
           icon={Camera}
           label="Appareil"
@@ -175,13 +167,6 @@ export function GenerateControls({
           </button>
         ))}
       </div>
-      <p className="mt-1 text-[11px] leading-snug text-health-muted">
-        {recipePreview
-          ? recipeFit === "as-is"
-            ? "Fidèle à la photo. Alexis reste vegan sur la protéine si besoin."
-            : "On garde le plat, on cale portions, dîner light, aversions, batch."
-          : "Choix actif une fois la photo ajoutée. Sans photo, Gem suit le thème et vos cibles."}
-      </p>
 
       <div className="mt-2 grid grid-cols-2 gap-2">
         <GenButton disabled={busy} onClick={onGenerateWeekdays}>
@@ -209,12 +194,6 @@ export function GenerateControls({
         <History size={14} />
         Historique plats & desserts
       </button>
-      <p className="mt-2 text-[11px] leading-relaxed text-health-muted">
-        Semaine vide par défaut. Un thème (Coréen, Thaï…) s’applique à TOUS les plats.
-        Photo : un repas (ou le couple batch semaine). Stock on : Gem part de ce que vous avez. Lun–Ven : 2
-        déjeuners + 2 dîners low cal + Ven même base. Week-end : 4 repas. Compte 1 à 2 min pour Lun–Ven.
-        {coachHint ? ` ${coachHint}` : ""}
-      </p>
     </div>
   );
 }

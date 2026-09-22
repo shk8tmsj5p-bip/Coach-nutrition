@@ -64,7 +64,6 @@ import {
   snapshotsEqual,
   type PlanTargetsSnapshot,
 } from "@/lib/plan-targets";
-import { goalLabel } from "@/lib/goals";
 import type { FavoriteRecipe } from "@/lib/favorites";
 import {
   canFavoriteMeal,
@@ -1051,7 +1050,6 @@ export default function RepasScreen() {
             onShuffle={() => setInspoOffset((n) => n + 1)}
             busy={busy}
             canClear={plan.some((meal) => !isEmptyMeal(meal)) || Boolean(lunchDessert) || Boolean(dinnerDessert)}
-            coachHint={`Portions selon Suivi : Alexis ${goalLabel(catalog.alexis.primaryGoal)} · Élodie ${goalLabel(catalog.elodie.primaryGoal)}. Même plat.`}
             recipePreview={recipePreview}
             recipeFit={recipeFit}
             onRecipeFitChange={setRecipeFit}
@@ -1214,9 +1212,9 @@ export default function RepasScreen() {
           hint={
             recipePhoto
               ? recipeFit === "as-is"
-                ? "Tel quel, même plat pour vous deux. Un plat déjà posé (P1, P2…) sera remplacé. En semaine = le couple batch."
-                : "Réadaptée à vos cibles. Un plat déjà posé (P1, P2…) sera remplacé. En semaine = le couple batch."
-              : "Un plat déjà posé affiche son tag (P1, P2…). Le générer le remplace. En semaine = les 2 créneaux du batch ; week-end = ce repas seulement."
+                ? "Tel quel. En semaine, ça remplace aussi le créneau pair."
+                : "Réadaptée. En semaine, ça remplace aussi le créneau pair."
+              : undefined
           }
           onClose={() => setPickSlot(false)}
           onSelect={(slotId) => {

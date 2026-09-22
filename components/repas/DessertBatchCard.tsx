@@ -93,12 +93,6 @@ export function DessertBatchCard({
         ))}
       </div>
 
-      <p className="mt-2 text-[11px] leading-relaxed text-health-muted">
-        {evening
-          ? "Très faible calorie (~60 kcal) : tofu soyeux, konjac. Photo d’un paquet pour l’intégrer (ex. riz au lait au konjac)."
-          : "Fournée maison pour plusieurs déjeuners. Photo d’un produit (konjac, tofu soyeux…) pour en faire la star."}
-      </p>
-
       <div className="mt-2.5 flex flex-wrap gap-1.5">
         {WEEKDAYS.map((day) => {
           const on = weekdays.includes(day.id);
