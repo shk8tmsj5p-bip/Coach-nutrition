@@ -168,7 +168,7 @@ export function ShoppingListPanel({
       </button>
       <p className="mb-3 px-1 text-[12px] text-health-muted">
         {remaining} article{remaining > 1 ? "s" : ""} restant{remaining > 1 ? "s" : ""} · total de la semaine
-        (Lun+Mer = 2× la fiche « 1 repas »). Touche [P1] pour ouvrir la recette · le reste de la ligne coche.
+        (un plat semaine = 2× la fiche « 1 repas »). Touche [P1] pour ouvrir la recette · le reste de la ligne coche.
         Dans Autre, choisis le rayon : il est retenu pour les prochaines listes.
       </p>
 

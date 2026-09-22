@@ -26,16 +26,6 @@ export const STOCK_GROUPS: { id: StockGroup; label: string }[] = [
   { id: "restes", label: "Restes" },
 ];
 
-export const STOCK_QUICK_ADD = [
-  "Tofu ferme",
-  "Pois chiches",
-  "Lentilles",
-  "Riz",
-  "Épinards surgelés",
-  "Patate douce",
-  "Edamame",
-];
-
 export const DEFAULT_STOCK: HouseholdStock = {
   items: [],
   useStock: true,

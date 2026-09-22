@@ -4,7 +4,6 @@ import { useState } from "react";
 import { ToggleRow } from "@/components/parametres/ToggleRow";
 import {
   STOCK_GROUPS,
-  STOCK_QUICK_ADD,
   addStockItem,
   formatStockItem,
   removeStockItem,
@@ -33,19 +32,10 @@ export function StockPanel({
     setQuantity("");
   }
 
-  const unusedQuick = STOCK_QUICK_ADD.filter(
-    (label) => !stock.items.some((item) => item.name.toLowerCase() === label.toLowerCase()),
-  );
-
   return (
-    <div className="mt-4 rounded-card bg-white p-3 shadow-card">
-      <p className="text-[13px] font-semibold">En stock</p>
-      <p className="mt-0.5 text-[11px] leading-snug text-health-muted">
-        Ce que vous avez déjà (frigo, placard, restes). Gem s’en sert seulement si le toggle est on.
-      </p>
-
+    <div>
       {stock.items.length > 0 ? (
-        <div className="mt-2 flex flex-wrap gap-1.5">
+        <div className="flex flex-wrap gap-1.5">
           {stock.items.map((item) => (
             <span
               key={item.id}
@@ -64,23 +54,8 @@ export function StockPanel({
           ))}
         </div>
       ) : (
-        <p className="mt-2 text-[12px] text-health-muted">Aucun aliment pour l’instant.</p>
+        <p className="text-[12px] text-health-muted">Aucun aliment pour l’instant.</p>
       )}
-
-      {unusedQuick.length > 0 ? (
-        <div className="mt-2 flex flex-wrap gap-1.5">
-          {unusedQuick.map((label) => (
-            <button
-              key={label}
-              type="button"
-              onClick={() => add(label, "", label.toLowerCase().includes("surgel") ? "surgeles" : "epicerie")}
-              className="rounded-full bg-health-bg px-2.5 py-1 text-[11px] font-semibold text-health-muted"
-            >
-              + {label}
-            </button>
-          ))}
-        </div>
-      ) : null}
 
       <div className="mt-2 flex flex-wrap gap-1">
         {STOCK_GROUPS.map((item) => (
@@ -128,11 +103,6 @@ export function StockPanel({
       <div className="mt-2">
         <ToggleRow
           label="Utiliser le stock"
-          hint={
-            stock.items.length === 0
-              ? "Ajoute au moins un aliment."
-              : "Lun–Ven, week-end, un repas, remplacement."
-          }
           checked={stock.useStock}
           onChange={(useStock) => onChange({ ...stock, useStock })}
         />

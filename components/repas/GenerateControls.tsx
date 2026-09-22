@@ -1,6 +1,6 @@
 "use client";
 
-import { Camera, History, Images, Sparkles, Trash2, X } from "lucide-react";
+import { Camera, History, Images, Sparkles, X } from "lucide-react";
 import { ImagePickButton } from "@/components/today/ImagePickButton";
 import { cn } from "@/lib/utils";
 import type { RecipeFit } from "@/lib/recipe-photo";
@@ -9,14 +9,10 @@ export function GenerateControls({
   theme,
   onThemeChange,
   busy,
-  canClear,
   onGenerateWeekdays,
   onGenerateWeekend,
   onGenerateSingle,
   onHistory,
-  onClearWeek,
-  suggestions = [],
-  onShuffle,
   recipePreview,
   recipeFit,
   onRecipeFitChange,
@@ -26,9 +22,6 @@ export function GenerateControls({
   theme: string;
   onThemeChange: (value: string) => void;
   busy: boolean;
-  canClear?: boolean;
-  suggestions?: string[];
-  onShuffle?: () => void;
   recipePreview?: string | null;
   recipeFit: RecipeFit;
   onRecipeFitChange: (fit: RecipeFit) => void;
@@ -38,19 +31,9 @@ export function GenerateControls({
   onGenerateWeekend: () => void;
   onGenerateSingle: () => void;
   onHistory: () => void;
-  onClearWeek: () => void;
 }) {
   return (
-    <div className="mt-4 rounded-card bg-white p-3 shadow-card">
-      <button
-        type="button"
-        disabled={busy || !canClear}
-        onClick={onClearWeek}
-        className="mb-3 flex w-full items-center justify-center gap-1.5 rounded-card bg-red-50 py-2.5 text-[13px] font-semibold text-red-600 disabled:opacity-40"
-      >
-        <Trash2 size={14} />
-        Vider la semaine
-      </button>
+    <div>
       <label className="text-[11px] font-semibold uppercase tracking-wide text-health-muted">
         Thème (optionnel)
       </label>
@@ -73,36 +56,6 @@ export function GenerateControls({
           </button>
         ) : null}
       </div>
-      {suggestions.length > 0 ? (
-        <div className="mt-2">
-          <div className="flex flex-wrap items-center gap-1.5">
-            {suggestions.map((item) => (
-              <button
-                key={item}
-                type="button"
-                disabled={busy}
-                onClick={() => onThemeChange(theme === item ? "" : item)}
-                className={cn(
-                  "rounded-full px-2.5 py-1 text-[11px] font-semibold",
-                  theme === item ? "bg-health-ink text-white" : "bg-health-bg text-health-muted",
-                )}
-              >
-                {item}
-              </button>
-            ))}
-            {onShuffle ? (
-              <button
-                type="button"
-                disabled={busy}
-                onClick={onShuffle}
-                className="px-1 text-[11px] font-semibold text-health-ink disabled:opacity-40"
-              >
-                Autres pistes
-              </button>
-            ) : null}
-          </div>
-        </div>
-      ) : null}
 
       <label className="mt-3 block text-[11px] font-semibold uppercase tracking-wide text-health-muted">
         Photo d’une recette
@@ -192,7 +145,7 @@ export function GenerateControls({
         className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-card bg-health-bg py-2.5 text-[13px] font-semibold disabled:opacity-50"
       >
         <History size={14} />
-        Historique plats & desserts
+        Historique des plats
       </button>
     </div>
   );
@@ -212,9 +165,7 @@ function GenButton({
       type="button"
       disabled={disabled}
       onClick={onClick}
-      className={cn(
-        "rounded-card bg-health-bg py-2.5 text-[13px] font-semibold disabled:opacity-50",
-      )}
+      className="rounded-card bg-health-bg py-2.5 text-[13px] font-semibold disabled:opacity-50"
     >
       {children}
     </button>

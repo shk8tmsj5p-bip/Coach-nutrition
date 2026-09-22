@@ -1,5 +1,5 @@
 import type { Appliance, MealType, PlannedMeal, RecipeDeclination, RecipeIngredient } from "@/lib/types";
-import { WEEKDAY_BATCHES, type BatchPair } from "@/lib/weekly-plan";
+import { WEEKDAY_BATCHES, pairIsMixed, type BatchPair } from "@/lib/weekly-plan";
 import { formatCoachBiasForPrompt, type HouseholdCoachBias } from "@/lib/coach-apply";
 import {
   isFluffLine,
@@ -483,19 +483,21 @@ export function weekdaysPrompt(
   pastMeals?: string[],
   kitchenContext?: string,
 ) {
-  const batches = WEEKDAY_BATCHES.map(
-    (pair, index) =>
-      `${index + 1}. recipes[${index}] = ${pair.label} — ${pair.mealType}${pair.lowCalorie ? " · DÎNER LOW CAL (cibles soir COACH NUTRITION)" : " · déjeuner (cibles midi COACH NUTRITION)"}`,
-  ).join("\n");
+  const batches = WEEKDAY_BATCHES.map((pair, index) => {
+    const cal = pairIsMixed(pair)
+      ? "même base midi + soir · JSON 1 assiette midi ; le dîner sera recalé light (cibles soir)"
+      : pair.lowCalorie
+        ? "DÎNER LOW CAL (cibles soir COACH NUTRITION)"
+        : "déjeuner (cibles midi COACH NUTRITION)";
+    return `${index + 1}. recipes[${index}] = ${pair.label} — ${cal}`;
+  }).join("\n");
   return culinaryPrompt(
     `Génère EXACTEMENT 5 recettes BATCH Lundi–Vendredi, niveau S34 (détaillées ; sauce maison seulement si le plat en a une).
 JSON = 1 assiette / pers., weight_g. L'app ×2 (4 assiettes foyer).
-Batch ×2 : jours ALTERNÉS (Lun+Mer, Mar+Jeu). Vendredi déj+dîner = même base, dîner plaqué plus léger.
+Batch ×2 : 2 créneaux / recette, jamais le même jour. recipes[4] = Mer midi + Ven soir, même base, soir recalé light.
 ${themeConstraintLine(theme, 5)}
 ORDRE JSON STRICT — ne permute JAMAIS les index :
 ${batches}
-recipes[2] et recipes[3] = SOIRS uniquement, low cal (cibles soir COACH NUTRITION).
-recipes[4] = même base Ven midi + soir ; le soir sera dressé plus léger.
 Les 5 titres doivent être nettement distincts. Sauce seulement si le plat en a une.
 ${SAUCE_IF_PRESENT}
 
@@ -553,7 +555,7 @@ export function recipeFromPhotoPrompt(
 
 Génère 1 recette BATCH fidèle à la photo pour : ${pair.label}, niveau S34.
 JSON = 1 assiette / pers., weight_g. L'app ×2 (4 assiettes foyer).
-Type : ${pair.mealType}${pair.lowCalorie ? ", créneau DÎNER" : " (déjeuner)"}${fit === "adapt" && pair.lowCalorie ? " — RÉADAPTER en low cal (cibles soir) SANS perdre la star de la photo." : fit === "as-is" ? " — TEL QUEL même le soir : ne pas alléger pour le dîner." : "."}
+Type : ${pairIsMixed(pair) ? "même base midi + soir · JSON 1 assiette midi ; le dîner sera recalé light." : `${pair.mealType}${pair.lowCalorie ? ", créneau DÎNER" : " (déjeuner)"}${fit === "adapt" && pair.lowCalorie ? " — RÉADAPTER en low cal (cibles soir) SANS perdre la star de la photo." : fit === "as-is" ? " — TEL QUEL même le soir : ne pas alléger pour le dîner." : "."}`}
 ${themeLine}
 ${SAUCE_IF_PRESENT} step_groups : robot seulement si la photo le justifie ; omettre un bloc vide.
 
@@ -592,8 +594,8 @@ export function singlePrompt(
     return culinaryPrompt(
       `Génère 1 recette BATCH pour : ${pair.label}, niveau S34 (détaillée ; sauce maison seulement si le plat en a une).
 JSON = 1 assiette / pers., weight_g. L'app ×2 (4 assiettes foyer).
-Les 2 portions sont sur des jours ALTERNÉS, jamais consécutifs.
-Type : ${pair.mealType}${pair.lowCalorie ? ", DÎNER LOW CAL (cibles soir COACH NUTRITION)" : " (déjeuner, cibles midi)"}.
+Les 2 portions sont sur 2 créneaux, jamais le même jour.
+Type : ${pairIsMixed(pair) ? "même base midi + soir · JSON 1 assiette midi ; le dîner sera recalé light (cibles soir)" : `${pair.mealType}${pair.lowCalorie ? ", DÎNER LOW CAL (cibles soir COACH NUTRITION)" : " (déjeuner, cibles midi)"}`}.
 ${themeLine}
 ${SAUCE_IF_PRESENT} step_groups : robot seulement si valeur ajoutée ; omettre un bloc vide.
 
@@ -819,7 +821,7 @@ export function todaySwapPrompt(
   kitchenContext?: string,
 ) {
   return culinaryPrompt(
-    `Génère 1 SEUL repas FRAIS pour AUJOURD'HUI — pas un batch de la semaine, pas un couple Lun+Mer.
+    `Génère 1 SEUL repas FRAIS pour AUJOURD'HUI — pas un batch de la semaine, pas un couple de créneaux.
 JSON = 1 assiette / pers., weight_g. INTERDIT de doubler.
 MÊME plat pour Alexis et Élodie. INTERDIT deux recettes.
 PAS de dessert, yaourt sucré, granola dessert (déjà sur la carte Aujourd'hui).

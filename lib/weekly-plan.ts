@@ -25,19 +25,12 @@ export type BatchPair = {
   lowCalorie: boolean;
 };
 
-/** Lun–Ven : 1 recette batch = 2 repas / personne, jours ALTERNÉS (jamais consécutifs). */
+/** Lun–Ven : 1 recette = 2 créneaux, jamais le même jour. P5 = Mer midi + Ven soir. */
 export const WEEKDAY_BATCHES: BatchPair[] = [
   {
-    key: "lunch-mon-wed",
-    slotIds: ["mon-lunch", "wed-lunch"],
-    label: "Lun + Mer déjeuner",
-    mealType: "dejeuner",
-    lowCalorie: false,
-  },
-  {
-    key: "lunch-tue-thu",
-    slotIds: ["tue-lunch", "thu-lunch"],
-    label: "Mar + Jeu déjeuner",
+    key: "lunch-mon-thu",
+    slotIds: ["mon-lunch", "thu-lunch"],
+    label: "Lun + Jeu déjeuner",
     mealType: "dejeuner",
     lowCalorie: false,
   },
@@ -49,6 +42,13 @@ export const WEEKDAY_BATCHES: BatchPair[] = [
     lowCalorie: true,
   },
   {
+    key: "lunch-tue-fri",
+    slotIds: ["tue-lunch", "fri-lunch"],
+    label: "Mar + Ven déjeuner",
+    mealType: "dejeuner",
+    lowCalorie: false,
+  },
+  {
     key: "dinner-tue-thu",
     slotIds: ["tue-dinner", "thu-dinner"],
     label: "Mar + Jeu dîner",
@@ -56,13 +56,19 @@ export const WEEKDAY_BATCHES: BatchPair[] = [
     lowCalorie: true,
   },
   {
-    key: "fri-lunch-dinner",
-    slotIds: ["fri-lunch", "fri-dinner"],
-    label: "Ven déjeuner + Ven dîner",
+    key: "lunch-wed-dinner-fri",
+    slotIds: ["wed-lunch", "fri-dinner"],
+    label: "Mer déjeuner + Ven dîner",
     mealType: "dejeuner",
     lowCalorie: false,
   },
 ];
+
+export function pairIsMixed(pair: BatchPair) {
+  const lunch = pair.slotIds.some((id) => id.endsWith("-lunch"));
+  const dinner = pair.slotIds.some((id) => id.endsWith("-dinner"));
+  return lunch && dinner;
+}
 
 const CATALOG: PlannedMeal[] = [...seedPlan, ...extraRecipes];
 

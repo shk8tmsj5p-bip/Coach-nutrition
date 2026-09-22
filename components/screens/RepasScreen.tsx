@@ -14,6 +14,8 @@ import { BatchGuidePanel } from "@/components/repas/BatchGuidePanel";
 import { DessertBatchCard } from "@/components/repas/DessertBatchCard";
 import { SwapIngredientSheet } from "@/components/repas/SwapIngredientSheet";
 import { GenerateControls } from "@/components/repas/GenerateControls";
+import { PlanActionSheet } from "@/components/repas/PlanActionSheet";
+import { PlanHubBar, type PlanHubId } from "@/components/repas/PlanHubBar";
 import { WeekNav } from "@/components/repas/WeekNav";
 import { useProfile } from "@/context/ProfileContext";
 import { mondayOf, todayISO, isoWeekday } from "@/lib/dates";
@@ -40,7 +42,6 @@ import { QtyScaleToggle } from "@/components/repas/QtyScaleToggle";
 import { StockPanel } from "@/components/repas/StockPanel";
 import { cn } from "@/lib/utils";
 import { loadKitchenPrefs, formatKitchenPrefsForPrompt, silentAversions, enabledAppliances } from "@/lib/kitchen-prefs";
-import { pickMealInspirations } from "@/lib/meal-inspo";
 import { useSeasonWeather } from "@/context/SeasonContext";
 import {
   DEFAULT_STOCK,
@@ -179,7 +180,6 @@ export default function RepasScreen() {
   const [soirPane, setSoirPane] = useState<DessertPane>(emptyDessertPane);
   const [productReview, setProductReview] = useState<DessertProduct | null>(null);
   const [openDessert, setOpenDessert] = useState(false);
-  const [inspoOffset, setInspoOffset] = useState(0);
   const [recipePhoto, setRecipePhoto] = useState<RecipePhotoPayload | null>(null);
   const [recipePreview, setRecipePreview] = useState<string | null>(null);
   const [recipeFit, setRecipeFit] = useState<RecipeFit>("adapt");
@@ -189,6 +189,7 @@ export default function RepasScreen() {
   const [historyKind, setHistoryKind] = useState<HistoryKind>("plat");
   const [placeHistory, setPlaceHistory] = useState<MealHistoryItem | null>(null);
   const [historyDessert, setHistoryDessert] = useState<MealHistoryItem | null>(null);
+  const [planSheet, setPlanSheet] = useState<PlanHubId | null>(null);
 
   const dessertPane = dessertSlot === "soir" ? soirPane : midiPane;
   const setDessertPane = dessertSlot === "soir" ? setSoirPane : setMidiPane;
@@ -318,7 +319,7 @@ export default function RepasScreen() {
         setSoirPane(paneFromSaved(soir));
         setProductReview(null);
         setOpenDessert(false);
-        setInspoOffset(0);
+        setPlanSheet(null);
       }
       const coach = buildMealCoachFromProfiles(catalog.alexis, catalog.elodie);
       const hasMeals = synced.plan.some((meal) => !isEmptyMeal(meal));
@@ -420,6 +421,7 @@ export default function RepasScreen() {
   }
 
   async function generate(mode: GenerateMealsMode, slotId?: string, themeOverride?: string) {
+    setPlanSheet(null);
     setBusy(true);
     try {
       const usePhoto = mode === "single" && Boolean(recipePhoto);
@@ -856,6 +858,7 @@ export default function RepasScreen() {
   }
 
   async function openMealHistory(kind: HistoryKind = "plat") {
+    setPlanSheet(null);
     setHistoryKind(kind);
     setHistoryOpen(true);
     setHistoryLoading(true);
@@ -934,34 +937,6 @@ export default function RepasScreen() {
 
   const tags = useMemo(() => planTagByMealId(plan), [plan]);
   const recipes = useMemo(() => taggedUniqueMeals(plan), [plan]);
-  const suggestions = useMemo(() => {
-    const prefs = loadKitchenPrefs();
-    const avoid = [
-      ...rejected.map((item) => item.title),
-      ...rejected.map((item) => item.theme),
-      ...plan.filter((meal) => !isEmptyMeal(meal)).flatMap((meal) => [meal.baseName, meal.theme]),
-    ];
-    return pickMealInspirations({
-      weekStart,
-      season,
-      weather,
-      prefs,
-      profiles: [catalog.alexis, catalog.elodie],
-      avoid,
-      stockNames: stock.useStock ? stock.items.map((item) => item.name) : [],
-      offset: inspoOffset,
-    });
-  }, [
-    weekStart,
-    season,
-    weather,
-    rejected,
-    plan,
-    stock,
-    catalog.alexis,
-    catalog.elodie,
-    inspoOffset,
-  ]);
   const openRecipe = (() => {
     if (openMealId) {
       const meal = plan.find((item) => item.id === openMealId);
@@ -1042,64 +1017,86 @@ export default function RepasScreen() {
 
       {tab === "plan" && (
         <div className="mt-2">
-          <StockPanel stock={stock} onChange={(next) => void saveStock(next)} />
-          <GenerateControls
-            theme={theme}
-            onThemeChange={setTheme}
-            suggestions={suggestions}
-            onShuffle={() => setInspoOffset((n) => n + 1)}
+          <PlanHubBar
             busy={busy}
             canClear={plan.some((meal) => !isEmptyMeal(meal)) || Boolean(lunchDessert) || Boolean(dinnerDessert)}
-            recipePreview={recipePreview}
-            recipeFit={recipeFit}
-            onRecipeFitChange={setRecipeFit}
-            onPickRecipePhoto={(file) => void pickRecipePhoto(file)}
-            onClearRecipePhoto={clearRecipePhoto}
-            onGenerateWeekdays={() => void generate("weekdays")}
-            onGenerateWeekend={() => void generate("weekend")}
-            onGenerateSingle={() => setPickSlot(true)}
-            onHistory={() => void openMealHistory("plat")}
+            onOpen={setPlanSheet}
             onClearWeek={() => void clearWeek()}
           />
 
-          <DessertBatchCard
-            slot={dessertSlot}
-            dessert={dessertPane.saved}
-            draft={dessertPane.draft}
-            theme={dessertPane.theme}
-            weekdays={dessertPane.weekdays}
-            product={dessertPane.product}
-            review={productReview}
-            busy={busy}
-            warning={dessertPane.warning}
-            onSlotChange={(next) => {
-              setDessertSlot(next);
-              setProductReview(null);
-              setOpenDessert(false);
-            }}
-            onThemeChange={(value) => setDessertPane({ ...dessertPane, theme: value })}
-            onWeekdaysChange={(days) => void changeDessertWeekdays(days)}
-            onPickPhoto={(file) => void pickDessertPhoto(file)}
-            onReviewChange={setProductReview}
-            onKeepProduct={() => {
-              if (!productReview) return;
-              setDessertPane({ ...dessertPane, product: productReview });
-              setProductReview(null);
-            }}
-            onClearProduct={() => {
-              setProductReview(null);
-              setDessertPane({ ...dessertPane, product: null });
-            }}
-            onPropose={() => void proposeDessert()}
-            onConfirm={() => void confirmDessert()}
-            onDiscardDraft={() => {
-              setDessertPane({ ...dessertPane, draft: null, warning: null });
-              setOpenDessert(false);
-            }}
-            onOpen={() => setOpenDessert(true)}
-            onRemove={() => void removeDessert()}
-            onHistory={() => void openMealHistory("dessert")}
-          />
+          {planSheet === "stock" ? (
+            <PlanActionSheet title="Stock" onClose={() => setPlanSheet(null)}>
+              <StockPanel stock={stock} onChange={(next) => void saveStock(next)} />
+            </PlanActionSheet>
+          ) : null}
+
+          {planSheet === "plat" ? (
+            <PlanActionSheet title="Plat" onClose={() => setPlanSheet(null)}>
+              <GenerateControls
+                theme={theme}
+                onThemeChange={setTheme}
+                busy={busy}
+                recipePreview={recipePreview}
+                recipeFit={recipeFit}
+                onRecipeFitChange={setRecipeFit}
+                onPickRecipePhoto={(file) => void pickRecipePhoto(file)}
+                onClearRecipePhoto={clearRecipePhoto}
+                onGenerateWeekdays={() => void generate("weekdays")}
+                onGenerateWeekend={() => void generate("weekend")}
+                onGenerateSingle={() => {
+                  setPlanSheet(null);
+                  setPickSlot(true);
+                }}
+                onHistory={() => void openMealHistory("plat")}
+              />
+            </PlanActionSheet>
+          ) : null}
+
+          {planSheet === "dessert" ? (
+            <PlanActionSheet title="Dessert" onClose={() => setPlanSheet(null)}>
+              <DessertBatchCard
+                slot={dessertSlot}
+                dessert={dessertPane.saved}
+                draft={dessertPane.draft}
+                theme={dessertPane.theme}
+                weekdays={dessertPane.weekdays}
+                product={dessertPane.product}
+                review={productReview}
+                busy={busy}
+                warning={dessertPane.warning}
+                onSlotChange={(next) => {
+                  setDessertSlot(next);
+                  setProductReview(null);
+                  setOpenDessert(false);
+                }}
+                onThemeChange={(value) => setDessertPane({ ...dessertPane, theme: value })}
+                onWeekdaysChange={(days) => void changeDessertWeekdays(days)}
+                onPickPhoto={(file) => void pickDessertPhoto(file)}
+                onReviewChange={setProductReview}
+                onKeepProduct={() => {
+                  if (!productReview) return;
+                  setDessertPane({ ...dessertPane, product: productReview });
+                  setProductReview(null);
+                }}
+                onClearProduct={() => {
+                  setProductReview(null);
+                  setDessertPane({ ...dessertPane, product: null });
+                }}
+                onPropose={() => void proposeDessert()}
+                onConfirm={() => void confirmDessert()}
+                onDiscardDraft={() => {
+                  setDessertPane({ ...dessertPane, draft: null, warning: null });
+                  setOpenDessert(false);
+                }}
+                onOpen={() => {
+                  setPlanSheet(null);
+                  setOpenDessert(true);
+                }}
+                onRemove={() => void removeDessert()}
+                onHistory={() => void openMealHistory("dessert")}
+              />
+            </PlanActionSheet>
+          ) : null}
 
           <MenuSummary
             plan={plan}
@@ -1415,7 +1412,8 @@ export default function RepasScreen() {
           loading={historyLoading}
           busy={busy}
           initialKind={historyKind}
-          caption="Un même plat peut avoir plusieurs semaines. Tape la version. Le cœur (Favoris) reste à part. Plus jamais n’apparaît pas ici."
+          lockKind
+          title={historyKind === "dessert" ? "Historique des desserts" : "Historique des plats"}
           onClose={() => setHistoryOpen(false)}
           onPick={(item) => {
             if (item.kind === "dessert") {

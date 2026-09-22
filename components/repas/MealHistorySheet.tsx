@@ -32,8 +32,9 @@ export function MealHistorySheet({
   loading,
   busy,
   initialKind = "plat",
+  lockKind = false,
   title = "Historique",
-  caption = "Un titre peut avoir plusieurs semaines. Tape la version que tu veux. Le cœur (Favoris) reste à part.",
+  caption,
   onClose,
   onPick,
 }: {
@@ -42,6 +43,7 @@ export function MealHistorySheet({
   loading?: boolean;
   busy?: boolean;
   initialKind?: HistoryKind;
+  lockKind?: boolean;
   title?: string;
   caption?: string;
   onClose: () => void;
@@ -57,7 +59,7 @@ export function MealHistorySheet({
   const bannedHere = items.some((item) => item.kind === kind && isRejectedTitle(rejected, item.title));
 
   return (
-    <div className="fixed inset-0 z-[70] flex items-end justify-center bg-black/30">
+    <div className="fixed inset-0 z-[95] flex items-end justify-center bg-black/30">
       <div className="flex max-h-[82vh] w-full max-w-[430px] flex-col overflow-hidden rounded-t-[24px] bg-white shadow-card">
         <div className="shrink-0 px-4 pb-2 pt-4">
           <div className="mb-3 flex items-center justify-between">
@@ -66,28 +68,30 @@ export function MealHistorySheet({
               <X size={16} />
             </button>
           </div>
-          <p className="mb-3 text-[13px] leading-snug text-health-muted">{caption}</p>
-          <div className="mb-2 grid grid-cols-2 gap-1 rounded-full bg-health-bg p-0.5">
-            {(
-              [
-                { id: "plat" as const, label: "Plats", icon: Utensils },
-                { id: "dessert" as const, label: "Desserts", icon: CakeSlice },
-              ] as const
-            ).map((tab) => (
-              <button
-                key={tab.id}
-                type="button"
-                onClick={() => setKind(tab.id)}
-                className={cn(
-                  "flex items-center justify-center gap-1.5 rounded-full py-1.5 text-[12px] font-semibold",
-                  kind === tab.id ? "bg-white text-health-ink shadow-sm dark:bg-health-card" : "text-health-muted",
-                )}
-              >
-                <tab.icon size={13} />
-                {tab.label}
-              </button>
-            ))}
-          </div>
+          {caption ? <p className="mb-3 text-[13px] leading-snug text-health-muted">{caption}</p> : null}
+          {lockKind ? null : (
+            <div className="mb-2 grid grid-cols-2 gap-1 rounded-full bg-health-bg p-0.5">
+              {(
+                [
+                  { id: "plat" as const, label: "Plats", icon: Utensils },
+                  { id: "dessert" as const, label: "Desserts", icon: CakeSlice },
+                ] as const
+              ).map((tab) => (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => setKind(tab.id)}
+                  className={cn(
+                    "flex items-center justify-center gap-1.5 rounded-full py-1.5 text-[12px] font-semibold",
+                    kind === tab.id ? "bg-white text-health-ink shadow-sm dark:bg-health-card" : "text-health-muted",
+                  )}
+                >
+                  <tab.icon size={13} />
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+          )}
           <label className="relative block">
             <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-health-muted" />
             <input

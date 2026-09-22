@@ -1,5 +1,7 @@
 "use client";
 
+import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { Camera, History, Images, Sparkles, Trash2, X } from "lucide-react";
 import { RecipeTag } from "@/components/repas/RecipeTag";
 import { ImagePickButton } from "@/components/today/ImagePickButton";
@@ -62,6 +64,8 @@ export function DessertBatchCard({
   onRemove: () => void;
   onHistory?: () => void;
 }) {
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
   const shown = draft ?? dessert?.meal ?? null;
   const alexisKcal = shown?.alexis.calories ?? 0;
   const elodieKcal = shown?.elodie.calories ?? 0;
@@ -69,14 +73,67 @@ export function DessertBatchCard({
   const presets = evening ? DESSERT_SOIR_PRESETS : DESSERT_THEME_PRESETS;
   const tag = dessertTagOf(slot);
 
-  return (
-    <div className="mt-3 rounded-card bg-white p-3 shadow-card">
-      <div className="flex items-center justify-between gap-2">
-        <p className="text-[13px] font-semibold">{evening ? "Dessert soir · cette semaine" : "Dessert midi · cette semaine"}</p>
-        <RecipeTag recipeNo={tag} compact />
-      </div>
+  const reviewSheet =
+    review && mounted && typeof document !== "undefined"
+      ? createPortal(
+          <div className="fixed inset-0 z-[110] flex items-end justify-center bg-black/40 p-4 sm:items-center">
+            <div className="w-full max-w-md rounded-3xl bg-white p-4 shadow-xl dark:bg-health-card">
+              <p className="text-[15px] font-semibold">Produit reconnu</p>
+              <p className="mt-1 text-[12px] text-health-muted">Vérifie le nom et les kcal/100 g avant de générer.</p>
+              <label className="mt-3 block text-[11px] font-semibold text-health-muted">Nom</label>
+              <input
+                value={review.name}
+                onChange={(e) => onReviewChange({ ...review, name: e.target.value })}
+                className="mt-1 w-full rounded-card bg-health-bg px-3 py-2.5 text-[14px] outline-none"
+              />
+              <div className="mt-2 grid grid-cols-2 gap-2">
+                <label className="block">
+                  <span className="text-[11px] font-semibold text-health-muted">kcal / 100 g</span>
+                  <input
+                    inputMode="decimal"
+                    value={String(review.kcalPer100g).replace(".", ",")}
+                    onChange={(e) => {
+                      const n = Number(e.target.value.replace(",", "."));
+                      if (Number.isFinite(n) && n >= 0) onReviewChange({ ...review, kcalPer100g: n });
+                    }}
+                    className="mt-1 w-full rounded-card bg-health-bg px-3 py-2.5 text-[14px] outline-none"
+                  />
+                </label>
+                <label className="block">
+                  <span className="text-[11px] font-semibold text-health-muted">Portion g</span>
+                  <input
+                    inputMode="decimal"
+                    value={String(review.typicalGrams).replace(".", ",")}
+                    onChange={(e) => {
+                      const n = Number(e.target.value.replace(",", "."));
+                      if (Number.isFinite(n) && n > 0) onReviewChange({ ...review, typicalGrams: n });
+                    }}
+                    className="mt-1 w-full rounded-card bg-health-bg px-3 py-2.5 text-[14px] outline-none"
+                  />
+                </label>
+              </div>
+              <div className="mt-3 grid grid-cols-2 gap-2">
+                <button type="button" onClick={onClearProduct} className="rounded-card bg-health-bg py-2.5 text-[13px] font-semibold">
+                  Annuler
+                </button>
+                <button
+                  type="button"
+                  onClick={onKeepProduct}
+                  className="rounded-card bg-health-ink py-2.5 text-[13px] font-semibold text-white"
+                >
+                  Garder pour la recette
+                </button>
+              </div>
+            </div>
+          </div>,
+          document.body,
+        )
+      : null;
 
-      <div className="mt-2 grid grid-cols-2 gap-1 rounded-full bg-health-bg p-0.5">
+  return (
+    <div>
+      <div className="flex items-center gap-2">
+        <div className="grid flex-1 grid-cols-2 gap-1 rounded-full bg-health-bg p-0.5">
         {(["midi", "soir"] as const).map((item) => (
           <button
             key={item}
@@ -91,6 +148,8 @@ export function DessertBatchCard({
             {item === "midi" ? "Midi" : "Soir light"}
           </button>
         ))}
+        </div>
+        <RecipeTag recipeNo={tag} compact />
       </div>
 
       <div className="mt-2.5 flex flex-wrap gap-1.5">
@@ -226,62 +285,11 @@ export function DessertBatchCard({
           className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-card bg-health-bg py-2.5 text-[13px] font-semibold disabled:opacity-50"
         >
           <History size={14} />
-          Historique desserts
+          Historique des desserts
         </button>
       ) : null}
 
-      {review ? (
-        <div className="fixed inset-0 z-[80] flex items-end justify-center bg-black/40 p-4 sm:items-center">
-          <div className="w-full max-w-md rounded-3xl bg-white p-4 shadow-xl dark:bg-health-card">
-            <p className="text-[15px] font-semibold">Produit reconnu</p>
-            <p className="mt-1 text-[12px] text-health-muted">Vérifie le nom et les kcal/100 g avant de générer.</p>
-            <label className="mt-3 block text-[11px] font-semibold text-health-muted">Nom</label>
-            <input
-              value={review.name}
-              onChange={(e) => onReviewChange({ ...review, name: e.target.value })}
-              className="mt-1 w-full rounded-card bg-health-bg px-3 py-2.5 text-[14px] outline-none"
-            />
-            <div className="mt-2 grid grid-cols-2 gap-2">
-              <label className="block">
-                <span className="text-[11px] font-semibold text-health-muted">kcal / 100 g</span>
-                <input
-                  inputMode="decimal"
-                  value={String(review.kcalPer100g).replace(".", ",")}
-                  onChange={(e) => {
-                    const n = Number(e.target.value.replace(",", "."));
-                    if (Number.isFinite(n) && n >= 0) onReviewChange({ ...review, kcalPer100g: n });
-                  }}
-                  className="mt-1 w-full rounded-card bg-health-bg px-3 py-2.5 text-[14px] outline-none"
-                />
-              </label>
-              <label className="block">
-                <span className="text-[11px] font-semibold text-health-muted">Portion g</span>
-                <input
-                  inputMode="decimal"
-                  value={String(review.typicalGrams).replace(".", ",")}
-                  onChange={(e) => {
-                    const n = Number(e.target.value.replace(",", "."));
-                    if (Number.isFinite(n) && n > 0) onReviewChange({ ...review, typicalGrams: n });
-                  }}
-                  className="mt-1 w-full rounded-card bg-health-bg px-3 py-2.5 text-[14px] outline-none"
-                />
-              </label>
-            </div>
-            <div className="mt-3 grid grid-cols-2 gap-2">
-              <button type="button" onClick={onClearProduct} className="rounded-card bg-health-bg py-2.5 text-[13px] font-semibold">
-                Annuler
-              </button>
-              <button
-                type="button"
-                onClick={onKeepProduct}
-                className="rounded-card bg-health-ink py-2.5 text-[13px] font-semibold text-white"
-              >
-                Garder pour la recette
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
+      {reviewSheet}
     </div>
   );
 }
