@@ -51,7 +51,7 @@ function hasFreshGarlic(meal: PlannedMeal) {
 
 /** Même produit (basilic, ail, noix…) = une seule ligne. « Ail en poudre » reste distinct de « Ail ». */
 export function ingredientDedupeKey(name: string, notes?: string) {
-  let key = foldName(name)
+  const key = foldName(name)
     .replace(/\([^)]*\)/g, " ")
     .replace(/\b(pesto|pistou|marinade|vinaigrette|maison)\b/g, " ");
   const blob = `${key} ${foldName(notes ?? "")}`;
