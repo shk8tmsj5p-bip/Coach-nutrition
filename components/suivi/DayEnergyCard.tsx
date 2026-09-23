@@ -18,11 +18,13 @@ export function DayEnergyCard({
   rows,
   goal,
   color,
+  hideTitle,
   onOpenDay,
 }: {
   rows: DailyEnergyRow[];
   goal: PrimaryGoal;
   color: string;
+  hideTitle?: boolean;
   onOpenDay: (date: string) => void;
 }) {
   const [range, setRange] = useState<TrendRange>("14d");
@@ -44,7 +46,7 @@ export function DayEnergyCard({
 
   return (
     <>
-      <SectionTitle>Journées</SectionTitle>
+      {hideTitle ? null : <SectionTitle>Journées</SectionTitle>}
       <Card>
         <p className="text-[13px] leading-relaxed text-health-muted">
           Déficit = mangées − brûlées Santé. Touche un jour pour retoucher les repas.

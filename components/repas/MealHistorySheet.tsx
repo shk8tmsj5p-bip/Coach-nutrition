@@ -59,7 +59,7 @@ export function MealHistorySheet({
   const bannedHere = items.some((item) => item.kind === kind && isRejectedTitle(rejected, item.title));
 
   return (
-    <div className="fixed inset-0 z-[95] flex items-end justify-center bg-black/30">
+    <div className="fixed inset-0 z-[105] flex items-end justify-center bg-black/30">
       <div className="flex max-h-[82vh] w-full max-w-[430px] flex-col overflow-hidden rounded-t-[24px] bg-white shadow-card">
         <div className="shrink-0 px-4 pb-2 pt-4">
           <div className="mb-3 flex items-center justify-between">

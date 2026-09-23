@@ -1,31 +1,25 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
-import Link from "next/link";
-import { Camera } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 import { useProfile } from "@/context/ProfileContext";
-import { Card, SectionTitle } from "@/components/ui/Card";
+import { Card } from "@/components/ui/Card";
 import { RangeToggle } from "@/components/suivi/RangeToggle";
 import { TrendChart } from "@/components/suivi/TrendChart";
-import {
-  draftFromOcr,
-  parsedDraft,
-  RenphoReviewSheet,
-  type RenphoDraft,
-} from "@/components/suivi/RenphoReviewSheet";
 import { SundayJournalCard } from "@/components/suivi/SundayJournalCard";
 import { EditGoalsSheet } from "@/components/suivi/EditGoalsSheet";
 import { JournalHistorySheet } from "@/components/suivi/JournalHistorySheet";
 import { CoachReadySheet } from "@/components/suivi/CoachReadySheet";
 import { DayEnergyCard } from "@/components/suivi/DayEnergyCard";
 import { DayLogSheet } from "@/components/suivi/DayLogSheet";
+import { SuiviHubBar, type SuiviHubId } from "@/components/suivi/SuiviHubBar";
 import { addDaysISO, formatWeekRange, mondayOf, todayISO } from "@/lib/dates";
 import { formatWeeklyRate, goalLabel } from "@/lib/goals";
 import type { GoalPatch } from "@/lib/goals";
+import { PlanActionSheet } from "@/components/repas/PlanActionSheet";
+import { SportHubBar, type SportHubId } from "@/components/sport/SportHubBar";
 import { SportRoutineCard } from "@/components/sport/SportRoutineCard";
 import { WeightJourneyChart } from "@/components/suivi/WeightJourneyChart";
 import { buildCoachWeekPayload, persistCoachWeekPayload, type CoachWeekPayload } from "@/lib/coach-payload";
-import { withGeminiWait } from "@/lib/gemini/wait";
 import {
   latestPesee,
   parseJournalNotes,
@@ -43,15 +37,14 @@ import { createBrowserSupabaseClient } from "@/lib/supabase/client";
 import { fetchMealsRange } from "@/lib/supabase/today-data";
 import { fetchDailyFeels } from "@/lib/supabase/daily-feel";
 import { buildDailyEnergy } from "@/lib/energy-history";
+import { activityLabel } from "@/lib/sport-routine";
 import type { DailyFeelEntry } from "@/lib/daily-feel";
 import type { DatedMeal } from "@/lib/recent-foods";
 import type { DailyMovement, Pesee, Profile, ProfileId, SundayJournalFields } from "@/lib/types";
 import { formatKg, formatKcal, formatKm, formatMin, formatSteps } from "@/lib/utils";
-import type { RenphoOcrResult } from "@/lib/gemini/renpho";
 
 export default function SuiviScreen() {
-  const { activeProfiles, profile, catalog, updateGoals } = useProfile();
-  const fileRef = useRef<HTMLInputElement>(null);
+  const { activeProfiles, catalog, updateGoals } = useProfile();
   const [byProfile, setByProfile] = useState<Record<ProfileId, Pesee[]>>({
     alexis: [],
     elodie: [],
@@ -70,8 +63,6 @@ export default function SuiviScreen() {
   });
   const [dayLog, setDayLog] = useState<{ profileId: ProfileId; date: string } | null>(null);
   const [loading, setLoading] = useState(true);
-  const [ocrBusy, setOcrBusy] = useState(false);
-  const [saving, setSaving] = useState(false);
   const [goalsSaving, setGoalsSaving] = useState(false);
   const [editing, setEditing] = useState<Profile | null>(null);
   const [historyFor, setHistoryFor] = useState<Profile | null>(null);
@@ -83,18 +74,7 @@ export default function SuiviScreen() {
     payload: CoachWeekPayload;
     saveError: string | null;
   } | null>(null);
-  const [review, setReview] = useState<{
-    draft: RenphoDraft;
-    extracted: RenphoOcrResult;
-    mock?: boolean;
-    warning?: string;
-  } | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-
-  const allRows = useMemo(
-    () => [...byProfile.alexis, ...byProfile.elodie],
-    [byProfile],
-  );
 
   useEffect(() => {
     let cancelled = false;
@@ -147,67 +127,6 @@ export default function SuiviScreen() {
     };
   }, [historyFor, byProfile]);
 
-  async function onPickFile(file: File) {
-    setOcrBusy(true);
-    setNotice(null);
-    try {
-      const fallback = profile;
-      const form = new FormData();
-      form.append("image", file);
-      form.append("profileId", fallback);
-      const response = await withGeminiWait("Gemini lit le capture Renpho…", () =>
-        fetch("/api/ocr-renpho", { method: "POST", body: form }),
-      );
-      const payload = (await response.json()) as {
-        extracted?: RenphoOcrResult;
-        mock?: boolean;
-        warning?: string;
-        error?: string;
-      };
-      if (!payload.extracted) throw new Error(payload.error ?? "OCR impossible");
-      setReview({
-        draft: draftFromOcr(payload.extracted, fallback, allRows, true),
-        extracted: payload.extracted,
-        mock: payload.mock,
-        warning: payload.warning,
-      });
-    } catch (error) {
-      setNotice(error instanceof Error ? error.message : "OCR impossible");
-    } finally {
-      setOcrBusy(false);
-      if (fileRef.current) fileRef.current.value = "";
-    }
-  }
-
-  async function confirmReview() {
-    if (!review) return;
-    const parsed = parsedDraft(review.draft);
-    if (parsed.poids == null) return;
-    setSaving(true);
-    try {
-      const existing = byProfile[parsed.profileId].find((item) => item.date === parsed.date);
-      const { row, error } = await savePesee({
-        id: existing?.id ?? crypto.randomUUID(),
-        profileId: parsed.profileId,
-        date: parsed.date,
-        poids: parsed.poids,
-        masseGrasse: parsed.masseGrasse,
-        masseMusculaire: parsed.masseMusculaire,
-        tourTaille: parsed.tourTaille,
-        bmi: existing?.bmi ?? null,
-        journalNotes: existing?.journalNotes ?? null,
-      });
-      setByProfile((current) => ({
-        ...current,
-        [row.profileId]: upsertLocal(current[row.profileId], row),
-      }));
-      setReview(null);
-      setNotice(error ? `Enregistré en local · ${error}` : `Pesée ${row.date} enregistrée`);
-    } finally {
-      setSaving(false);
-    }
-  }
-
   async function saveGoals(profile: Profile, patch: GoalPatch) {
     setGoalsSaving(true);
     try {
@@ -223,39 +142,32 @@ export default function SuiviScreen() {
     <div>
       <h1 className="text-[28px] font-bold tracking-tight">Suivi</h1>
       <p className="mt-1 text-[13px] text-health-muted">
-        Poids, journées, composition, Apple Santé, journal du dimanche
+        Journal, journées, poids, corps, Santé et sport
       </p>
+      {notice ? <p className="mt-2 text-[13px] font-medium">{notice}</p> : null}
+      {loading ? <p className="mt-3 text-[13px] text-health-muted">Chargement…</p> : null}
 
-      {loading ? (
-        <p className="mt-6 text-[13px] text-health-muted">Chargement des pesées…</p>
-      ) : (
-        activeProfiles.map((profile, index) => (
-          <ProfileSuivi
-            key={profile.id}
-            profile={profile}
-            rows={byProfile[profile.id]}
-            healthDays={healthByProfile[profile.id]}
-            meals={mealsByProfile[profile.id]}
-            showRenpho={index === 0}
-            ocrBusy={ocrBusy}
-            notice={notice}
-            fileRef={fileRef}
-            onPickFile={(file) => void onPickFile(file)}
-            onEditGoals={() => setEditing(profile)}
-            onOpenHistory={() => setHistoryFor(profile)}
-            onOpenDay={(date) => setDayLog({ profileId: profile.id, date })}
-            onSaved={(row) =>
-              setByProfile((current) => ({
-                ...current,
-                [row.profileId]: upsertLocal(current[row.profileId], row),
-              }))
-            }
-            onCoachReady={(payload, saveError) => {
-              setCoachReady({ payload, saveError });
-            }}
-          />
-        ))
-      )}
+      {activeProfiles.map((profile) => (
+        <ProfileSuivi
+          key={profile.id}
+          profile={profile}
+          rows={byProfile[profile.id]}
+          healthDays={healthByProfile[profile.id]}
+          meals={mealsByProfile[profile.id]}
+          onEditGoals={() => setEditing(profile)}
+          onOpenHistory={() => setHistoryFor(profile)}
+          onOpenDay={(date) => setDayLog({ profileId: profile.id, date })}
+          onSaved={(row) =>
+            setByProfile((current) => ({
+              ...current,
+              [row.profileId]: upsertLocal(current[row.profileId], row),
+            }))
+          }
+          onCoachReady={(payload, saveError) => {
+            setCoachReady({ payload, saveError });
+          }}
+        />
+      ))}
 
       {editing && (
         <EditGoalsSheet
@@ -298,21 +210,6 @@ export default function SuiviScreen() {
           onClose={() => setCoachReady(null)}
         />
       )}
-
-      {review && (
-        <RenphoReviewSheet
-          draft={review.draft}
-          extracted={review.extracted}
-          rows={allRows}
-          lockProfile
-          mock={review.mock}
-          warning={review.warning}
-          saving={saving}
-          onChange={(draft) => setReview({ ...review, draft })}
-          onClose={() => setReview(null)}
-          onConfirm={() => void confirmReview()}
-        />
-      )}
     </div>
   );
 }
@@ -328,11 +225,6 @@ function ProfileSuivi({
   rows,
   healthDays,
   meals,
-  showRenpho,
-  ocrBusy,
-  notice,
-  fileRef,
-  onPickFile,
   onEditGoals,
   onOpenHistory,
   onOpenDay,
@@ -343,11 +235,6 @@ function ProfileSuivi({
   rows: Pesee[];
   healthDays: DailyMovement[];
   meals: DatedMeal[];
-  showRenpho: boolean;
-  ocrBusy: boolean;
-  notice: string | null;
-  fileRef: RefObject<HTMLInputElement | null>;
-  onPickFile: (file: File) => void;
   onEditGoals: () => void;
   onOpenHistory: () => void;
   onOpenDay: (date: string) => void;
@@ -363,6 +250,8 @@ function ProfileSuivi({
   const bmiSeries = useMemo(() => withMovingAverages(seriesOf(rows, "bmi")), [rows]);
   const ma7 = weightSeries[weightSeries.length - 1]?.ma7 ?? null;
   const ma14 = weightSeries[weightSeries.length - 1]?.ma14 ?? null;
+  const [sheet, setSheet] = useState<SuiviHubId | null>(null);
+  const [sportPane, setSportPane] = useState<SportHubId | null>(null);
   const [weightRange, setWeightRange] = useState<TrendRange>("1m");
   const [compRange, setCompRange] = useState<TrendRange>("1m");
   const [healthRange, setHealthRange] = useState<TrendRange>("1m");
@@ -425,189 +314,187 @@ function ProfileSuivi({
     [healthDays, healthRange, profile.bmr, profile.tdee],
   );
 
+  function closeSheet() {
+    setSheet(null);
+    setSportPane(null);
+  }
+
   return (
-    <section className="mt-4">
-      <div className="mb-2 flex items-center justify-between">
-        <h2 className="text-[17px] font-semibold">{profile.name}</h2>
-        <button type="button" onClick={onEditGoals} className="text-[12px] font-semibold text-health-ink">
-          Éditer mes objectifs
-        </button>
-      </div>
-      <Card compact>
-        <div className="flex items-center justify-between">
-          <p className="text-[13px] font-semibold">Poids</p>
-          <p className="text-[12px] text-health-muted">
-            {goalLabel(profile.primaryGoal)} · {formatWeeklyRate(profile.weeklyRateKg)}
-          </p>
-        </div>
-        <div className="mt-1.5">
-          <WeightJourneyChart
-            start={profile.startWeightKg}
-            current={current}
-            target={profile.targetWeightKg}
+    <section className="mt-1">
+      <SuiviHubBar
+        onOpen={(id) => {
+          setSheet(id);
+          setSportPane(null);
+        }}
+      />
+
+      {sheet === "journal" ? (
+        <PlanActionSheet title="Journal" onClose={closeSheet}>
+          <ProfileJournal
+            profile={profile}
+            rows={rows}
+            hideTitle
+            onOpenHistory={onOpenHistory}
+            onSaved={onSaved}
+            onCoachReady={onCoachReady}
+          />
+        </PlanActionSheet>
+      ) : null}
+
+      {sheet === "journees" ? (
+        <PlanActionSheet title="Journées" onClose={closeSheet}>
+          <DayEnergyCard
+            rows={buildDailyEnergy(meals, healthDays, profile)}
             goal={profile.primaryGoal}
             color={color}
-            date={last?.date}
-            gradientId={profile.id}
+            hideTitle
+            onOpenDay={onOpenDay}
           />
-        </div>
-        {ma7 != null && ma14 != null && (
-          <div className="mt-2 grid grid-cols-2 gap-2 text-[12px]">
-            <div className="rounded-xl bg-health-bg px-2.5 py-2">
-              Moy. 7 j <span className="font-semibold tabular-nums">{formatKg(ma7)}</span>
-            </div>
-            <div className="rounded-xl bg-health-bg px-2.5 py-2">
-              Moy. 14 j <span className="font-semibold tabular-nums">{formatKg(ma14)}</span>
-            </div>
-          </div>
-        )}
-      </Card>
+        </PlanActionSheet>
+      ) : null}
 
-      {showRenpho && (
-        <>
-          <SectionTitle>Import Renpho</SectionTitle>
-          <Card>
-            <p className="text-[14px] leading-relaxed text-health-muted">
-              Capture → Gemini Flash préremplit la fiche du profil et de la date, puis tu valides avant
-              écriture dans pesees.
+      {sheet === "poids" ? (
+        <PlanActionSheet title="Poids" onClose={closeSheet}>
+          <div className="mb-3 flex items-center justify-between">
+            <p className="text-[12px] text-health-muted">
+              {goalLabel(profile.primaryGoal)} · {formatWeeklyRate(profile.weeklyRateKg)}
             </p>
-            <button
-              type="button"
-              disabled={ocrBusy}
-              onClick={() => fileRef.current?.click()}
-              className="mt-3 flex w-full items-center justify-center gap-2 rounded-card bg-health-bg py-3 text-[14px] font-semibold disabled:opacity-50"
-            >
-              <Camera size={18} />
-              {ocrBusy ? "Lecture de la capture…" : "Importer capture Renpho"}
+            <button type="button" onClick={onEditGoals} className="text-[12px] font-semibold text-health-ink">
+              Éditer mes objectifs
             </button>
-            <input
-              ref={fileRef}
-              type="file"
-              accept="image/*"
-              className="hidden"
-              onChange={(e) => {
-                const file = e.target.files?.[0];
-                if (file) onPickFile(file);
-              }}
+          </div>
+          <Card compact>
+            <WeightJourneyChart
+              start={profile.startWeightKg}
+              current={current}
+              target={profile.targetWeightKg}
+              goal={profile.primaryGoal}
+              color={color}
+              date={last?.date}
+              gradientId={profile.id}
             />
-            {notice && <p className="mt-3 text-[13px] font-medium">{notice}</p>}
+            {ma7 != null && ma14 != null && (
+              <div className="mt-2 grid grid-cols-2 gap-2 text-[12px]">
+                <div className="rounded-xl bg-health-bg px-2.5 py-2">
+                  Moy. 7 j <span className="font-semibold tabular-nums">{formatKg(ma7)}</span>
+                </div>
+                <div className="rounded-xl bg-health-bg px-2.5 py-2">
+                  Moy. 14 j <span className="font-semibold tabular-nums">{formatKg(ma14)}</span>
+                </div>
+              </div>
+            )}
           </Card>
-        </>
-      )}
-
-      <ProfileJournal
-        profile={profile}
-        rows={rows}
-        onOpenHistory={onOpenHistory}
-        onSaved={onSaved}
-        onCoachReady={onCoachReady}
-      />
-
-      <DayEnergyCard
-        rows={buildDailyEnergy(meals, healthDays, profile)}
-        goal={profile.primaryGoal}
-        color={color}
-        onOpenDay={onOpenDay}
-      />
-
-      <SectionTitle>Tendance poids</SectionTitle>
-      <Card>
-        <RangeToggle value={weightRange} onChange={setWeightRange} />
-        <p className="mb-1 mt-3 text-[12px] text-health-muted">
-          Quotidien · moyenne 7 j · moyenne 14 j
-        </p>
-        <TrendChart data={visibleWeight} color={color} unit="kg" range={weightRange} />
-      </Card>
-
-      <SectionTitle>Composition corporelle</SectionTitle>
-      <Card>
-        <div className="mb-3 grid grid-cols-3 gap-2">
-          <div>
-            <p className="text-[12px] text-health-muted">Masse grasse</p>
-            <p className="text-[20px] font-semibold tabular-nums">
-              {last?.masseGrasse != null ? `${String(last.masseGrasse).replace(".", ",")} %` : "—"}
-            </p>
-          </div>
-          <div>
-            <p className="text-[12px] text-health-muted">Masse musculaire</p>
-            <p className="text-[20px] font-semibold tabular-nums">
-              {last?.masseMusculaire != null ? formatKg(last.masseMusculaire) : "—"}
-            </p>
-          </div>
-          <div>
-            <p className="text-[12px] text-health-muted">IMC</p>
-            <p className="text-[20px] font-semibold tabular-nums">
-              {lastBmi != null ? String(lastBmi).replace(".", ",") : "—"}
-            </p>
-          </div>
-        </div>
-        {last?.tourTaille != null && (
-          <p className="mb-3 text-[13px] text-health-muted">
-            Tour de taille {String(last.tourTaille).replace(".", ",")} cm
+          <p className="mb-1 mt-4 text-[12px] text-health-muted">
+            Quotidien · moyenne 7 j · moyenne 14 j
           </p>
-        )}
-        <RangeToggle value={compRange} onChange={setCompRange} />
-        <p className="mb-1 mt-3 text-[12px] font-medium">Masse grasse · moy. 7 / 14 j</p>
-        <TrendChart data={visibleFat} color={color} unit="%" range={compRange} />
-        <p className="mb-1 mt-4 text-[12px] font-medium">Masse musculaire · moy. 7 / 14 j</p>
-        <TrendChart data={visibleMuscle} color={color} unit="kg" range={compRange} />
-        <p className="mb-1 mt-4 text-[12px] font-medium">IMC · moy. 7 / 14 j</p>
-        <TrendChart data={visibleBmi} color={color} unit="" range={compRange} />
-      </Card>
-
-      <SectionTitle>Apple Santé</SectionTitle>
-      <Card>
-        {lastHealth ? (
-          <div className="mb-3 grid grid-cols-2 gap-2">
-            <HealthMetricTile label="Pas" value={formatSteps(lastHealth.steps)} />
-            <HealthMetricTile label="Marche" value={formatKm(lastHealth.distanceKm)} />
-            <HealthMetricTile label="Vélo" value={formatKm(lastHealth.cyclingDistanceKm)} />
-            <HealthMetricTile
-              label="Minutes d'exercice"
-              value={formatMin(lastHealth.workoutMinutes)}
-            />
-            <HealthMetricTile
-              label="Énergie active"
-              value={formatKcal(lastHealth.activeEnergyKcal)}
-            />
-            <HealthMetricTile
-              label="Énergie au repos"
-              value={formatKcal(
-                sanitizeRestingKcal(lastHealth.restingEnergyKcal, {
-                  bmr: profile.bmr,
-                  tdee: profile.tdee,
-                }).value,
-              )}
-            />
+          <RangeToggle value={weightRange} onChange={setWeightRange} />
+          <div className="mt-3">
+            <TrendChart data={visibleWeight} color={color} unit="kg" range={weightRange} />
           </div>
-        ) : (
-          <p className="mb-3 text-[13px] text-health-muted">
-            Aucune donnée webhook pour l&apos;instant. Lance le raccourci iOS Santé.
+        </PlanActionSheet>
+      ) : null}
+
+      {sheet === "corps" ? (
+        <PlanActionSheet title="Corps" onClose={closeSheet}>
+          <div className="mb-3 grid grid-cols-3 gap-2">
+            <div>
+              <p className="text-[12px] text-health-muted">Masse grasse</p>
+              <p className="text-[20px] font-semibold tabular-nums">
+                {last?.masseGrasse != null ? `${String(last.masseGrasse).replace(".", ",")} %` : "—"}
+              </p>
+            </div>
+            <div>
+              <p className="text-[12px] text-health-muted">Masse musculaire</p>
+              <p className="text-[20px] font-semibold tabular-nums">
+                {last?.masseMusculaire != null ? formatKg(last.masseMusculaire) : "—"}
+              </p>
+            </div>
+            <div>
+              <p className="text-[12px] text-health-muted">IMC</p>
+              <p className="text-[20px] font-semibold tabular-nums">
+                {lastBmi != null ? String(lastBmi).replace(".", ",") : "—"}
+              </p>
+            </div>
+          </div>
+          {last?.tourTaille != null && (
+            <p className="mb-3 text-[13px] text-health-muted">
+              Tour de taille {String(last.tourTaille).replace(".", ",")} cm
+            </p>
+          )}
+          <RangeToggle value={compRange} onChange={setCompRange} />
+          <p className="mb-1 mt-3 text-[12px] font-medium">Masse grasse · moy. 7 / 14 j</p>
+          <TrendChart data={visibleFat} color={color} unit="%" range={compRange} />
+          <p className="mb-1 mt-4 text-[12px] font-medium">Masse musculaire · moy. 7 / 14 j</p>
+          <TrendChart data={visibleMuscle} color={color} unit="kg" range={compRange} />
+          <p className="mb-1 mt-4 text-[12px] font-medium">IMC · moy. 7 / 14 j</p>
+          <TrendChart data={visibleBmi} color={color} unit="" range={compRange} />
+        </PlanActionSheet>
+      ) : null}
+
+      {sheet === "sante" ? (
+        <PlanActionSheet title="Santé" onClose={closeSheet}>
+          {lastHealth ? (
+            <div className="mb-3 grid grid-cols-2 gap-2">
+              <HealthMetricTile label="Pas" value={formatSteps(lastHealth.steps)} />
+              <HealthMetricTile label="Marche" value={formatKm(lastHealth.distanceKm)} />
+              <HealthMetricTile label="Vélo" value={formatKm(lastHealth.cyclingDistanceKm)} />
+              <HealthMetricTile
+                label="Minutes d'exercice"
+                value={formatMin(lastHealth.workoutMinutes)}
+              />
+              <HealthMetricTile
+                label="Énergie active"
+                value={formatKcal(lastHealth.activeEnergyKcal)}
+              />
+              <HealthMetricTile
+                label="Énergie au repos"
+                value={formatKcal(
+                  sanitizeRestingKcal(lastHealth.restingEnergyKcal, {
+                    bmr: profile.bmr,
+                    tdee: profile.tdee,
+                  }).value,
+                )}
+              />
+            </div>
+          ) : (
+            <p className="mb-3 text-[13px] text-health-muted">
+              Aucune donnée webhook pour l&apos;instant. Lance le raccourci iOS Santé.
+            </p>
+          )}
+          <RangeToggle value={healthRange} onChange={setHealthRange} />
+          <p className="mb-1 mt-3 text-[12px] font-medium">Pas</p>
+          <TrendChart data={stepsSeries} color={color} unit="pas" range={healthRange} />
+          <p className="mb-1 mt-4 text-[12px] font-medium">Marche</p>
+          <TrendChart data={distanceSeries} color={color} unit="km" range={healthRange} />
+          <p className="mb-1 mt-4 text-[12px] font-medium">Vélo</p>
+          <TrendChart data={cyclingSeries} color={color} unit="km" range={healthRange} />
+          <p className="mb-1 mt-4 text-[12px] font-medium">Minutes d&apos;exercice</p>
+          <TrendChart data={minutesSeries} color={color} unit="min" range={healthRange} />
+          <p className="mb-1 mt-4 text-[12px] font-medium">Énergie active</p>
+          <TrendChart data={activeSeries} color={color} unit="kcal" range={healthRange} />
+          <p className="mb-1 mt-4 text-[12px] font-medium">Énergie au repos</p>
+          <TrendChart data={restingSeries} color={color} unit="kcal" range={healthRange} />
+        </PlanActionSheet>
+      ) : null}
+
+      {sheet === "sport" ? (
+        <PlanActionSheet title="Sport" onClose={closeSheet}>
+          <p className="mb-3 text-[12px] leading-snug text-health-muted">
+            Ici tu construis la semaine. Aujourd’hui et Métabolisme lisent cette même routine.
           </p>
-        )}
-        <RangeToggle value={healthRange} onChange={setHealthRange} />
-        <p className="mb-1 mt-3 text-[12px] font-medium">Pas</p>
-        <TrendChart data={stepsSeries} color={color} unit="pas" range={healthRange} />
-        <p className="mb-1 mt-4 text-[12px] font-medium">Marche</p>
-        <TrendChart data={distanceSeries} color={color} unit="km" range={healthRange} />
-        <p className="mb-1 mt-4 text-[12px] font-medium">Vélo</p>
-        <TrendChart data={cyclingSeries} color={color} unit="km" range={healthRange} />
-        <p className="mb-1 mt-4 text-[12px] font-medium">Minutes d&apos;exercice</p>
-        <TrendChart data={minutesSeries} color={color} unit="min" range={healthRange} />
-        <p className="mb-1 mt-4 text-[12px] font-medium">Énergie active</p>
-        <TrendChart data={activeSeries} color={color} unit="kcal" range={healthRange} />
-        <p className="mb-1 mt-4 text-[12px] font-medium">Énergie au repos</p>
-        <TrendChart data={restingSeries} color={color} unit="kcal" range={healthRange} />
-      </Card>
+          <SportHubBar onOpen={setSportPane} />
+        </PlanActionSheet>
+      ) : null}
 
-      <Link
-        href="/metabolique"
-        className="mt-3 flex w-full items-center justify-center rounded-card bg-health-bg py-3 text-[13px] font-semibold"
-      >
-        Bilan Coach → onglet Métabo
-      </Link>
-
-      <SportRoutineCard profile={profile} />
+      {sportPane ? (
+        <PlanActionSheet
+          title={sportPane === "coach" ? "Coach" : activityLabel(sportPane)}
+          zClass="z-[95]"
+          onClose={() => setSportPane(null)}
+        >
+          <SportRoutineCard profile={profile} pane={sportPane} />
+        </PlanActionSheet>
+      ) : null}
     </section>
   );
 }
@@ -615,12 +502,14 @@ function ProfileSuivi({
 function ProfileJournal({
   profile,
   rows,
+  hideTitle,
   onSaved,
   onOpenHistory,
   onCoachReady,
 }: {
   profile: Profile;
   rows: Pesee[];
+  hideTitle?: boolean;
   onSaved: (row: Pesee) => void;
   onOpenHistory: () => void;
   onCoachReady: (payload: CoachWeekPayload, saveError: string | null) => void;
@@ -674,6 +563,7 @@ function ProfileJournal({
         profileName={profile.name}
         fields={fields}
         saving={saving}
+        hideTitle={hideTitle}
         onChange={setFields}
         onSave={() => void save()}
         onOpenHistory={onOpenHistory}

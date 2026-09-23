@@ -46,7 +46,7 @@ export function SportSessionSheet({
   }
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-end justify-center bg-black/30">
+    <div className="fixed inset-0 z-[100] flex items-end justify-center bg-black/30">
       <div className="max-h-[88vh] w-full max-w-[430px] overflow-y-auto rounded-t-[24px] bg-white p-4 pb-8 shadow-card">
         <div className="mb-3 flex items-center justify-between">
           <h3 className="text-[17px] font-semibold">{title}</h3>

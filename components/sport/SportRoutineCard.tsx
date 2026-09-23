@@ -1,9 +1,8 @@
 "use client";
 
-import { Bike, Dumbbell, Footprints, Pencil, Plus, Trash2, Users, X } from "lucide-react";
+import { Pencil, Plus, Trash2, Users, X } from "lucide-react";
 import { useMemo, useState, type ReactNode } from "react";
 import { useProfile } from "@/context/ProfileContext";
-import { Card, SectionTitle } from "@/components/ui/Card";
 import { CardioPlanner } from "@/components/sport/CardioPlanner";
 import { HypertrophyPlanner } from "@/components/sport/HypertrophyPlanner";
 import { SportSessionSheet } from "@/components/sport/SportSessionSheet";
@@ -12,7 +11,6 @@ import {
   effortLabel,
   emptySession,
   formatExerciseLine,
-  formatHoursMinutes,
   formatWeekdays,
   parseSportRoutine,
   removeSessionById,
@@ -22,30 +20,24 @@ import {
 } from "@/lib/sport-routine";
 import type { Profile, ProfileId, SportActivity, SportRoutine, SportSession } from "@/lib/types";
 
-const ACTIVITY_ORDER: SportActivity[] = ["course", "velo", "muscu"];
-
-const ACTIVITY_ICON = {
-  course: Footprints,
-  velo: Bike,
-  muscu: Dumbbell,
-} as const;
-
 type Pending =
   | { kind: "save"; session: SportSession }
   | { kind: "delete"; session: SportSession };
 
-export function SportRoutineCard({ profile }: { profile: Profile }) {
+export function SportRoutineCard({
+  profile,
+  pane,
+}: {
+  profile: Profile;
+  pane: SportActivity | "coach";
+}) {
   const { catalog, updateSportRoutine, updateSportRoutines } = useProfile();
   const routine = useMemo(() => parseSportRoutine(profile.sportRoutine), [profile.sportRoutine]);
   const [editing, setEditing] = useState<SportSession | null>(null);
   const [pending, setPending] = useState<Pending | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const grouped = ACTIVITY_ORDER.map((activity) => ({
-    activity,
-    sessions: routine.sessions.filter((session) => session.activity === activity),
-  })).filter((group) => group.sessions.length > 0);
-  const total = routine.sessions.reduce((sum, session) => sum + session.durationMin, 0);
+  const sessions = pane === "coach" ? [] : routine.sessions.filter((session) => session.activity === pane);
 
   function sessionsOf(id: ProfileId) {
     return parseSportRoutine(catalog[id].sportRoutine).sessions;
@@ -154,76 +146,12 @@ export function SportRoutineCard({ profile }: { profile: Profile }) {
     setEditing(null);
   }
 
-  return (
-    <>
-      <SectionTitle
-        action={
-          <button
-            type="button"
-            onClick={() => setEditing(emptySession(grouped[0]?.activity ?? "velo"))}
-            className="inline-flex items-center gap-1 text-[12px] font-semibold text-health-ink"
-          >
-            <Plus size={14} />
-            Ajouter
-          </button>
-        }
-      >
-        Ma routine sport
-      </SectionTitle>
-      <Card>
+  if (pane === "coach") {
+    return (
+      <>
         <p className="mb-3 text-[12px] leading-snug text-health-muted">
-          Ici tu construis la semaine. Aujourd’hui et Métabolisme lisent cette même routine.
+          Propose les séances. Tu valides → ça devient ta routine.
         </p>
-        <div className="flex items-end justify-between gap-3">
-          <div>
-            <p className="text-[13px] text-health-muted">Total visé</p>
-            <p className="text-[22px] font-bold tabular-nums tracking-tight">
-              {formatHoursMinutes(total || routine.targetMinutesPerWeek)}
-              <span className="ml-1 text-[13px] font-medium text-health-muted">/ semaine</span>
-            </p>
-          </div>
-          <p className="text-right text-[12px] text-health-muted">
-            {[
-              routine.ridesPerWeek ? `${routine.ridesPerWeek} vélo` : null,
-              routine.runsPerWeek ? `${routine.runsPerWeek} course` : null,
-              routine.strengthDays ? `${routine.strengthDays} muscu` : null,
-            ]
-              .filter(Boolean)
-              .join(" · ") || "Aucune séance"}
-          </p>
-        </div>
-
-        {grouped.length === 0 ? (
-          <p className="mt-3 text-[13px] leading-relaxed text-health-muted">
-            Ajoute tes séances types (course, vélo, muscu). C’est le planning lu par Aujourd’hui et Métabolisme.
-          </p>
-        ) : (
-          <div className="mt-3 space-y-3">
-            {grouped.map((group) => {
-              const Icon = ACTIVITY_ICON[group.activity];
-              return (
-                <div key={group.activity}>
-                  <p className="mb-1.5 flex items-center gap-1.5 text-[12px] font-semibold uppercase tracking-wide text-health-muted">
-                    <Icon size={14} />
-                    {activityLabel(group.activity)}
-                  </p>
-                  <div className="space-y-1.5">
-                    {group.sessions.map((session) => (
-                      <SessionRow
-                        key={session.id}
-                        session={session}
-                        disabled={saving}
-                        onEdit={() => setEditing(session)}
-                        onDelete={() => requestDelete(session)}
-                      />
-                    ))}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-
         <CardioPlanner
           key={`${profile.id}-cardio`}
           profile={profile}
@@ -231,7 +159,6 @@ export function SportRoutineCard({ profile }: { profile: Profile }) {
           saving={saving}
           onApply={persistRoutine}
         />
-
         {profile.primaryGoal === "prise" ? (
           <HypertrophyPlanner
             key={`${profile.id}-hyp`}
@@ -241,9 +168,42 @@ export function SportRoutineCard({ profile }: { profile: Profile }) {
             onApply={persistRoutine}
           />
         ) : null}
-
         {error && <p className="mt-3 text-[12px] text-coral">Enregistré en local · {error}</p>}
-      </Card>
+      </>
+    );
+  }
+
+  return (
+    <>
+      <div className="mb-3 flex items-center justify-between">
+        <p className="text-[12px] text-health-muted">
+          {sessions.length === 0
+            ? `Aucune séance ${activityLabel(pane).toLowerCase()}.`
+            : `${sessions.length} séance${sessions.length > 1 ? "s" : ""}`}
+        </p>
+        <button
+          type="button"
+          onClick={() => setEditing(emptySession(pane))}
+          className="inline-flex items-center gap-1 text-[12px] font-semibold text-health-ink"
+        >
+          <Plus size={14} />
+          Ajouter
+        </button>
+      </div>
+      {sessions.length > 0 ? (
+        <div className="space-y-1.5">
+          {sessions.map((session) => (
+            <SessionRow
+              key={session.id}
+              session={session}
+              disabled={saving}
+              onEdit={() => setEditing(session)}
+              onDelete={() => requestDelete(session)}
+            />
+          ))}
+        </div>
+      ) : null}
+      {error && <p className="mt-3 text-[12px] text-coral">Enregistré en local · {error}</p>}
 
       {editing && (
         <SportSessionSheet
@@ -352,7 +312,7 @@ function DuoConfirm({
       : "La séance restera identique chez Alexis et Élodie, avec le badge Duo.";
 
   return (
-    <div className="fixed inset-0 z-[70] flex items-end justify-center bg-black/30">
+    <div className="fixed inset-0 z-[110] flex items-end justify-center bg-black/30">
       <div className="w-full max-w-[430px] rounded-t-[24px] bg-white p-4 pb-8 shadow-card">
         <div className="mb-3 flex items-center justify-between">
           <h3 className="text-[17px] font-semibold">{title}</h3>

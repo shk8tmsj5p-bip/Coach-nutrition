@@ -10,6 +10,7 @@ export function SundayJournalCard({
   profileName,
   fields,
   saving,
+  hideTitle,
   onChange,
   onSave,
   onOpenHistory,
@@ -18,21 +19,30 @@ export function SundayJournalCard({
   profileName: string;
   fields: SundayJournalFields;
   saving: boolean;
+  hideTitle?: boolean;
   onChange: (next: SundayJournalFields) => void;
   onSave: () => void;
   onOpenHistory: () => void;
 }) {
   return (
     <>
-      <SectionTitle
-        action={
+      {hideTitle ? (
+        <div className="mb-2 flex justify-end">
           <button type="button" onClick={onOpenHistory} className="text-[12px] font-semibold text-health-ink">
             Voir l&apos;historique des notes
           </button>
-        }
-      >
-        Journal du dimanche
-      </SectionTitle>
+        </div>
+      ) : (
+        <SectionTitle
+          action={
+            <button type="button" onClick={onOpenHistory} className="text-[12px] font-semibold text-health-ink">
+              Voir l&apos;historique des notes
+            </button>
+          }
+        >
+          Journal du dimanche
+        </SectionTitle>
+      )}
       <Card>
         <p className="text-[12px] text-health-muted">
           {profileName} · semaine du {weekLabel}

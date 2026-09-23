@@ -180,7 +180,7 @@ export function EditMealSheet({
   }
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-end justify-center bg-black/30">
+    <div className="fixed inset-0 z-[110] flex items-end justify-center bg-black/30">
       <div className="flex max-h-[calc(100dvh-var(--safe-top)-12px)] w-full max-w-[430px] flex-col overflow-hidden rounded-t-[24px] bg-white shadow-card">
         <div className="min-h-0 overflow-y-auto p-4 pb-3">
         <div className="mb-3 flex items-center justify-between">
