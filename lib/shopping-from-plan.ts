@@ -180,6 +180,8 @@ const AISLE_RULES: { aisle: AisleName; keys: string[] }[] = [
       "courge",
       "butternut",
       "potiron",
+      "potimarron",
+      "citrouille",
     ],
   },
   {
@@ -281,6 +283,11 @@ const SHOP_CANON: Array<{ keys: string[]; name: string }> = [
   { keys: ["paprika"], name: "Paprika" },
   { keys: ["carotte"], name: "Carotte" },
   { keys: ["courgette"], name: "Courgette" },
+  { keys: ["potimarron"], name: "Potimarron" },
+  { keys: ["butternut"], name: "Butternut" },
+  { keys: ["potiron"], name: "Potiron" },
+  { keys: ["citrouille"], name: "Citrouille" },
+  { keys: ["courge"], name: "Courge" },
   { keys: ["concombre"], name: "Concombre" },
   { keys: ["poivron"], name: "Poivron" },
   { keys: ["tomate"], name: "Tomate" },
@@ -437,6 +444,26 @@ function pickCanonName(raw: string, startOnly: boolean) {
     }
   }
   return best?.name;
+}
+
+/** Produit sans chrome de coupe / cuisson. « Riz basmati cuit » ≠ « Riz Arborio ». */
+export function productIdentity(raw: string) {
+  const peeled = displayIngredientName(raw);
+  const stripped = stripPrepWords(peeled);
+  return fold(stripped || peeled);
+}
+
+/** Same buyable product for cook piles. Tofu / Tofu ferme fold; Riz basmati stays ≠ Riz Arborio. */
+export function cookProductIdentity(raw: string) {
+  const identity = productIdentity(raw);
+  const canon = pickCanonName(identity, true) ?? pickCanonName(identity, false);
+  if (!canon) return identity;
+  let leftover = identity;
+  for (const token of fold(canon).split(/\s+/).sort((a, b) => b.length - a.length)) {
+    leftover = leftover.replace(new RegExp(`\\b${token}\\b`, "g"), " ");
+  }
+  leftover = leftover.replace(/\s+/g, " ").trim();
+  return leftover ? `${fold(canon)} ${leftover}` : fold(canon);
 }
 
 export function shoppingDisplayName(raw: string) {

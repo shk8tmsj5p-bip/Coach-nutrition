@@ -19,6 +19,7 @@ import { PlanHubBar, type PlanHubId } from "@/components/repas/PlanHubBar";
 import { WeekNav } from "@/components/repas/WeekNav";
 import { useProfile } from "@/context/ProfileContext";
 import { mondayOf, todayISO, isoWeekday } from "@/lib/dates";
+import { loadRepasWeekStart, persistRepasWeekStart } from "@/lib/repas-week";
 import { requestDessertProduct, requestGenerateMeals } from "@/lib/gemini/client";
 import { loadHouseholdCoachBias } from "@/lib/coach-apply";
 import { currentNutritionDeltas } from "@/lib/coach-adjustments";
@@ -92,8 +93,11 @@ import {
   dessertTagOf,
   dessertSlotOf,
   formatDessertBatchForPrompt,
+  formatDessertDays,
   isWeekLunchDessert,
   loadWeekLunchDessert,
+  moveDessertOccupancy,
+  parseDessertPlanningId,
   persistWeekLunchDessert,
   scaleDessertToGoals,
   stampDessertMeal,
@@ -152,7 +156,7 @@ export default function RepasScreen() {
   const [tab, setTab] = useState<Tab>("plan");
   const [planQty, setPlanQty] = useState<QtyMode>("batch");
   const [batchQty, setBatchQty] = useState<QtyMode>("batch");
-  const [weekStart, setWeekStart] = useState(() => mondayOf(todayISO()));
+  const [weekStart, setWeekStart] = useState(loadRepasWeekStart);
   const [plan, setPlan] = useState<PlannedMeal[]>(emptyWeekPlan);
   const [theme, setTheme] = useState("");
   const [nonce, setNonce] = useState(1);
@@ -332,6 +336,10 @@ export default function RepasScreen() {
   );
 
   useEffect(() => {
+    persistRepasWeekStart(weekStart);
+  }, [weekStart]);
+
+  useEffect(() => {
     let cancelled = false;
     void reloadWeek({ resetPanes: true }).then(() => {
       if (cancelled) return;
@@ -508,6 +516,52 @@ export default function RepasScreen() {
     flash("Repas supprimé");
   }
 
+  const menuDesserts = [
+    lunchDessert
+      ? {
+          tag: dessertTagOf("midi"),
+          meal: lunchDessert.meal,
+          caption: `Dessert midi · ${formatDessertDays(lunchDessert.weekdays)}`,
+        }
+      : null,
+    dinnerDessert
+      ? {
+          tag: dessertTagOf("soir"),
+          meal: dinnerDessert.meal,
+          caption: `Dessert soir · ${formatDessertDays(dinnerDessert.weekdays)}`,
+        }
+      : null,
+  ].filter((row): row is NonNullable<typeof row> => Boolean(row));
+
+  function openDessertRecipe(slot: DessertSlot) {
+    setDessertSlot(slot);
+    setOpenMealId(null);
+    setOpenTag(null);
+    setPlanSheet(null);
+    setOpenDessert(true);
+  }
+
+  async function persistDessertPair(next: { midi: WeekLunchDessert | null; soir: WeekLunchDessert | null }) {
+    setLunchDessert(next.midi);
+    setDinnerDessert(next.soir);
+    setMidiPane((pane) => ({ ...pane, saved: next.midi }));
+    setSoirPane((pane) => ({ ...pane, saved: next.soir }));
+    await persistWeekLunchDessert(weekStart, next.midi, "midi");
+    await persistWeekLunchDessert(weekStart, next.soir, "soir");
+    if (weekStart === mondayOf(todayISO())) {
+      await serveDessertToday("midi");
+      await serveDessertToday("soir");
+    }
+  }
+
+  async function moveDessertTo(fromId: string, target: { dayIndex: number; mealType: "dejeuner" | "diner" }) {
+    const from = parseDessertPlanningId(fromId);
+    if (!from) return;
+    const next = moveDessertOccupancy(lunchDessert, dinnerDessert, from, target);
+    await persistDessertPair(next);
+    flash("Dessert déplacé");
+  }
+
   async function moveMealTo(
     meal: PlannedMeal,
     target: { dayIndex: number; mealType: "dejeuner" | "diner" },
@@ -523,6 +577,10 @@ export default function RepasScreen() {
   }
 
   function openSlot(meal: PlannedMeal, tag: string) {
+    if (isWeekLunchDessert(meal)) {
+      openDessertRecipe(dessertSlotOf(meal));
+      return;
+    }
     setPlanQty("batch");
     setOpenMealId(meal.id);
     setOpenTag(tag);
@@ -956,10 +1014,6 @@ export default function RepasScreen() {
   return (
     <div>
       <h1 className="text-[28px] font-bold tracking-tight">Repas</h1>
-      <p className="mt-1 text-[13px] text-health-muted">
-        Déjeuners & dîners de la semaine. Petit-déj et collations viennent des Réglages. Dessert midi
-        maison : carte ci-dessous. Le plat du jour se sert sur Aujourd’hui.
-      </p>
 
       <div className="mt-4 flex rounded-full bg-white p-1 shadow-card">
         {(
@@ -1100,16 +1154,24 @@ export default function RepasScreen() {
 
           <MenuSummary
             plan={plan}
+            desserts={menuDesserts}
             onSelect={(meal, tag) => openSlot(meal, tag)}
           />
 
           <WeekAgenda
             plan={plan}
             tags={tags}
+            lunchDessert={lunchDessert}
+            dinnerDessert={dinnerDessert}
             busy={busy}
             onOpen={(meal, tag) => openSlot(meal, tag)}
+            onOpenDessert={(slot) => openDessertRecipe(slot)}
             onGenerate={(slotId) => void generate("single", slotId)}
             onMoveSlot={(fromId, target) => {
+              if (parseDessertPlanningId(fromId)) {
+                void moveDessertTo(fromId, target);
+                return;
+              }
               const meal = plan.find((item) => item.id === fromId);
               if (meal) void moveMealTo(meal, target);
             }}
@@ -1144,7 +1206,12 @@ export default function RepasScreen() {
         <div className="mt-2">
           <MenuSummary
             plan={plan}
-            onSelect={(_meal, tag) => {
+            desserts={menuDesserts}
+            onSelect={(meal, tag) => {
+              if (isWeekLunchDessert(meal)) {
+                openDessertRecipe(dessertSlotOf(meal));
+                return;
+              }
               setOpenMealId(null);
               setOpenTag(tag);
             }}

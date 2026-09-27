@@ -10,7 +10,7 @@ import { uniqueWeekdayBatches, weekendFreshMeals, WEEKEND_INDEXES } from "@/lib/
 import { isAversionMention, isFluffLine, isLogisticsTip, isRealTmWork, isStepSection, stepSectionLabel } from "@/lib/recipe-copy";
 import { planTagByMealId } from "@/lib/meal-tags";
 import { formatIngredientLine, parseVisualQuantity, scaleVisualQuantity, visualForIngredient } from "@/lib/visual-quantity";
-import { groupShoppingItems, isUnlistedShoppingIng, shoppingItemsFromPlan } from "@/lib/shopping-from-plan";
+import { aisleFor, cookProductIdentity, groupShoppingItems, isUnlistedShoppingIng, shoppingItemsFromPlan } from "@/lib/shopping-from-plan";
 import { cookScale, type QtyMode } from "@/lib/qty-scale";
 import { portionsDiffer } from "@/lib/meal-coach";
 import { displayIngredientName, isDressingIngredient, isMarinadeIngredient, isFinishSauceIngredient, dressingGroupOf, dressingGroupLabel, DRESSING_GROUP_ORDER } from "@/lib/ingredient-groups";
@@ -755,51 +755,44 @@ function isPantryOrBinder(ing: RecipeIngredient) {
   ]);
 }
 
-function isCutVeg(ing: RecipeIngredient, meal: PlannedMeal) {
-  if (isSauceIng(ing) || isStarchIng(ing) || isTmBowlIng(ing) || isPantryOrBinder(ing)) return false;
-  if (isFreshTofuIng(ing, meal) || isAirfryProtein(ing, meal) || isPanCookIng(ing, meal)) return false;
-  if (isPreparedOrCold(ing)) return false;
-  if (matches(ing.name, ["œuf", "oeuf", "edamame", "petits pois", "petit pois", "asperge"]) || /haricots?\s+vert/i.test(ing.name)) {
-    return CUT_RX.test(`${ing.name} ${ing.notes ?? ""}`);
-  }
-  const blob = `${ing.name} ${ing.notes ?? ""}`;
-  if (/rôti|roti|cuit|marin/i.test(blob) && !CUT_RX.test(blob)) return false;
-  if (isHerbIng(ing) && mentionedIn(ing, groupedSteps(meal).water.join(" ")) && !CUT_RX.test(blob)) {
-    return false;
-  }
-  if (CUT_RX.test(blob)) return true;
+function isAromaticCondiment(ing: RecipeIngredient) {
+  return matches(ing.name, ["ail", "gingembre", "citron", "lime"]);
+}
+
+/** Feuilles / grains : pas une pile couteau sauf si une coupe est écrite. */
+function isNoKnifeProduce(ing: RecipeIngredient) {
+  if (/haricots?\s+vert/i.test(ing.name)) return true;
   return matches(ing.name, [
-    "courgette",
-    "carotte",
-    "chou",
-    "concombre",
-    "tomate",
-    "oignon",
-    "échalote",
-    "echalote",
-    "poivron",
-    "aubergine",
-    "betterave",
-    "céleri",
-    "celeri",
-    "navet",
-    "panais",
-    "pomme de terre",
-    "poireau",
+    "œuf",
+    "oeuf",
+    "edamame",
+    "petits pois",
+    "petit pois",
+    "asperge",
+    "pousse",
     "salade",
     "laitue",
     "roquette",
     "épinard",
     "epinard",
-    "menthe",
-    "basilic",
-    "persil",
-    "ciboulette",
-    "aneth",
-    "thym",
-    "radis",
-    "avocat",
   ]);
+}
+
+function isKnifeProduce(ing: RecipeIngredient) {
+  if (isHerbIng(ing) || isAromaticCondiment(ing) || isNoKnifeProduce(ing)) return false;
+  if (/graine/i.test(ing.name)) return false;
+  return aisleFor(ing.name) === "FRUITS & LÉGUMES";
+}
+
+function isCutVeg(ing: RecipeIngredient, meal: PlannedMeal) {
+  if (isSauceIng(ing) || isStarchIng(ing) || isTmBowlIng(ing) || isPantryOrBinder(ing)) return false;
+  if (isFreshTofuIng(ing, meal) || isAirfryProtein(ing, meal) || isPreparedOrCold(ing) || isBakeryIng(ing)) {
+    return false;
+  }
+  const blob = `${ing.name} ${ing.notes ?? ""}`;
+  if (CUT_RX.test(blob)) return true;
+  if (isHerbIng(ing) || isAromaticCondiment(ing) || isNoKnifeProduce(ing)) return false;
+  return isKnifeProduce(ing);
 }
 
 function normalizeCut(raw: string) {
@@ -823,7 +816,9 @@ function defaultCut(name: string) {
   if (/courgette/i.test(name)) return "lamelles";
   if (/concombre|poivron|aubergine|oignon|[eé]chalote/i.test(name)) return "lamelles";
   if (/tomate/i.test(name)) return "quartiers";
-  if (/pomme de terre/i.test(name)) return "dés";
+  if (/potimarron|butternut|potiron|citrouille|\bcourge\b/i.test(name)) return "dés";
+  if (/champignon|shiitake|enoki/i.test(name)) return "quartiers";
+  if (/pomme de terre|patate douce/i.test(name)) return "dés";
   if (/poireau/i.test(name)) return "rondelles";
   if (/radis/i.test(name)) return "rondelles";
   if (/avocat/i.test(name)) return "tranches";
@@ -835,9 +830,11 @@ const VEG_ORDER = [
   "concombre",
   "carotte",
   "courgette",
+  "courge",
   "chou",
   "poivron",
   "aubergine",
+  "champignon",
   "oignon",
   "échalote",
   "betterave",
@@ -861,6 +858,9 @@ const VEG_ORDER = [
 
 export function vegFamily(name: string) {
   const n = fold(name);
+  if (/graine/.test(n)) return n.split(/[\s,(]/)[0] ?? n;
+  if (/potimarron|butternut|potiron|citrouille|\bcourge\b/.test(n)) return "courge";
+  if (/champignon|shiitake|enoki/.test(n)) return "champignon";
   return VEG_ORDER.find((fam) => n.includes(fold(fam))) ?? n.split(/[\s,(]/)[0] ?? n;
 }
 
@@ -869,7 +869,9 @@ const VEG_LABELS: Record<string, string> = {
   concombre: "Concombres",
   carotte: "Carottes",
   courgette: "Courgettes",
+  courge: "Courge",
   chou: "Choux",
+  champignon: "Champignons",
   poivron: "Poivrons",
   aubergine: "Aubergines",
   oignon: "Oignons",
@@ -997,6 +999,166 @@ function combineCutBlocks(list: BatchStepRecipeBlock[]): BatchStepRecipeBlock {
     setting: list[0].setting,
     servingsPerPerson: list.some((block) => block.servingsPerPerson === 2) ? 2 : 1,
   };
+}
+
+function isMergeAccessoryName(name: string) {
+  if (isUnlistedShoppingIng(name)) return true;
+  return matches(name, [
+    "thym",
+    "menthe",
+    "basilic",
+    "persil",
+    "ciboulette",
+    "aneth",
+    "romarin",
+    "origan",
+    "laurier",
+    "bouillon",
+    "huile",
+    "sel",
+    "poivre",
+  ]);
+}
+
+function cookProductsOf(block: BatchStepRecipeBlock) {
+  const mains = block.ingredients
+    .map((ing) => ing.name)
+    .filter((name) => !isMergeAccessoryName(name));
+  const source = mains.length ? mains : block.ingredients.map((ing) => ing.name);
+  return unique(source.map((name) => cookProductIdentity(name)).filter(Boolean)).sort().join("+");
+}
+
+function cookModeOf(setting: string) {
+  const t = fold(setting);
+  const temp = t.match(/(\d+)\s*(?:°\s*)?c\b/)?.[1] ?? "";
+  const min = t.match(/(\d+)\s*min/)?.[1] ?? "";
+  let family = t
+    .replace(/\d+\s*min/g, " ")
+    .replace(/\d+\s*(?:°\s*)?c/g, " ")
+    .replace(/[·•]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (/cuiseur/.test(t)) family = "cuiseur";
+  else if (/sous pression|autocuiseur|cookeo/.test(t)) family = "pression";
+  else if (/poele/.test(t)) family = "poele";
+  else if (/airfryer/.test(t) || temp) family = "air";
+  else if (/eau/.test(t)) family = "eau";
+  return { family, temp, min };
+}
+
+function cookSettingsCompatible(a?: string, b?: string) {
+  const left = cookModeOf(a ?? "");
+  const right = cookModeOf(b ?? "");
+  if (left.family !== right.family) return false;
+  if (left.temp && right.temp && left.temp !== right.temp) return false;
+  if (left.min && right.min && left.min !== right.min) return false;
+  return true;
+}
+
+function preferCookSetting(list: BatchStepRecipeBlock[]) {
+  const settings = list.map((block) => block.setting ?? "").filter(Boolean);
+  return settings.find((setting) => /\d+\s*min|\d+\s*°c/i.test(setting)) ?? settings[0] ?? "";
+}
+
+function combineCookIngredients(list: BatchStepIngredient[]): BatchStepIngredient[] {
+  const groups = new Map<string, BatchStepIngredient[]>();
+  for (const ing of list) {
+    const key = cookProductIdentity(ing.name);
+    const bucket = groups.get(key) ?? [];
+    bucket.push(ing);
+    groups.set(key, bucket);
+  }
+  return [...groups.values()].map((ings) => {
+    const gramsA = ings.reduce((sum, ing) => sum + (ing.gramsAlexis ?? 0), 0);
+    const gramsE = ings.reduce((sum, ing) => sum + (ing.gramsElodie ?? 0), 0);
+    const grams = gramsA + gramsE;
+    const name = ings.slice().sort((a, b) => b.name.length - a.name.length)[0]!.name;
+    const visual = mergeVisuals(ings.map((ing) => ing.visual));
+    const tags = unique(ings.map((ing) => ing.planTag ?? "").filter(Boolean));
+    return {
+      name,
+      quantity: formatIngredientLine({ name, grams, visual }),
+      visual,
+      planTag: tags.join(", "),
+      gramsAlexis: gramsA,
+      gramsElodie: gramsE,
+    };
+  });
+}
+
+function combineCookBlocks(list: BatchStepRecipeBlock[]): BatchStepRecipeBlock {
+  const tags = unique(list.flatMap((block) => recipeNosOf(block))).sort(
+    (a, b) => recipeNoRank(a) - recipeNoRank(b),
+  );
+  const ingredients = combineCookIngredients(list.flatMap((block) => block.ingredients));
+  const action = unique(list.map((block) => block.action).filter(Boolean)).join(" ");
+  const title =
+    tags.length > 1 && ingredients.length === 1 ? ingredients[0]!.name : list[0]!.recipeTitle;
+  return {
+    recipeNo: tags[0] ?? list[0]!.recipeNo,
+    recipeNos: tags,
+    recipeTitle: title,
+    coverLabel: list[0]!.coverLabel,
+    ingredients,
+    action,
+    setting: preferCookSetting(list) || list[0]!.setting,
+    servingsPerPerson: list.some((block) => block.servingsPerPerson === 2) ? 2 : 1,
+  };
+}
+
+/** Airfryer: one product per line so tofu from every recipe can stack. */
+function splitCookBlocksByProduct(blocks: BatchStepRecipeBlock[]) {
+  return blocks.flatMap((block) => {
+    const mains = block.ingredients.filter((ing) => !isMergeAccessoryName(ing.name));
+    const source = mains.length ? mains : block.ingredients;
+    const groups = new Map<string, BatchStepIngredient[]>();
+    for (const ing of source) {
+      const key = cookProductIdentity(ing.name);
+      const list = groups.get(key) ?? [];
+      list.push(ing);
+      groups.set(key, list);
+    }
+    if (groups.size <= 1) {
+      return [{ ...block, ingredients: source.length ? source : block.ingredients }];
+    }
+    return [...groups.values()].map((ings) => ({
+      ...block,
+      recipeTitle: ings.slice().sort((a, b) => b.name.length - a.name.length)[0]?.name ?? block.recipeTitle,
+      ingredients: ings,
+    }));
+  });
+}
+
+/** Same cook products + same mode. Time splits only when both lines have a duration and they differ. */
+function mergeCookBlocks(blocks: BatchStepRecipeBlock[]) {
+  const parent = blocks.map((_, index) => index);
+  const find = (index: number): number =>
+    parent[index] === index ? index : (parent[index] = find(parent[index]!));
+  const union = (a: number, b: number) => {
+    const ra = find(a);
+    const rb = find(b);
+    if (ra !== rb) parent[ra] = rb;
+  };
+  for (let i = 0; i < blocks.length; i++) {
+    for (let j = i + 1; j < blocks.length; j++) {
+      if (cookProductsOf(blocks[i]!) !== cookProductsOf(blocks[j]!)) continue;
+      if (!cookSettingsCompatible(blocks[i]!.setting, blocks[j]!.setting)) continue;
+      union(i, j);
+    }
+  }
+  const groups = new Map<number, BatchStepRecipeBlock[]>();
+  const order: number[] = [];
+  blocks.forEach((block, index) => {
+    const root = find(index);
+    if (!groups.has(root)) order.push(root);
+    const list = groups.get(root) ?? [];
+    list.push(block);
+    groups.set(root, list);
+  });
+  return order.map((root) => {
+    const list = groups.get(root) ?? [];
+    return list.length === 1 ? list[0]! : combineCookBlocks(list);
+  });
 }
 
 /** Same veg + same cut → one household pile. Split Alexis / Élodie is packing, not cutting. */
@@ -1428,7 +1590,7 @@ const SECTIONS: Array<{
   {
     key: "water",
     title: "3. Cuissons Eau / Féculents",
-    detail: "Une ligne par recette et par mode (cuiseur / Cookeo / eau). Si plusieurs ingrédients cuisent ensemble, ils sont regroupés avec les temps et les gestes.",
+    detail: "Même produit + même mode = une pile foyer. Le temps ne sépare que s’il est écrit des deux côtés et qu’il diffère.",
     appliance: "Cookeo",
     fallbackSetting: "Cuiseur à riz / Cookeo",
     fallbackAction: () => "Cuire selon la phrase du plat : même pot = ensemble, sinon chacun son temps.",
@@ -1437,7 +1599,7 @@ const SECTIONS: Array<{
     key: "airfryer",
     title: "4. Cuissons Airfryer",
     detail:
-      "Tout ce qui grille : protéines et légumes. Enchaînez les cuissons. Végane d’un côté, classique de l’autre, pschitt d’huile.",
+      "Tout ce qui grille. Même produit + même °C = une pile foyer. Des durées différentes restent séparées.",
     appliance: "Airfryer",
     fallbackSetting: "",
     fallbackAction: (meal) =>
@@ -1552,7 +1714,14 @@ export function buildBatchSession(plan: PlannedMeal[], qtyMode: QtyMode = "batch
       ];
     });
 
-    const ordered = section.key === "cuts" ? sortCutBlocks(mergeCutBlocks(blocks)) : blocks;
+    const ordered =
+      section.key === "cuts"
+        ? sortCutBlocks(mergeCutBlocks(blocks))
+        : section.key === "water"
+          ? mergeCookBlocks(blocks)
+          : section.key === "airfryer"
+            ? mergeCookBlocks(splitCookBlocksByProduct(blocks))
+            : blocks;
 
     appliances.push({
       appliance: section.appliance,

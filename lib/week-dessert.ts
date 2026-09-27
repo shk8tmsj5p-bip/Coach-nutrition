@@ -82,6 +82,81 @@ export function dessertTagOf(slot: DessertSlot = "midi") {
   return slot === "soir" ? "Ds" : "D";
 }
 
+export function weekdayFromDayIndex(dayIndex: number): Weekday {
+  const day = Math.min(7, Math.max(1, dayIndex + 1));
+  return day as Weekday;
+}
+
+export function dessertAppliesOnDay(dessert: WeekLunchDessert | null | undefined, dayIndex: number) {
+  return Boolean(dessert?.weekdays.includes(weekdayFromDayIndex(dayIndex)));
+}
+
+export function dessertPlanningId(slot: DessertSlot, dayIndex: number) {
+  return `dessert:${slot}:${dayIndex}`;
+}
+
+export function parseDessertPlanningId(id: string): { slot: DessertSlot; dayIndex: number } | null {
+  const match = /^dessert:(midi|soir):(\d+)$/.exec(id);
+  if (!match) return null;
+  return { slot: match[1] as DessertSlot, dayIndex: Number(match[2]) };
+}
+
+function withDessertDays(
+  dessert: WeekLunchDessert,
+  days: Weekday[],
+  slot: DessertSlot,
+): WeekLunchDessert | null {
+  const weekdays = [...new Set(days)].sort((a, b) => a - b);
+  if (!weekdays.length) return null;
+  return {
+    ...dessert,
+    slot,
+    weekdays,
+    meal: stampDessertMeal(dessert.meal, weekdays, dessert.theme, slot, dessert.product),
+  };
+}
+
+/** Déplace une occurrence (jour × midi/soir). Même créneau = on change les jours. Autre créneau vide = le dessert s’y pose. Autre créneau occupé = on échange midi et soir. */
+export function moveDessertOccupancy(
+  midi: WeekLunchDessert | null,
+  soir: WeekLunchDessert | null,
+  from: { slot: DessertSlot; dayIndex: number },
+  to: { dayIndex: number; mealType: "dejeuner" | "diner" },
+): { midi: WeekLunchDessert | null; soir: WeekLunchDessert | null } {
+  const toSlot: DessertSlot = to.mealType === "diner" ? "soir" : "midi";
+  const fromDay = weekdayFromDayIndex(from.dayIndex);
+  const toDay = weekdayFromDayIndex(to.dayIndex);
+  const source = from.slot === "soir" ? soir : midi;
+  if (!source?.weekdays.includes(fromDay)) return { midi, soir };
+  if (from.slot === toSlot && from.dayIndex === to.dayIndex) return { midi, soir };
+
+  if (from.slot === toSlot) {
+    const next = withDessertDays(
+      source,
+      [...source.weekdays.filter((day) => day !== fromDay), toDay],
+      from.slot,
+    );
+    return from.slot === "soir" ? { midi, soir: next } : { midi: next, soir };
+  }
+
+  const target = toSlot === "soir" ? soir : midi;
+  if (!target) {
+    const sourceNext = withDessertDays(
+      source,
+      source.weekdays.filter((day) => day !== fromDay),
+      from.slot,
+    );
+    const moved = withDessertDays(source, [toDay], toSlot);
+    return toSlot === "soir" ? { midi: sourceNext, soir: moved } : { midi: moved, soir: sourceNext };
+  }
+
+  if (!midi || !soir) return { midi, soir };
+  return {
+    midi: withDessertDays(soir, soir.weekdays, "midi"),
+    soir: withDessertDays(midi, midi.weekdays, "soir"),
+  };
+}
+
 function macrosWithProduct(ingredients: PlannedMeal["ingredients"], profile: "alexis" | "elodie", product?: DessertProduct | null) {
   const rows = ingredients.filter((item) => item.role === "shared" || item.role === profile);
   let calories = 0;

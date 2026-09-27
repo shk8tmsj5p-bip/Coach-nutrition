@@ -7,15 +7,24 @@ import type { PlannedMeal } from "@/lib/types";
 import { mealTypeLabel } from "@/lib/utils";
 import { WEEKEND_INDEXES } from "@/lib/weekly-plan";
 
+export type MenuDessertRow = {
+  tag: string;
+  meal: PlannedMeal;
+  caption: string;
+};
+
 export function MenuSummary({
   plan,
+  desserts,
   onSelect,
 }: {
   plan: PlannedMeal[];
+  desserts?: MenuDessertRow[];
   onSelect?: (meal: PlannedMeal, tag: string) => void;
 }) {
   const items = taggedUniqueMeals(plan);
-  if (items.length === 0) return null;
+  const dessertRows = desserts?.filter((row) => row.meal.baseName.trim()) ?? [];
+  if (items.length === 0 && dessertRows.length === 0) return null;
 
   return (
     <div>
@@ -56,9 +65,37 @@ export function MenuSummary({
               </button>
             );
           })}
+          {dessertRows.map((row) => {
+            const inner = (
+              <>
+                <RecipeTag recipeNo={row.tag} className="mt-0.5 shrink-0" />
+                <div className="min-w-0 text-left">
+                  <p className="text-[14px] font-semibold leading-snug">{row.meal.baseName}</p>
+                  <p className="text-[12px] text-health-muted">{row.caption}</p>
+                </div>
+              </>
+            );
+            if (!onSelect) {
+              return (
+                <div key={`${row.tag}-${row.meal.id}`} className="flex items-start gap-2">
+                  {inner}
+                </div>
+              );
+            }
+            return (
+              <button
+                key={`${row.tag}-${row.meal.id}`}
+                type="button"
+                onClick={() => onSelect(row.meal, row.tag)}
+                className="flex w-full items-start gap-2 rounded-2xl px-1 py-1.5 -mx-1 hover:bg-health-bg"
+              >
+                {inner}
+              </button>
+            );
+          })}
         </div>
         {onSelect ? (
-          <p className="mt-2 text-[11px] text-health-muted">Touche P1, P2… pour la recette détaillée.</p>
+          <p className="mt-2 text-[11px] text-health-muted">Touche P1, P2… ou D pour la recette détaillée.</p>
         ) : null}
       </Card>
     </div>

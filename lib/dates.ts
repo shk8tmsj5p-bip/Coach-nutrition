@@ -23,6 +23,45 @@ export function mondayOf(iso = todayISO()) {
   return addDaysISO(iso, diff);
 }
 
+export function startOfMonth(iso: string) {
+  const d = new Date(`${iso}T12:00:00`);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`;
+}
+
+export function addMonthsISO(iso: string, months: number) {
+  const d = new Date(`${startOfMonth(iso)}T12:00:00`);
+  d.setMonth(d.getMonth() + months);
+  return startOfMonth(todayISO(d));
+}
+
+export function lastDayOfMonth(iso: string) {
+  const d = new Date(`${startOfMonth(iso)}T12:00:00`);
+  d.setMonth(d.getMonth() + 1, 0);
+  return todayISO(d);
+}
+
+export function formatMonthYear(iso: string) {
+  const raw = new Date(`${startOfMonth(iso)}T12:00:00`).toLocaleDateString("fr-FR", {
+    month: "long",
+    year: "numeric",
+  });
+  return raw.charAt(0).toUpperCase() + raw.slice(1);
+}
+
+/** Semaines (lundi → dimanche) qui touchent le mois. */
+export function monthGridWeeks(monthIso: string) {
+  const start = startOfMonth(monthIso);
+  const end = lastDayOfMonth(monthIso);
+  const weeks: string[][] = [];
+  let cursor = mondayOf(start);
+  while (weeks.length < 6) {
+    weeks.push(Array.from({ length: 7 }, (_, index) => addDaysISO(cursor, index)));
+    cursor = addDaysISO(cursor, 7);
+    if (cursor > end) break;
+  }
+  return weeks;
+}
+
 export function formatWeekRange(weekStart: string) {
   const end = addDaysISO(weekStart, 6);
   const startDate = new Date(`${weekStart}T12:00:00`);

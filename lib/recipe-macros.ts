@@ -101,7 +101,7 @@ export function classifyIngredient(name: string): IngredientKind {
   }
   if (/sauce soja|vinaigre|citron|lime|agave|nuoc|miso/.test(n)) return "sauce";
   if (
-    /courgette|carotte|chou|salade|concombre|tomate|poivron|epinard|brocoli|haricot vert|aubergine|champignon|radis|navet|celeri|betterave|oignon|poireau|roquette|mache|fenouil|courge|asperge|petit pois|pousse de soja/.test(
+    /courgette|carotte|chou|salade|concombre|tomate|poivron|epinard|brocoli|haricot vert|aubergine|champignon|radis|navet|celeri|betterave|oignon|poireau|roquette|mache|fenouil|courge|potimarron|butternut|potiron|citrouille|asperge|petit pois|pousse de soja/.test(
       n,
     )
   ) {
