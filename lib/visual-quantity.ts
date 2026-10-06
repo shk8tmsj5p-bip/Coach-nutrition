@@ -119,22 +119,108 @@ function formatVisualLabel(amount: number, unit: string) {
   return `${qty} ${unit}`.trim();
 }
 
+function foldName(text: string) {
+  return text
+    .toLowerCase()
+    .replace(/œ/g, "oe")
+    .replace(/æ/g, "ae")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/['’]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function wordIndex(key: string, needle: string) {
+  let from = 0;
+  while (from <= key.length) {
+    const idx = key.indexOf(needle, from);
+    if (idx < 0) return -1;
+    const beforeOk = idx === 0 || /[^a-z0-9]/.test(key.charAt(idx - 1));
+    const after = idx + needle.length;
+    const next = key.charAt(after);
+    const afterOk =
+      !next ||
+      /[^a-z0-9]/.test(next) ||
+      (next === "s" && (!key.charAt(after + 1) || /[^a-z0-9]/.test(key.charAt(after + 1))));
+    if (beforeOk && afterOk) return idx;
+    from = idx + 1;
+  }
+  return -1;
+}
+
+function leftoverAfterProduce(name: string, produceKey: string) {
+  let leftover = foldName(name);
+  for (const token of foldName(produceKey).split(/\s+/).sort((a, b) => b.length - a.length)) {
+    leftover = leftover.replace(new RegExp(`\\b${token}\\b`, "g"), " ");
+  }
+  return leftover.replace(/\b(de|d|du|des|en|au|aux|a|l|la|le|les|et)\b/g, " ").replace(/\s+/g, " ").trim();
+}
+
+const WHOLE_QUALIFIERS = new Set([
+  "rouge",
+  "vert",
+  "jaune",
+  "blanc",
+  "nouveau",
+  "doux",
+  "douce",
+  "cerise",
+  "cerises",
+  "bio",
+]);
+
+function isWholeProduce(name: string, produceKey: string) {
+  const leftover = leftoverAfterProduce(name, produceKey);
+  if (!leftover) return true;
+  return leftover.split(/\s+/).every((token) => WHOLE_QUALIFIERS.has(token));
+}
+
+function bestProduceMatch(name: string) {
+  const n = foldName(name);
+  let best: { unit: string; gramsPer: number; key: string } | null = null;
+  for (const row of PRODUCE_UNITS) {
+    for (const key of row.keys) {
+      const needle = foldName(key);
+      if (wordIndex(n, needle) < 0) continue;
+      if (!best || needle.length > foldName(best.key).length) {
+        best = { unit: row.unit, gramsPer: row.gramsPer, key };
+      }
+    }
+  }
+  return best;
+}
+
 /** Tofu / champignons / carotte : grammes seuls — jamais bloc, barquette ni pièces. */
 export function isGramsOnlyIngredient(name: string) {
   const n = name.toLowerCase();
   return /\btofu\b/.test(n) || /champignon/.test(n) || /carotte/.test(n);
 }
 
+/** Pièce / gousse seulement si le nom EST ce produit entier — pas « corail » ni « concentré de tomate ». */
+export function visualUnitFitsName(name: string, unit: string) {
+  if (!name?.trim() || !unit?.trim()) return true;
+  const u = foldName(unit);
+  if (/gousse/.test(u)) {
+    return wordIndex(foldName(name), "ail") >= 0 && isWholeProduce(name, "ail");
+  }
+  if (/piece|barquette|botte|\bchou\b/.test(u)) {
+    const hit = bestProduceMatch(name);
+    return Boolean(hit && isWholeProduce(name, hit.key));
+  }
+  return true;
+}
+
 /** Unité courses pour un légume / herbe / protéine en pièces, si Gemini l'a oubliée. */
 export function inferVisualUnit(name: string, grams: number) {
   if (!name?.trim() || !Number.isFinite(grams) || grams <= 0) return undefined;
   if (isGramsOnlyIngredient(name)) return undefined;
-  const n = name.toLowerCase();
+  const n = foldName(name);
   if (/huile|vinaigre|eau|sel|poivre|cumin|paprika|épice|epice|moutarde|tahini|soja|agave|miso/.test(n)) {
     return undefined;
   }
-  const hit = PRODUCE_UNITS.find((row) => row.keys.some((key) => n.includes(key)));
-  if (!hit) return undefined;
+  const hit = bestProduceMatch(name);
+  if (!hit || !isWholeProduce(name, hit.key)) return undefined;
   const amount = Math.max(hit.unit === "chou" ? 0.25 : hit.unit === "cm" ? 1 : 0.25, grams / hit.gramsPer);
   return formatVisualLabel(amount, hit.unit);
 }
@@ -274,7 +360,8 @@ function visualMatchesGrams(name: string, grams: number, visual: string) {
 
 export function visualForIngredient(name: string, grams: number, visual?: string) {
   if (isGramsOnlyIngredient(name)) return undefined;
-  const given = visual?.trim().replace(/^(env\.?|environ)\s+/i, "");
+  const givenRaw = visual?.trim().replace(/^(env\.?|environ)\s+/i, "");
+  const given = givenRaw && visualUnitFitsName(name, givenRaw) ? givenRaw : "";
   const inferred = inferSpoonUnit(name, grams) || inferVisualUnit(name, grams);
   if (isEnvelopeIngredient(name)) {
     const parsed = given ? parseVisualQuantity(given) : null;

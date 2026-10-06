@@ -1,6 +1,6 @@
 import type { PlannedMeal, RecipeIngredient, ShoppingListItem } from "@/lib/types";
 import { planTagByMealId } from "@/lib/meal-tags";
-import { formatIngredientLine, isGramsOnlyIngredient, parseVisualQuantity, visualForIngredient } from "@/lib/visual-quantity";
+import { formatIngredientLine, isGramsOnlyIngredient, parseVisualQuantity, visualForIngredient, visualUnitFitsName } from "@/lib/visual-quantity";
 import { displayIngredientName, isDressingIngredient, sharedSauceGrams } from "@/lib/ingredient-groups";
 import { isEmptyMeal } from "@/lib/weekly-plan";
 import { storage } from "@/lib/storage";
@@ -233,8 +233,9 @@ export function aisleFor(name: string): AisleName {
   const key = fold(name);
   const learned = loadAisleOverrides()[key];
   if (learned) return learned;
+  if (isProcessedPack(key)) return "ÉPICERIE SALÉE";
   for (const rule of AISLE_RULES) {
-    if (rule.keys.some((token) => key.includes(fold(token)))) return rule.aisle;
+    if (rule.keys.some((token) => tokenIndex(key, fold(token)) >= 0)) return rule.aisle;
   }
   return "AUTRE";
 }
@@ -392,8 +393,9 @@ function titleCaseFr(value: string) {
   return value
     .split(/\s+/)
     .map((word, index) => {
-      if (index > 0 && /^(d|de|du|des|l|la|le|les)$/i.test(word)) return word.toLowerCase();
-      return `${word.charAt(0).toUpperCase()}${word.slice(1)}`;
+      if (index > 0 && /^(d|de|du|des|en|l|la|le|les)$/i.test(word)) return word.toLowerCase();
+      if (index === 0) return `${word.charAt(0).toUpperCase()}${word.slice(1)}`;
+      return word.toLowerCase();
     })
     .join(" ");
 }
@@ -401,9 +403,50 @@ function titleCaseFr(value: string) {
 function stripPrepWords(raw: string) {
   let stripped = fold(raw).split(",")[0] ?? fold(raw);
   for (const word of [...PREP_WORDS].sort((a, b) => b.length - a.length)) {
-    stripped = stripped.replace(new RegExp(`\\b${fold(word)}\\b`, "g"), " ");
+    const stem = fold(word);
+    const plural = stem.endsWith("s") ? stem : `${stem}s`;
+    stripped = stripped.replace(new RegExp(`\\b(?:${stem}|${plural})\\b`, "g"), " ");
   }
   return stripped.replace(/[-–]/g, " ").replace(/\s+/g, " ").trim();
+}
+
+/** Conserve / concentré / coulis : ce n’est plus le légume frais. */
+function isProcessedPack(key: string) {
+  return /\b(concentre|concasse|coulis|passata|pulpe|conserve|en boite|en bocal)\b/.test(key);
+}
+
+/** Épice ou nom de plat collé au produit — on n’achète pas « Poulet paprika ». */
+const FLAVOR_LEFTOVER = new Set([
+  "paprika",
+  "cumin",
+  "curcuma",
+  "curry",
+  "herbes",
+  "thym",
+  "romarin",
+  "origan",
+  "laurier",
+  "yassa",
+  "satay",
+  "chermoula",
+  "lemongrass",
+  "citronnelle",
+  "poudre",
+  "epice",
+  "epices",
+]);
+
+function leftoverAfterCanon(identity: string, canon: string) {
+  let leftover = fold(identity);
+  for (const token of fold(canon).split(/\s+/).sort((a, b) => b.length - a.length)) {
+    leftover = leftover.replace(new RegExp(`\\b${token}\\b`, "g"), " ");
+  }
+  return leftover.replace(/\b(de|d|du|des|en|au|aux|a|l|la|le|les|et)\b/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function isFlavorLeftover(leftover: string) {
+  if (!leftover) return true;
+  return leftover.split(/\s+/).every((token) => token.length < 2 || FLAVOR_LEFTOVER.has(token));
 }
 
 function tokenIndex(key: string, needle: string) {
@@ -468,15 +511,16 @@ export function cookProductIdentity(raw: string) {
 
 export function shoppingDisplayName(raw: string) {
   const peeled = displayIngredientName(raw);
-  const fromStart = pickCanonName(peeled, true);
-  if (fromStart) return fromStart;
   const stripped = stripPrepWords(peeled);
-  return (
-    pickCanonName(stripped, true) ??
-    pickCanonName(stripped, false) ??
-    pickCanonName(peeled, false) ??
-    (stripped ? titleCaseFr(stripped) : peeled.trim())
-  );
+  const identity = stripped || fold(peeled);
+  const canon =
+    pickCanonName(identity, true) ?? pickCanonName(identity, false) ?? pickCanonName(peeled, false);
+  if (!canon) return stripped ? titleCaseFr(stripped) : peeled.trim();
+  const leftover = leftoverAfterCanon(identity, canon);
+  if (!leftover || isFlavorLeftover(leftover)) return canon;
+  const head = (peeled.split(",")[0] ?? peeled).trim();
+  if (fold(head) === identity) return `${head.charAt(0).toUpperCase()}${head.slice(1)}`;
+  return titleCaseFr(stripped || identity);
 }
 
 export function shoppingItemIdForName(raw: string) {
@@ -559,12 +603,17 @@ function formatMergedVisual(amount: number, unitKey: string) {
 
 function shoppingVisualOf(ing: { name?: string; visualQuantity?: string; notes?: string }) {
   if (ing.name && isGramsOnlyIngredient(ing.name)) return undefined;
-  if (ing.visualQuantity?.trim()) return ing.visualQuantity.split(/[·,]/)[0]?.trim();
+  const raw = ing.visualQuantity?.trim()
+    ? ing.visualQuantity.split(/[·,]/)[0]?.trim()
+    : undefined;
   const notes = ing.notes?.trim() ?? "";
-  const hit = notes.match(
+  const fromNotes = notes.match(
     /(\d+\s*\/\s*\d+|\d+(?:[.,]\d+)?)\s*(pièces?|piece|botte|gousse|barquette|bloc|chou)\b/i,
-  );
-  return hit?.[0];
+  )?.[0];
+  const visual = raw || fromNotes;
+  if (!visual) return undefined;
+  if (ing.name && !visualUnitFitsName(ing.name, visual)) return undefined;
+  return visual;
 }
 
 type ShopMerge = {
@@ -599,7 +648,7 @@ function upsertShopItem(
   current.gramsElodie += row.gramsElodie;
   if (row.tag && !current.tags.includes(row.tag)) current.tags.push(row.tag);
   const parsed = parseVisualQuantity(row.visual);
-  if (parsed?.unit) {
+  if (parsed?.unit && visualUnitFitsName(row.name, parsed.unit)) {
     const unitKey = visualUnitKey(parsed.unit);
     const prev = current.visualByUnit.get(unitKey);
     current.visualByUnit.set(unitKey, {
