@@ -148,7 +148,7 @@ async function modelsFor(tier: GeminiTier): Promise<string[]> {
   const seeds =
     tier === "pro"
       ? ["gemini-pro-latest", "gemini-3.1-pro-preview"]
-      : ["gemini-flash-latest", "gemini-3.5-flash", "gemini-3-flash", "gemini-2.5-flash", "gemini-2.0-flash"];
+      : ["gemini-flash-latest", "gemini-3.6-flash", "gemini-3-flash", "gemini-2.5-flash", "gemini-2.0-flash"];
   const ordered = unique([
     envPref && classify(envPref) === tier ? envPref : undefined,
     ...live,
