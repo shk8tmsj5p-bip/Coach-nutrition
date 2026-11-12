@@ -19,8 +19,8 @@ import {
 } from "@/lib/kitchen-prefs";
 import { hydrateKitchenPrefsFromSupabase, persistKitchenPrefs } from "@/lib/supabase/parametres";
 import { storage } from "@/lib/storage";
-import { HEALTH_WEBHOOK_PATH } from "@/lib/health-webhook";
-import type { SlotTemplate } from "@/lib/types";
+import { HEALTH_WEBHOOK_PATH, withHealthWebhookQuery } from "@/lib/health-webhook";
+import type { ProfileId, SlotTemplate } from "@/lib/types";
 
 const LEGACY_KEY_FIELDS = ["openai", "anthropic", "supabaseUrl", "supabaseAnon", "strava"] as const;
 
@@ -31,6 +31,7 @@ type ConnectionsStatus = {
   geminiPro: string;
   geminiFlash: string;
   healthWebhook: boolean;
+  healthWebhookSecret?: string;
   supabase: boolean;
   alerts: boolean;
 };
@@ -139,7 +140,14 @@ export default function ParametresScreen() {
     });
   }
 
-  async function copyWebhook(url = webhookUrl, key = "main") {
+  function webhookCopyUrl(profileId?: ProfileId) {
+    return withHealthWebhookQuery(webhookUrl, {
+      profileId,
+      secret: savedKeys.webhook || connections?.healthWebhookSecret,
+    });
+  }
+
+  async function copyWebhook(url = webhookCopyUrl(), key = "main") {
     try {
       await navigator.clipboard.writeText(url);
       setCopied(key);
@@ -379,19 +387,20 @@ export default function ParametresScreen() {
           {copied === "main" ? "URL copiée" : "Copier l'URL du Webhook"}
         </button>
         <p className="mt-2 text-[11px] leading-snug text-health-muted">
-          Deux raccourcis : un par iPhone. Ajoute <span className="font-mono">?profile_id=</span>
-          alexis ou elodie. Sur iPhone, l&apos;URL doit être publique (pas localhost).
+          Deux raccourcis : un par iPhone. Copie Alexis / Élodie (profil + secret déjà dans l’URL).
+          Le raccourci doit encore envoyer pas, énergie, distance… GET query, JSON ou formulaire.
+          Sur iPhone, l&apos;URL doit être publique (pas localhost).
         </p>
         <div className="mt-1.5 grid grid-cols-2 gap-1.5">
           <ProfileWebhookCopy
             label="Alexis"
             copied={copied === "alexis"}
-            onCopy={() => void copyWebhook(`${webhookUrl}?profile_id=alexis`, "alexis")}
+            onCopy={() => void copyWebhook(webhookCopyUrl("alexis"), "alexis")}
           />
           <ProfileWebhookCopy
             label="Élodie"
             copied={copied === "elodie"}
-            onCopy={() => void copyWebhook(`${webhookUrl}?profile_id=elodie`, "elodie")}
+            onCopy={() => void copyWebhook(webhookCopyUrl("elodie"), "elodie")}
           />
         </div>
         <MaskedKeyField

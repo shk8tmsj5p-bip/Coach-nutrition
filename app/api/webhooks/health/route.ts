@@ -1,24 +1,32 @@
 import { NextResponse } from "next/server";
 import { notifyAuthAlert } from "@/lib/auth/alerts";
-import { HEALTH_WEBHOOK_PATH, isEmptyHealthPayload, isWebhookAuthorized, parseHealthPayload } from "@/lib/health-webhook";
+import {
+  HEALTH_WEBHOOK_PATH,
+  isEmptyHealthPayload,
+  isWebhookAuthorized,
+  parseHealthPayload,
+  parseHealthRequestBody,
+} from "@/lib/health-webhook";
 import { createWebhookSupabaseClient, ingestHealthPayload } from "@/lib/supabase/health-logs";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 export const maxDuration = 30;
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type, Authorization, x-health-webhook-secret, x-webhook-secret",
+  "Cache-Control": "no-store, no-cache, must-revalidate",
 };
 
 async function readBody(request: Request): Promise<unknown> {
-  const text = await request.text();
-  if (!text.trim()) return {};
   try {
-    return JSON.parse(text) as unknown;
+    const text = await request.text();
+    return parseHealthRequestBody(text);
   } catch {
-    return { __invalid_json: true };
+    return {};
   }
 }
 
@@ -47,6 +55,10 @@ function discovery() {
   );
 }
 
+function rlsHint(error: string) {
+  return /row-level security|permission denied|42501|rls/i.test(error);
+}
+
 async function ingest(request: Request, body: unknown) {
   if (!isWebhookAuthorized(request, body)) {
     await notifyAuthAlert("health_webhook_denied", request);
@@ -58,7 +70,7 @@ async function ingest(request: Request, body: unknown) {
     return NextResponse.json(
       {
         error:
-          "Payload vide — envoie steps, active_energy_kcal, resting_energy_kcal, distance_km, cycling_distance_km, weight_kg, fat_mass_pct, bmi ou workouts",
+          "Payload vide — le raccourci doit envoyer steps, active_energy_kcal, resting_energy_kcal, distance_km, cycling_distance_km, weight_kg, fat_mass_pct, bmi ou workouts (query, JSON ou formulaire).",
       },
       { status: 400, headers: corsHeaders },
     );
@@ -73,7 +85,11 @@ async function ingest(request: Request, body: unknown) {
   if (!result.ok) {
     console.error("[HEALTH WEBHOOK] persist failed:", result.error);
     return NextResponse.json(
-      { error: "Impossible d’enregistrer les données Santé" },
+      {
+        error: rlsHint(result.error)
+          ? "Enregistrement refusé. Ajoute SUPABASE_SERVICE_ROLE_KEY sur Vercel (le webhook iOS n’a pas de session foyer)."
+          : "Impossible d’enregistrer les données Santé",
+      },
       { status: 500, headers: corsHeaders },
     );
   }
@@ -86,9 +102,16 @@ async function ingest(request: Request, body: unknown) {
 }
 
 export async function GET(request: Request) {
-  const probe = parseHealthPayload({}, new URL(request.url).searchParams);
-  if (isEmptyHealthPayload(probe)) return discovery();
-  return ingest(request, {});
+  const body = await readBody(request);
+  const probe = parseHealthPayload(body, new URL(request.url).searchParams);
+  if (isEmptyHealthPayload(probe)) {
+    const params = new URL(request.url).searchParams;
+    if (params.get("profile_id") || params.get("profile") || params.get("secret")) {
+      return ingest(request, body);
+    }
+    return discovery();
+  }
+  return ingest(request, body);
 }
 
 export async function OPTIONS() {
@@ -97,8 +120,5 @@ export async function OPTIONS() {
 
 export async function POST(request: Request) {
   const body = await readBody(request);
-  if (body && typeof body === "object" && "__invalid_json" in body) {
-    return NextResponse.json({ error: "JSON invalide" }, { status: 400, headers: corsHeaders });
-  }
   return ingest(request, body);
 }

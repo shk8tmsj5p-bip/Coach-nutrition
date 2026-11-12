@@ -4,6 +4,18 @@ import type { ProfileId, Workout } from "@/lib/types";
 export const HEALTH_WEBHOOK_PATH = "/api/webhooks/health";
 export const HEALTH_WEBHOOK_ALIAS_PATH = "/api/health-webhook";
 
+export function withHealthWebhookQuery(
+  baseUrl: string,
+  opts: { profileId?: ProfileId; secret?: string },
+) {
+  const absolute = /^https?:\/\//i.test(baseUrl);
+  const url = new URL(baseUrl, "https://local.invalid");
+  if (opts.profileId) url.searchParams.set("profile_id", opts.profileId);
+  const secret = opts.secret?.trim();
+  if (secret) url.searchParams.set("secret", secret);
+  return absolute ? url.toString() : `${url.pathname}${url.search}`;
+}
+
 export type IncomingHealthWorkout = {
   activity: string;
   durationMin: number;
@@ -33,6 +45,41 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
+function foldKey(key: string) {
+  return key
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "");
+}
+
+/** Raccourcis envoie parfois une liste de dictionnaires, ou un objet imbriqué. */
+export function coerceHealthRecord(value: unknown): Record<string, unknown> {
+  if (Array.isArray(value)) {
+    const merged: Record<string, unknown> = {};
+    for (const item of value) Object.assign(merged, coerceHealthRecord(item));
+    return merged;
+  }
+  if (!isRecord(value)) return {};
+  const out: Record<string, unknown> = { ...value };
+  for (const nested of Object.values(value)) {
+    if (!isRecord(nested)) continue;
+    for (const [key, nestedValue] of Object.entries(nested)) {
+      if (out[key] == null) out[key] = nestedValue;
+    }
+  }
+  return out;
+}
+
+function foldedView(record: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(record)) {
+    const folded = foldKey(key);
+    if (folded && out[folded] == null) out[folded] = value;
+  }
+  return out;
+}
+
 function asNumber(value: unknown): number | undefined {
   if (typeof value === "number" && Number.isFinite(value)) return value;
   if (typeof value === "string") {
@@ -48,11 +95,49 @@ function asString(value: unknown): string | undefined {
 }
 
 function pickNumber(record: Record<string, unknown>, keys: string[]) {
+  const folded = foldedView(record);
   for (const key of keys) {
-    const value = asNumber(record[key]);
+    const value = asNumber(folded[foldKey(key)] ?? record[key]);
     if (value != null) return value;
   }
   return undefined;
+}
+
+function pickRaw(record: Record<string, unknown>, keys: string[]) {
+  const folded = foldedView(record);
+  for (const key of keys) {
+    const value = folded[foldKey(key)] ?? record[key];
+    if (value != null && value !== "") return value;
+  }
+  return undefined;
+}
+
+function parseFormBody(text: string): Record<string, unknown> {
+  if (!text.includes("=")) return {};
+  const record: Record<string, unknown> = {};
+  for (const [key, value] of new URLSearchParams(text).entries()) {
+    if (value.trim()) record[key] = value;
+  }
+  return record;
+}
+
+/** JSON, JSON-dans-une-string, ou form-urlencoded (Raccourcis iOS). */
+export function parseHealthRequestBody(text: string): unknown {
+  const trimmed = text.trim();
+  if (!trimmed) return {};
+  try {
+    const json = JSON.parse(trimmed) as unknown;
+    if (typeof json === "string") {
+      try {
+        return JSON.parse(json) as unknown;
+      } catch {
+        return parseFormBody(json);
+      }
+    }
+    return json;
+  } catch {
+    return parseFormBody(trimmed);
+  }
 }
 
 function roundTo(value: number, digits: number) {
@@ -145,26 +230,38 @@ export function parseHealthPayload(
   body: unknown,
   searchParams: URLSearchParams,
 ): ParsedHealthPayload {
-  /** Query string first so Raccourcis can send GET `?steps=…&weight_kg=…` (iOS POST JSON often drops). Body wins if both. */
+  /** Query first (GET Raccourcis). Body wins if both — JSON, form, ou GET avec corps. */
   const record = {
     ...recordFromSearchParams(searchParams),
-    ...(isRecord(body) ? body : {}),
+    ...coerceHealthRecord(body),
   };
   const date = parseISODate(
-    record.date ?? record.jour ?? searchParams.get("date"),
+    pickRaw(record, ["date", "jour", "startdate", "start"]) ?? searchParams.get("date"),
     todayISO(),
   );
   const profileId = parseProfileId(
     searchParams.get("profile_id") ??
       searchParams.get("profile") ??
-      record.profile_id ??
-      record.profileId ??
-      record.profile,
+      pickRaw(record, ["profile_id", "profileId", "profile"]),
     "alexis",
   );
 
-  const steps = pickNumber(record, ["steps", "pas"]);
-  const workoutsRaw = record.workouts ?? record.seances ?? record.activities;
+  const steps = pickNumber(record, [
+    "steps",
+    "pas",
+    "step_count",
+    "stepCount",
+    "steps_count",
+    "HKQuantityTypeIdentifierStepCount",
+  ]);
+  const workoutsRaw = pickRaw(record, [
+    "workouts",
+    "seances",
+    "activities",
+    "workout",
+    "hkworkout",
+    "workoutSamples",
+  ]);
   const workoutsProvided = workoutsRaw !== undefined;
   const workouts = readWorkouts(workoutsRaw, date);
   const activeEnergyKcal = pickNumber(record, [
@@ -173,23 +270,50 @@ export function parseHealthPayload(
     "activeKcal",
     "active_energy",
     "calories_actives",
+    "energie_active",
+    "activeEnergyBurned",
+    "HKQuantityTypeIdentifierActiveEnergyBurned",
   ]);
   const restingEnergyKcal = pickNumber(record, [
     "resting_energy_kcal",
     "resting_kcal",
     "resting_energy",
     "energie_repos",
+    "basal_energy",
+    "basalEnergyBurned",
+    "HKQuantityTypeIdentifierBasalEnergyBurned",
   ]);
-  const distanceRaw = pickNumber(record, ["distance_km", "distance", "walking_running_distance"]);
+  const distanceRaw = pickNumber(record, [
+    "distance_km",
+    "distance",
+    "walking_running_distance",
+    "walkingRunningDistance",
+    "HKQuantityTypeIdentifierDistanceWalkingRunning",
+  ]);
   const cyclingRaw = pickNumber(record, [
     "cycling_distance_km",
     "velo_km",
     "bike_distance_km",
     "cycling_distance",
+    "distanceCycling",
+    "HKQuantityTypeIdentifierDistanceCycling",
   ]);
-  const weightKg = pickNumber(record, ["weight_kg", "poids", "weight"]);
-  const fatRaw = pickNumber(record, ["fat_mass_pct", "fat_pct", "masse_grasse", "body_fat"]);
-  const bmi = pickNumber(record, ["bmi", "imc"]);
+  const weightKg = pickNumber(record, [
+    "weight_kg",
+    "poids",
+    "weight",
+    "bodyMass",
+    "HKQuantityTypeIdentifierBodyMass",
+  ]);
+  const fatRaw = pickNumber(record, [
+    "fat_mass_pct",
+    "fat_pct",
+    "masse_grasse",
+    "body_fat",
+    "bodyFatPercentage",
+    "HKQuantityTypeIdentifierBodyFatPercentage",
+  ]);
+  const bmi = pickNumber(record, ["bmi", "imc", "HKQuantityTypeIdentifierBodyMassIndex"]);
 
   return {
     profileId,
@@ -202,7 +326,7 @@ export function parseHealthPayload(
       restingEnergyKcal == null ? undefined : Math.max(0, Math.round(restingEnergyKcal)),
     distanceKm: distanceRaw == null ? undefined : normalizeDistanceKm(distanceRaw),
     cyclingDistanceKm: cyclingRaw == null ? undefined : normalizeDistanceKm(cyclingRaw),
-    weightKg: weightKg == null ? undefined : roundTo(weightKg, 2),
+    weightKg: weightKg == null || weightKg <= 0 ? undefined : roundTo(weightKg, 2),
     fatMassPct: fatRaw == null ? undefined : normalizeFatPct(fatRaw),
     bmi: bmi == null ? undefined : roundTo(bmi, 1),
     workouts,
@@ -269,17 +393,19 @@ export function inferIntensity(durationMin: number, kcal: number): Workout["inte
 
 export function readWebhookSecret(request: Request, body: unknown) {
   const header =
-    request.headers.get("x-health-webhook-secret") ??
-    request.headers.get("x-webhook-secret") ??
-    request.headers.get("authorization")?.replace(/^Bearer\s+/i, "").trim() ??
+    request.headers.get("x-health-webhook-secret")?.trim() ||
+    request.headers.get("x-webhook-secret")?.trim() ||
+    request.headers.get("authorization")?.replace(/^Bearer\s+/i, "").trim() ||
     undefined;
-  const query = new URL(request.url).searchParams.get("secret") ?? undefined;
-  const record = isRecord(body) ? asString(body.secret) : undefined;
-  return header || query || record;
+  const query = new URL(request.url).searchParams.get("secret")?.trim() || undefined;
+  const record = coerceHealthRecord(body);
+  const fromBody = asString(pickRaw(record, ["secret", "token", "webhook_secret"]));
+  return header || query || fromBody;
 }
 
 export function isWebhookAuthorized(request: Request, body: unknown) {
   const expected = process.env.HEALTH_WEBHOOK_SECRET?.trim();
   if (!expected) return true;
-  return readWebhookSecret(request, body) === expected;
+  const got = readWebhookSecret(request, body)?.trim();
+  return Boolean(got) && got === expected;
 }

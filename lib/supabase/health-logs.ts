@@ -25,6 +25,9 @@ export function createWebhookSupabaseClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
   if (!url || !anonKey) return null;
+  console.warn(
+    "[HEALTH WEBHOOK] SUPABASE_SERVICE_ROLE_KEY manquant — écriture anon (un RLS foyer peut tout bloquer).",
+  );
   return createClient<Database>(url, anonKey, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
@@ -43,9 +46,11 @@ function num(value: unknown): number | undefined {
 }
 
 function keepNumber(next: number | undefined, previous: unknown, fallback = 0) {
-  if (next != null) return next;
-  if (typeof previous === "number" && Number.isFinite(previous)) return previous;
-  return fallback;
+  const prev =
+    typeof previous === "number" && Number.isFinite(previous) ? previous : fallback;
+  /** Un run Raccourcis à 0 (Santé pas encore prête) ne doit pas écraser la journée. */
+  if (next == null || next === 0) return prev;
+  return next;
 }
 
 function sourceFromRow(source: LogSanteRow["source"]): WorkoutSource {
@@ -450,13 +455,24 @@ export async function fetchTodayActivity(
   };
   if (profileIds.length === 0) return { movement, workouts: [] };
 
-  const { data, error } = await supabase
+  let { data, error } = await supabase
     .from("logs_sante")
     .select("*")
     .eq("date", date)
     .eq("kind", "activite")
     .in("profile_id", profileIds)
     .order("logged_at", { ascending: true });
+
+  if (error) {
+    const retry = await supabase
+      .from("logs_sante")
+      .select("*")
+      .eq("date", date)
+      .eq("kind", "activite")
+      .in("profile_id", profileIds);
+    data = retry.data;
+    error = retry.error;
+  }
 
   if (error) return { movement, workouts: [], error: error.message };
 

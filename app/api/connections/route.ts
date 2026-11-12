@@ -16,6 +16,7 @@ export async function GET() {
     geminiPro: labels.geminiPro,
     geminiFlash: labels.geminiFlash,
     healthWebhook: present(process.env.HEALTH_WEBHOOK_SECRET),
+    healthWebhookSecret: process.env.HEALTH_WEBHOOK_SECRET?.trim() || "",
     supabase: present(process.env.NEXT_PUBLIC_SUPABASE_URL) && present(process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY),
     alerts: alertsConfigured(),
   });
