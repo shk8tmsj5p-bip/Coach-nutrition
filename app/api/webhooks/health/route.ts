@@ -7,7 +7,12 @@ import {
   parseHealthPayload,
   parseHealthRequestBody,
 } from "@/lib/health-webhook";
-import { createWebhookSupabaseClient, ingestHealthPayload } from "@/lib/supabase/health-logs";
+import { createAdminSupabaseClient } from "@/lib/supabase/admin";
+import {
+  createAnonWebhookClient,
+  createWebhookSupabaseClient,
+  ingestHealthPayload,
+} from "@/lib/supabase/health-logs";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -59,6 +64,20 @@ function rlsHint(error: string) {
   return /row-level security|permission denied|42501|rls/i.test(error);
 }
 
+function jwtHint(error: string) {
+  return /invalid api key|jwt|jws|unauthorized|malformed/i.test(error);
+}
+
+function persistMessage(error: string) {
+  if (rlsHint(error) || jwtHint(error)) {
+    return "Enregistrement refusé. Vérifie SUPABASE_SERVICE_ROLE_KEY sur Vercel (le webhook iOS n’a pas de session foyer).";
+  }
+  if (/numeric|overflow|22P02/i.test(error)) {
+    return "Une mesure Santé est hors limites (poids / IMC / %). Relance le raccourci.";
+  }
+  return "Impossible d’enregistrer les données Santé";
+}
+
 async function ingest(request: Request, body: unknown) {
   if (!isWebhookAuthorized(request, body)) {
     await notifyAuthAlert("health_webhook_denied", request);
@@ -76,19 +95,26 @@ async function ingest(request: Request, body: unknown) {
     );
   }
 
-  const supabase = createWebhookSupabaseClient();
+  const admin = createAdminSupabaseClient();
+  const supabase = admin ?? createWebhookSupabaseClient();
   if (!supabase) {
     return NextResponse.json({ error: "Supabase non configuré" }, { status: 503, headers: corsHeaders });
   }
 
-  const result = await ingestHealthPayload(supabase, payload);
+  let result = await ingestHealthPayload(supabase, payload);
+  if (!result.ok && admin) {
+    const anon = createAnonWebhookClient();
+    if (anon) {
+      console.error("[HEALTH WEBHOOK] admin persist failed, retry anon:", result.error);
+      result = await ingestHealthPayload(anon, payload);
+    }
+  }
   if (!result.ok) {
     console.error("[HEALTH WEBHOOK] persist failed:", result.error);
     return NextResponse.json(
       {
-        error: rlsHint(result.error)
-          ? "Enregistrement refusé. Ajoute SUPABASE_SERVICE_ROLE_KEY sur Vercel (le webhook iOS n’a pas de session foyer)."
-          : "Impossible d’enregistrer les données Santé",
+        error: persistMessage(result.error),
+        detail: result.error.slice(0, 240),
       },
       { status: 500, headers: corsHeaders },
     );

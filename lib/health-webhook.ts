@@ -157,6 +157,12 @@ export function normalizeDistanceKm(raw: number) {
   return roundTo(Math.max(0, raw), 2);
 }
 
+/** HealthKit Body Mass est parfois en grammes. */
+export function normalizeWeightKg(raw: number) {
+  if (raw > 250 && raw <= 400_000) return roundTo(raw / 1000, 2);
+  return roundTo(raw, 2);
+}
+
 export function normalizeFatPct(raw: number) {
   if (raw > 0 && raw <= 1) return roundTo(raw * 100, 1);
   return roundTo(raw, 1);
@@ -318,17 +324,36 @@ export function parseHealthPayload(
   return {
     profileId,
     date,
-    steps: steps == null ? undefined : Math.max(0, Math.round(steps)),
+    steps: steps == null ? undefined : Math.min(250_000, Math.max(0, Math.round(steps))),
     workoutMinutes: workoutsProvided ? sumWorkoutMinutes(workouts, date) : undefined,
     workoutsProvided,
-    activeEnergyKcal: activeEnergyKcal == null ? undefined : Math.max(0, Math.round(activeEnergyKcal)),
+    activeEnergyKcal:
+      activeEnergyKcal == null ? undefined : Math.min(20_000, Math.max(0, Math.round(activeEnergyKcal))),
     restingEnergyKcal:
-      restingEnergyKcal == null ? undefined : Math.max(0, Math.round(restingEnergyKcal)),
+      restingEnergyKcal == null ? undefined : Math.min(8_000, Math.max(0, Math.round(restingEnergyKcal))),
     distanceKm: distanceRaw == null ? undefined : normalizeDistanceKm(distanceRaw),
     cyclingDistanceKm: cyclingRaw == null ? undefined : normalizeDistanceKm(cyclingRaw),
-    weightKg: weightKg == null || weightKg <= 0 ? undefined : roundTo(weightKg, 2),
-    fatMassPct: fatRaw == null ? undefined : normalizeFatPct(fatRaw),
-    bmi: bmi == null ? undefined : roundTo(bmi, 1),
+    weightKg:
+      weightKg == null || weightKg <= 0
+        ? undefined
+        : (() => {
+            const kg = normalizeWeightKg(weightKg);
+            return kg >= 30 && kg <= 250 ? kg : undefined;
+          })(),
+    fatMassPct:
+      fatRaw == null
+        ? undefined
+        : (() => {
+            const pct = normalizeFatPct(fatRaw);
+            return pct > 0 && pct <= 70 ? pct : undefined;
+          })(),
+    bmi:
+      bmi == null
+        ? undefined
+        : (() => {
+            const value = roundTo(bmi, 1);
+            return value >= 10 && value <= 80 ? value : undefined;
+          })(),
     workouts,
   };
 }

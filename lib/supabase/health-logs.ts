@@ -19,18 +19,25 @@ import { passiveKcalFromMovement } from "@/lib/utils";
 
 const DAILY_TYPE = "daily";
 
-export function createWebhookSupabaseClient() {
-  const admin = createAdminSupabaseClient();
-  if (admin) return admin;
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+export function createAnonWebhookClient() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
+  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.trim();
   if (!url || !anonKey) return null;
-  console.warn(
-    "[HEALTH WEBHOOK] SUPABASE_SERVICE_ROLE_KEY manquant — écriture anon (un RLS foyer peut tout bloquer).",
-  );
   return createClient<Database>(url, anonKey, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
+}
+
+export function createWebhookSupabaseClient() {
+  const admin = createAdminSupabaseClient();
+  if (admin) return admin;
+  const anon = createAnonWebhookClient();
+  if (anon) {
+    console.warn(
+      "[HEALTH WEBHOOK] SUPABASE_SERVICE_ROLE_KEY manquant — écriture anon (un RLS foyer peut tout bloquer).",
+    );
+  }
+  return anon;
 }
 
 function payloadObject(value: Json): Record<string, unknown> {
@@ -360,7 +367,9 @@ export async function ingestHealthPayload(
   if (workouts.error) return { ok: false as const, error: workouts.error };
 
   const pesees = await upsertPeseeFromHealth(supabase, payload);
-  if (pesees.error) return { ok: false as const, error: pesees.error };
+  if (pesees.error) {
+    console.error("[HEALTH WEBHOOK] pesees:", pesees.error);
+  }
 
   const dedicated = await sumDedicatedWorkoutKcal(supabase, payload.profileId, payload.date);
   if (dedicated.error) return { ok: false as const, error: dedicated.error };

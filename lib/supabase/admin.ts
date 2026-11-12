@@ -3,8 +3,8 @@ import type { Database } from "@/lib/supabase/database.types";
 
 /** Service role — webhooks iOS / jobs serveur uniquement. Bypass RLS. */
 export function createAdminSupabaseClient() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
   if (!url || !serviceKey) return null;
 
   return createClient<Database>(url, serviceKey, {
